@@ -138,12 +138,27 @@ export function lineTo (ctx: CanvasRenderingContext2D, coordinates: Coordinate[]
   }
 }
 
-export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | LineAttrs[], styles: Partial<SmoothLineStyle>): void {
+export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | LineAttrs[], styles: Partial<SmoothLineStyle> & { lineCap?: CanvasLineCap, lineJoin?: CanvasLineJoin }): void {
   let lines: LineAttrs[] = []
   lines = lines.concat(attrs)
-  const { style = 'solid', smooth = false, size = 1, color = 'currentColor', dashedValue = [2, 2] } = styles
+  const { style = 'solid', smooth = false, size = 1, color = 'currentColor', dashedValue = [2, 2], lineCap, lineJoin } = styles
   ctx.lineWidth = size
   ctx.strokeStyle = color
+  // Use explicit lineCap/lineJoin if provided, otherwise default based on smooth
+  if (lineCap !== undefined) {
+    ctx.lineCap = lineCap
+  } else if (smooth !== false && smooth !== 0) {
+    ctx.lineCap = 'round'
+  } else {
+    ctx.lineCap = 'butt'
+  }
+  if (lineJoin !== undefined) {
+    ctx.lineJoin = lineJoin
+  } else if (smooth !== false && smooth !== 0) {
+    ctx.lineJoin = 'round'
+  } else {
+    ctx.lineJoin = 'miter'
+  }
   if (style === 'dashed') {
     ctx.setLineDash(dashedValue)
   } else {

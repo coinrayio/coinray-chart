@@ -37,6 +37,13 @@ export interface OverlayPerformEventParams {
   performPoint: Partial<Point>
 }
 
+/**
+ * Drawing mode for overlays
+ * - 'step': Traditional click-based drawing (default)
+ * - 'continuous': Freehand drawing with mouse down, move, up
+ */
+export type OverlayDrawingMode = 'step' | 'continuous'
+
 export interface OverlayEventCollection<E> {
   onDrawStart: Nullable<OverlayEventCallback<E>>
   onDrawing: Nullable<OverlayEventCallback<E>>
@@ -123,6 +130,11 @@ export interface Overlay<E = unknown> extends OverlayEventCollection<E> {
    * Current step
    */
   currentStep: number
+
+  /**
+   * Drawing mode: 'step' for click-based, 'continuous' for freehand
+   */
+  drawingMode: OverlayDrawingMode
 
   /**
    * Whether it is locked. When it is true, it will not respond to events
@@ -229,6 +241,7 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   name: string
   totalStep = 1
   currentStep = OVERLAY_DRAW_STEP_START
+  drawingMode: OverlayDrawingMode = 'step'
   lock = false
   visible = true
   zLevel = 0
@@ -237,7 +250,7 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   needDefaultYAxisFigure = false
   mode: OverlayMode = 'normal'
   modeSensitivity = 8
-  points: Array<Partial<Omit<Point, 'dataIndex'>>> = []
+  points: Array<Partial<Point>> = []
   extendData: E
   styles: Nullable<DeepPartial<OverlayStyle>> = null
   createPointFigures: Nullable<OverlayCreateFiguresCallback<E>> = null
@@ -370,6 +383,44 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
 
   isStart (): boolean {
     return this.currentStep === OVERLAY_DRAW_STEP_START
+  }
+
+  isContinuousDrawing (): boolean {
+    return this.drawingMode === 'continuous'
+  }
+
+  /**
+   * Add a point during continuous drawing mode
+   */
+  addPointForContinuousDrawing (point: Partial<Point>): boolean {
+    const newPoint: Partial<Point> = {}
+    if (isNumber(point.timestamp)) {
+      newPoint.timestamp = point.timestamp
+    }
+    if (isNumber(point.dataIndex)) {
+      newPoint.dataIndex = point.dataIndex
+    }
+    if (isNumber(point.value)) {
+      newPoint.value = point.value
+    }
+    this.points.push(newPoint)
+    return true
+  }
+
+  /**
+   * Start continuous drawing - set first point
+   */
+  startContinuousDrawing (point: Partial<Point>): void {
+    this.points = []
+    this.addPointForContinuousDrawing(point)
+    this.currentStep = 2 // Mark as actively drawing
+  }
+
+  /**
+   * Complete continuous drawing
+   */
+  completeContinuousDrawing (): void {
+    this.currentStep = OVERLAY_DRAW_STEP_FINISHED
   }
 
   eventMoveForDrawing (point: Partial<Point>): void {
