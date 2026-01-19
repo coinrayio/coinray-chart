@@ -33,13 +33,18 @@ import verticalStraightLine from './verticalStraightLine'
 import simpleAnnotation from './simpleAnnotation'
 import simpleTag from './simpleTag'
 
+import rect from './rect'
+import circle from './circle'
+import arrow from './arrow'
+
 const overlays: Record<string, OverlayInnerConstructor> = {}
 
 const extensions = [
   fibonacciLine, horizontalRayLine, horizontalSegment, horizontalStraightLine,
   parallelStraightLine, priceChannelLine, priceLine, rayLine, segment,
   straightLine, verticalRayLine, verticalSegment, verticalStraightLine,
-  simpleAnnotation, simpleTag
+  simpleAnnotation, simpleTag,
+  rect, circle, arrow
 ]
 
 extensions.forEach((template: OverlayTemplate) => {
