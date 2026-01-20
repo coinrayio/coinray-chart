@@ -1546,6 +1546,37 @@ export default class StoreImp implements Store {
     return false
   }
 
+  /**
+   * Force recalculation of indicators matching the filter.
+   * Clears existing results first to prevent stale data from being rendered.
+   */
+  recalcIndicator (filter: IndicatorFilter): void {
+    const indicators = this.getIndicatorsByFilter(filter)
+    if (indicators.length > 0) {
+      // Clear existing results to prevent stale data flickering
+      indicators.forEach(indicator => {
+        indicator.result = []
+      })
+      // Force immediate synchronous redraw with cleared data before async calc starts
+      this._chart.updatePane(UpdateLevel.All)
+      this._calcIndicator(indicators)
+    }
+  }
+
+  /**
+   * Clear indicator results without recalculating.
+   * Use this when you want to clear stale data but will trigger recalc later.
+   */
+  clearIndicatorResults (filter: IndicatorFilter): void {
+    const indicators = this.getIndicatorsByFilter(filter)
+    indicators.forEach(indicator => {
+      indicator.result = []
+    })
+    if (indicators.length > 0) {
+      this._chart.updatePane(UpdateLevel.All)
+    }
+  }
+
   getOverlaysByFilter (filter: OverlayFilter): OverlayImp[] {
     const { id, groupId, paneId, name } = filter
     const match: ((overlay: OverlayImp) => boolean) = overlay => {

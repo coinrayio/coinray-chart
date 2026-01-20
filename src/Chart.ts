@@ -76,6 +76,8 @@ export interface Chart extends Store {
   getDom: (paneId?: string, position?: DomPosition) => Nullable<HTMLElement>
   getSize: (paneId?: string, position?: DomPosition) => Nullable<Bounding>
   createIndicator: (value: string | IndicatorCreate, isStack?: boolean, paneOptions?: PaneOptions) => Nullable<string>
+  recalcIndicator: (filter?: IndicatorFilter) => void
+  clearIndicatorResults: (filter?: IndicatorFilter) => void
   getIndicators: (filter?: IndicatorFilter) => Indicator[]
   createOverlay: (value: string | OverlayCreate | Array<string | OverlayCreate>) => Nullable<string> | Array<Nullable<string>>
   getOverlays: (filter?: OverlayFilter) => Overlay[]
@@ -750,6 +752,22 @@ export default class ChartImp implements Chart {
 
   overrideIndicator (override: IndicatorOverride): boolean {
     return this._chartStore.overrideIndicator(override)
+  }
+
+  /**
+   * Force recalculation of indicators matching the filter.
+   * Use this when external indicator data has changed but indicator properties haven't.
+   */
+  recalcIndicator (filter?: IndicatorFilter): void {
+    this._chartStore.recalcIndicator(filter ?? {})
+  }
+
+  /**
+   * Clear indicator results without recalculating.
+   * Use this to immediately hide stale data before new data arrives.
+   */
+  clearIndicatorResults (filter?: IndicatorFilter): void {
+    this._chartStore.clearIndicatorResults(filter ?? {})
   }
 
   getIndicators (filter?: IndicatorFilter): Indicator[] {
