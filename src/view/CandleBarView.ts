@@ -152,7 +152,7 @@ export default class CandleBarView extends ChildrenView {
             this.createFigure(rect, handler ?? undefined)?.draw(ctx)
           })
         }
-      })
+      }, true)
     }
   }
 

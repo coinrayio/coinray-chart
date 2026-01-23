@@ -24,10 +24,10 @@ export type EachChildCallback = (
 ) => void
 
 export default abstract class ChildrenView extends View<YAxis> {
-  protected eachChildren (childCallback: EachChildCallback): void {
+  protected eachChildren (childCallback: EachChildCallback, mutateToCandleType: boolean = false): void {
     const pane = this.getWidget().getPane()
     const chartStore = pane.getChart().getChartStore()
-    const visibleRangeDataList = chartStore.getVisibleRangeDataList(true)
+    const visibleRangeDataList = chartStore.getVisibleRangeDataList(mutateToCandleType)
     const barSpace = chartStore.getBarSpace()
     const dataLength = visibleRangeDataList.length
     let index = 0
