@@ -20,7 +20,7 @@ import type { KLineData, VisibleRangeData } from './common/Data'
 import type VisibleRange from './common/VisibleRange'
 import type Coordinate from './common/Coordinate'
 import { getDefaultVisibleRange } from './common/VisibleRange'
-import TaskScheduler, { generateTaskId } from './common/TaskScheduler'
+import TaskScheduler from './common/TaskScheduler'
 import type Crosshair from './common/Crosshair'
 import type BarSpace from './common/BarSpace'
 import type { Period } from './common/Period'
@@ -37,7 +37,7 @@ import { logWarn } from './common/utils/logger'
 import { UpdateLevel } from './common/Updater'
 import type { DataLoader, DataLoaderGetBarsParams, DataLoadMore, DataLoadType } from './common/DataLoader'
 
-import type { Options, Formatter, ThousandsSeparator, DecimalFold, BarSpaceLimit, FormatDateType, FormatDateParams, FormatBigNumber, FormatExtendText, FormatExtendTextParams, ZoomAnchor } from './Options'
+import type { Options, Formatter, ThousandsSeparator, DecimalFold, BarSpaceLimit, FormatDateType, FormatDateParams, FormatBigNumber, FormatExtendText, FormatExtendTextParams, ZoomAnchor, ZoomAnchorType } from './Options'
 
 import type { IndicatorOverride, IndicatorCreate, IndicatorFilter } from './component/Indicator'
 import type IndicatorImp from './component/Indicator'
@@ -125,7 +125,7 @@ export interface Store {
   setZoomEnabled: (enabled: boolean) => void
   isZoomEnabled: () => boolean
   setZoomAnchor: (behavior: ZoomAnchor) => void
-  zoomAnchor: () => ZoomAnchor
+  getZoomAnchor: () => ZoomAnchor
   setScrollEnabled: (enabled: boolean) => void
   isScrollEnabled: () => boolean
   resetData: () => void
@@ -230,8 +230,8 @@ export default class StoreImp implements Store {
    * Zoom anchor point flag
    */
   private readonly _zoomAnchor: ZoomAnchor = {
-    main: 'cursor_point',
-    xAxis: 'cursor_point'
+    main: 'cursor',
+    xAxis: 'cursor'
   }
 
   /**
@@ -328,7 +328,7 @@ export default class StoreImp implements Store {
   /**
    * Task scheduler
    */
-  private readonly _taskScheduler = new TaskScheduler()
+  private readonly _taskScheduler: TaskScheduler
 
   /**
    * Overlay
@@ -402,6 +402,13 @@ export default class StoreImp implements Store {
     if (isValid(barSpaceLimit)) {
       this.setBarSpaceLimit(barSpaceLimit)
     }
+    this._taskScheduler = new TaskScheduler(() => {
+      this._chart.layout({
+        measureWidth: true,
+        update: true,
+        buildYAxisTick: true
+      })
+    })
   }
 
   setStyles (value: string | DeepPartial<Styles>): void {
@@ -679,14 +686,13 @@ export default class StoreImp implements Store {
         adjustFlag = true
       }
     }
-    if (success) {
-      if (adjustFlag) {
-        this._adjustVisibleRange()
-        this.setCrosshair(this._crosshair, { notInvalidate: true })
-        const filterIndicators = this.getIndicatorsByFilter({})
-        filterIndicators.forEach(indicator => {
-          this._addIndicatorCalcTask(indicator, type)
-        })
+    if (success && adjustFlag) {
+      this._adjustVisibleRange()
+      this.setCrosshair(this._crosshair, { notInvalidate: true })
+      const filterIndicators = this.getIndicatorsByFilter({})
+      if (filterIndicators.length > 0) {
+        this._calcIndicator(filterIndicators)
+      } else {
         this._chart.layout({
           measureWidth: true,
           update: true,
@@ -801,7 +807,7 @@ export default class StoreImp implements Store {
         symbol: this._symbol,
         period: this._period,
         timestamp: null,
-        callback: (data: KLineData[], more?: boolean) => {
+        callback: (data: KLineData[], more?: DataLoadMore) => {
           this._loading = false
           this._addData(data, type, more)
           if (type === 'init') {
@@ -1121,13 +1127,154 @@ export default class StoreImp implements Store {
     return Math.ceil(this.coordinateToFloatIndex(x)) - 1
   }
 
-  zoom (scale: number, coordinate?: Partial<Coordinate>): void {
+  /**
+   * Converts a float data index to an interpolated timestamp.
+   * This allows sub-bar precision for smooth freehand drawings.
+   * Supports extrapolation beyond the data range (drawing in the "future").
+   * @param floatIndex - A floating point index (e.g., 42.75)
+   * @returns An interpolated timestamp between two bars
+   */
+  floatIndexToTimestamp (floatIndex: number): Nullable<number> {
+    const length = this._dataList.length
+    if (length === 0) {
+      return null
+    }
+
+    const lastIndex = length - 1
+
+    // Handle float index beyond the last bar (extrapolate into the future)
+    if (floatIndex > lastIndex && length >= 2) {
+      const lastTimestamp = this._dataList[lastIndex].timestamp
+      const secondLastTimestamp = this._dataList[lastIndex - 1].timestamp
+      const barDuration = lastTimestamp - secondLastTimestamp
+      if (barDuration > 0) {
+        const barsBeyondLast = floatIndex - lastIndex
+        return Math.round(lastTimestamp + barsBeyondLast * barDuration)
+      }
+    }
+
+    // Handle float index before the first bar (extrapolate into the past)
+    if (floatIndex < 0 && length >= 2) {
+      const firstTimestamp = this._dataList[0].timestamp
+      const secondTimestamp = this._dataList[1].timestamp
+      const barDuration = secondTimestamp - firstTimestamp
+      if (barDuration > 0) {
+        return Math.round(firstTimestamp + floatIndex * barDuration)
+      }
+    }
+
+    // Normal case: interpolate between two bars within the data range
+    const intIndex = Math.floor(floatIndex)
+    const fraction = floatIndex - intIndex
+
+    // Get timestamp at the integer index
+    const timestampAtInt = this.dataIndexToTimestamp(intIndex)
+
+    // If no fractional part, return the integer timestamp
+    if (fraction === 0 || !isNumber(timestampAtInt)) {
+      return timestampAtInt
+    }
+
+    // Get timestamp at the next index for interpolation
+    const timestampAtNext = this.dataIndexToTimestamp(intIndex + 1)
+
+    if (isNumber(timestampAtNext)) {
+      // Linear interpolation between the two timestamps
+      return Math.round(timestampAtInt + (timestampAtNext - timestampAtInt) * fraction)
+    }
+
+    return timestampAtInt
+  }
+
+  /**
+   * Converts a precise timestamp to a float data index.
+   * This preserves sub-bar precision for smooth freehand drawings across timeframe changes.
+   * Supports extrapolation beyond the data range (drawing in the "future").
+   * @param timestamp - A precise timestamp (possibly between or beyond bars)
+   * @returns A floating point index representing the exact position
+   */
+  timestampToFloatIndex (timestamp: number): number {
+    const length = this._dataList.length
+    if (length === 0) {
+      return 0
+    }
+
+    const firstTimestamp = this._dataList[0].timestamp
+    const lastTimestamp = this._dataList[length - 1].timestamp
+
+    // Handle timestamp beyond the last bar (drawing in the "future")
+    if (timestamp > lastTimestamp && length >= 2) {
+      // Calculate average bar duration from the last two bars
+      const secondLastTimestamp = this._dataList[length - 2].timestamp
+      const barDuration = lastTimestamp - secondLastTimestamp
+      if (barDuration > 0) {
+        const timeBeyondLast = timestamp - lastTimestamp
+        const barsBeyond = timeBeyondLast / barDuration
+        return length - 1 + barsBeyond
+      }
+    }
+
+    // Handle timestamp before the first bar
+    if (timestamp < firstTimestamp && length >= 2) {
+      const secondTimestamp = this._dataList[1].timestamp
+      const barDuration = secondTimestamp - firstTimestamp
+      if (barDuration > 0) {
+        const timeBeforeFirst = firstTimestamp - timestamp
+        const barsBefore = timeBeforeFirst / barDuration
+        return -barsBefore
+      }
+    }
+
+    // Find the floor bar index using binary search
+    // We need the bar where barTimestamp <= timestamp < nextBarTimestamp
+    let left = 0
+    let right = length - 1
+    let floorIndex = 0
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2)
+      const midTimestamp = this._dataList[mid].timestamp
+
+      if (midTimestamp <= timestamp) {
+        floorIndex = mid
+        left = mid + 1
+      } else {
+        right = mid - 1
+      }
+    }
+
+    // Get the floor bar and the next bar for interpolation
+    const dataAtFloor = this._dataList[floorIndex]
+    const dataAtNext = floorIndex + 1 < length ? this._dataList[floorIndex + 1] : null
+
+    if (isValid(dataAtFloor) && isValid(dataAtNext)) {
+      const timestampAtFloor = dataAtFloor.timestamp
+      const timestampAtNext = dataAtNext.timestamp
+
+      // Calculate fractional position between the two bars
+      if (timestamp >= timestampAtFloor && timestampAtNext > timestampAtFloor) {
+        const fraction = (timestamp - timestampAtFloor) / (timestampAtNext - timestampAtFloor)
+        return floorIndex + Math.min(fraction, 1) // Clamp to max 1
+      }
+    }
+
+    return floorIndex
+  }
+
+  zoom (scale: number, coordinate: Nullable<Partial<Coordinate>>, position: 'main' | 'xAxis'): void {
     if (!this._zoomEnabled) {
       return
     }
-    let zoomCoordinate: Nullable<Partial<Coordinate>> = coordinate ?? null
-    if (!isNumber(zoomCoordinate?.x)) {
-      zoomCoordinate = { x: this._crosshair.x ?? this._totalBarSpace / 2 }
+    const zoomCoordinate: Partial<Coordinate> = coordinate ?? { x: this._crosshair.x ?? this._totalBarSpace / 2 }
+
+    if (position === 'xAxis') {
+      if (this._zoomAnchor.xAxis === 'last_bar') {
+        zoomCoordinate.x = this.dataIndexToCoordinate(this._dataList.length - 1)
+      }
+    } else {
+      if (this._zoomAnchor.main === 'last_bar') {
+        zoomCoordinate.x = this.dataIndexToCoordinate(this._dataList.length - 1)
+      }
     }
     const x = zoomCoordinate.x!
     const floatIndex = this.coordinateToFloatIndex(x)
@@ -1150,16 +1297,21 @@ export default class StoreImp implements Store {
     return this._zoomEnabled
   }
 
-  setZoomAnchor (anchor: Partial<ZoomAnchor>): void {
-    if (isValid(anchor.main) && isString(anchor.main)) {
-      this._zoomAnchor.main = anchor.main
-    }
-    if (isValid(anchor.xAxis) && isString(anchor.xAxis)) {
-      this._zoomAnchor.xAxis = anchor.xAxis
+  setZoomAnchor (anchor: ZoomAnchorType | Partial<ZoomAnchor>): void {
+    if (isString(anchor)) {
+      this._zoomAnchor.main = anchor
+      this._zoomAnchor.xAxis = anchor
+    } else {
+      if (isString(anchor.main)) {
+        this._zoomAnchor.main = anchor.main
+      }
+      if (isString(anchor.xAxis)) {
+        this._zoomAnchor.xAxis = anchor.xAxis
+      }
     }
   }
 
-  zoomAnchor (): ZoomAnchor {
+  getZoomAnchor (): ZoomAnchor {
     return { ...this._zoomAnchor }
   }
 
@@ -1172,7 +1324,7 @@ export default class StoreImp implements Store {
   }
 
   setCrosshair (
-    crosshair?: Crosshair,
+    crosshair?: Nullable<Crosshair>,
     options?: { notInvalidate?: boolean, notExecuteAction?: boolean, forceInvalidate?: boolean }
   ): void {
     const { notInvalidate, notExecuteAction, forceInvalidate } = options ?? {}
@@ -1251,38 +1403,16 @@ export default class StoreImp implements Store {
     }
   }
 
-  private _addIndicatorCalcTask (indicator: IndicatorImp, dataLoadType: DataLoadType): void {
-    indicator.onDataStateChange?.({
-      state: 'loading',
-      type: dataLoadType,
-      indicator
-    })
-    void this._taskScheduler.add<boolean>({
-      id: generateTaskId(indicator.id),
-      handler: async () => await indicator.calcImp(this._dataList).then(result => result)
-    }).then(result => {
-      if (result) {
-        this._chart.layout({
-          measureWidth: true,
-          update: true,
-          buildYAxisTick: true,
-          cacheYAxisWidth: dataLoadType !== 'init'
-        })
-        indicator.onDataStateChange?.({
-          state: 'ready',
-          type: dataLoadType,
-          indicator
-        })
-      }
-    }).catch((e: unknown) => {
-      if (e !== 'canceled') {
-        indicator.onDataStateChange?.({
-          state: 'error',
-          type: dataLoadType,
-          indicator
-        })
-      }
-    })
+  private _calcIndicator (data: IndicatorImp | IndicatorImp[]): void {
+    let indicators: IndicatorImp[] = []
+    indicators = indicators.concat(data)
+    if (indicators.length > 0) {
+      const tasks: Record<string, Promise<unknown>> = {}
+      indicators.forEach(indicator => {
+        tasks[indicator.id] = indicator.calcImp(this._dataList)
+      })
+      this._taskScheduler.add(tasks)
+    }
   }
 
   addIndicator (create: PickRequired<IndicatorCreate, 'id' | 'name'>, paneId: string, isStack: boolean): boolean {
@@ -1305,7 +1435,7 @@ export default class StoreImp implements Store {
     paneIndicators.push(indicator)
     this._indicators.set(paneId, paneIndicators)
     this._sortIndicators(paneId)
-    this._addIndicatorCalcTask(indicator, 'init')
+    this._calcIndicator(indicator)
     return true
   }
 
@@ -1339,7 +1469,6 @@ export default class StoreImp implements Store {
       const paneIndicators = this.getIndicatorsByPaneId(indicator.paneId)
       const index = paneIndicators.findIndex(ins => ins.id === indicator.id)
       if (index > -1) {
-        this._taskScheduler.remove(generateTaskId(indicator.id))
         paneIndicators.splice(index, 1)
         removed = true
       }
@@ -1397,7 +1526,7 @@ export default class StoreImp implements Store {
         sortFlag = true
       }
       if (calc) {
-        this._addIndicatorCalcTask(indicator, 'update')
+        this._calcIndicator(indicator)
       } else {
         if (draw) {
           updateFlag = true
@@ -1700,7 +1829,11 @@ export default class StoreImp implements Store {
   }
 
   isOverlayDrawing (): boolean {
-    return this._progressOverlayInfo?.overlay.isDrawing() ?? false
+    const info = this._progressOverlayInfo
+    if (info !== null) {
+      return info.overlay.isDrawing()
+    }
+    return false
   }
 
   private _clearLastPriceMarkExtendTextUpdateTimer (): void {

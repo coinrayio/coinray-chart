@@ -981,8 +981,8 @@ export default class ChartImp implements Chart {
     this._chartStore.setZoomAnchor(anchor)
   }
 
-  zoomAnchor (): ZoomAnchor {
-    return this._chartStore.zoomAnchor()
+  getZoomAnchor (): ZoomAnchor {
+    return this._chartStore.getZoomAnchor()
   }
 
   setScrollEnabled (enabled: boolean): void {
@@ -1038,12 +1038,12 @@ export default class ChartImp implements Chart {
       animation.doFrame(frameTime => {
         const progressBarSpace = difSpace * (frameTime / duration)
         const scale = (progressBarSpace - prevProgressBarSpace) / this._chartStore.getBarSpace().bar * SCALE_MULTIPLIER
-        this._chartStore.zoom(scale, coordinate)
+        this._chartStore.zoom(scale, coordinate ?? null, 'main')
         prevProgressBarSpace = progressBarSpace
       })
       animation.start()
     } else {
-      this._chartStore.zoom(difSpace / barSpace * SCALE_MULTIPLIER, coordinate)
+      this._chartStore.zoom(difSpace / barSpace * SCALE_MULTIPLIER, coordinate ?? null, 'main')
     }
   }
 
@@ -1119,11 +1119,14 @@ export default class ChartImp implements Chart {
     return isArray(coordinates) ? points : (points[0] ?? {})
   }
 
-  executeAction (type: ActionType, data: Crosshair): void {
+  executeAction (type: ActionType, data: Nullable<Crosshair>): void {
     switch (type) {
       case 'onCrosshairChange': {
-        const crosshair: Crosshair = { ...data }
-        crosshair.paneId ??= PaneIdConstants.CANDLE
+        let crosshair: Nullable<Crosshair> = null
+        if (isValid(data)) {
+          crosshair = { ...data }
+          crosshair.paneId ??= PaneIdConstants.CANDLE
+        }
         this._chartStore.setCrosshair(crosshair, { notExecuteAction: true })
         break
       }

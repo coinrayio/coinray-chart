@@ -165,7 +165,32 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         }
       }
       return false
+    }).registerEvent('mouseDownEvent', event => {
+      // Handle continuous drawing mode - start drawing on mouse down
+      const progressOverlayInfo = chartStore.getProgressOverlayInfo()
+      if (progressOverlayInfo !== null) {
+        const overlay = progressOverlayInfo.overlay
+        if (overlay.isContinuousDrawing() && overlay.isStart()) {
+          chartStore.updateProgressOverlayInfo(paneId, true)
+          const point = this._coordinateToPoint(overlay, event)
+          overlay.startContinuousDrawing(point)
+          overlay.onDrawStart?.({ chart, overlay, ...event })
+          return true
+        }
+      }
+      return false
     }).registerEvent('mouseUpEvent', event => {
+      // Handle continuous drawing mode - complete on mouse up
+      const progressOverlayInfo = chartStore.getProgressOverlayInfo()
+      if (progressOverlayInfo !== null) {
+        const overlay = progressOverlayInfo.overlay
+        if (overlay.isContinuousDrawing() && overlay.isDrawing() && !overlay.isStart()) {
+          overlay.completeContinuousDrawing()
+          chartStore.progressOverlayComplete()
+          overlay.onDrawEnd?.({ chart, overlay, ...event })
+          return true
+        }
+      }
       const { overlay, figure } = chartStore.getPressedOverlayInfo()
       if (overlay !== null) {
         if (checkOverlayFigureEvent('onPressedMoveEnd', figure)) {
@@ -181,6 +206,17 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       })
       return false
     }).registerEvent('pressedMouseMoveEvent', event => {
+      // Handle continuous drawing mode - accumulate points while mouse is pressed
+      const progressOverlayInfo = chartStore.getProgressOverlayInfo()
+      if (progressOverlayInfo !== null) {
+        const overlay = progressOverlayInfo.overlay
+        if (overlay.isContinuousDrawing() && overlay.isDrawing() && !overlay.isStart()) {
+          const point = this._coordinateToPoint(overlay, event)
+          overlay.addPointForContinuousDrawing(point)
+          overlay.onDrawing?.({ chart, overlay, ...event })
+          return true
+        }
+      }
       const { overlay, figureType, figureIndex, figure } = chartStore.getPressedOverlayInfo()
       if (overlay !== null) {
         if (checkOverlayFigureEvent('onPressedMoving', figure)) {
@@ -345,11 +381,19 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const paneId = pane.getId()
     const chartStore = chart.getChartStore()
     if (this.coordinateToPointTimestampDataIndexFlag()) {
-      const xAxis = chart.getXAxisPane().getAxisComponent()
-      const dataIndex = xAxis.convertFromPixel(coordinate.x)
-      const timestamp = chartStore.dataIndexToTimestamp(dataIndex) ?? undefined
-      point.timestamp = timestamp
-      point.dataIndex = dataIndex
+      const overlayImp = o as OverlayImp
+      if (overlayImp.isContinuousDrawing() && !overlayImp.isStart()) {
+        // For continuous drawing, store precise timestamp for sub-bar positioning
+        const floatIndex = chartStore.coordinateToFloatIndex(coordinate.x)
+        point.dataIndex = floatIndex
+        point.timestamp = chartStore.floatIndexToTimestamp(floatIndex) ?? undefined
+      } else {
+        // For step-based drawing, snap to candle boundaries
+        const xAxis = chart.getXAxisPane().getAxisComponent()
+        const dataIndex = xAxis.convertFromPixel(coordinate.x)
+        point.dataIndex = dataIndex
+        point.timestamp = chartStore.dataIndexToTimestamp(dataIndex) ?? undefined
+      }
     }
     if (this.coordinateToPointValueFlag()) {
       const yAxis = pane.getAxisComponent()
@@ -415,7 +459,8 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   override dispatchEvent (name: EventName, event: MouseTouchEvent): boolean {
-    if (this.getWidget().getPane().getChart().getChartStore().isOverlayDrawing()) {
+    const isDrawing = this.getWidget().getPane().getChart().getChartStore().isOverlayDrawing()
+    if (isDrawing) {
       return this.onEvent(name, event)
     }
     return super.dispatchEvent(name, event)
@@ -443,15 +488,23 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const chart = pane.getChart()
     const chartStore = chart.getChartStore()
     const yAxis = pane.getAxisComponent() as unknown as Nullable<YAxis>
-    const xAxis = chart.getXAxisPane().getAxisComponent()
+    // For continuous drawing overlays, use float indices for smooth rendering
+    const isContinuous = overlay.isContinuousDrawing()
     const coordinates = points.map(point => {
       let dataIndex: Nullable<number> = null
-      if (isNumber(point.timestamp)) {
+      if (isContinuous && isNumber(point.timestamp)) {
+        // Use timestampToFloatIndex for sub-bar precision
+        dataIndex = chartStore.timestampToFloatIndex(point.timestamp)
+      } else if (isNumber(point.timestamp)) {
+        // For regular overlays, use integer timestamp lookup
         dataIndex = chartStore.timestampToDataIndex(point.timestamp)
+      } else if (isNumber(point.dataIndex)) {
+        // Fallback to dataIndex if no timestamp
+        dataIndex = point.dataIndex
       }
       const coordinate = { x: 0, y: 0 }
       if (isNumber(dataIndex)) {
-        coordinate.x = xAxis.convertToPixel(dataIndex)
+        coordinate.x = chartStore.dataIndexToCoordinate(dataIndex)
       }
       if (isNumber(point.value)) {
         coordinate.y = yAxis?.convertToPixel(point.value) ?? 0

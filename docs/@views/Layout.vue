@@ -1,7 +1,7 @@
 <script setup>
 import { useData } from 'vitepress'
 import DefaultTheme from 'vitepress/theme'
-import { nextTick, provide } from 'vue'
+import { nextTick, provide, onMounted, ref } from 'vue'
 
 import Banner from './Banner.vue'
 import HomeHero from './home/hero/index.vue'
@@ -9,10 +9,19 @@ import HomeTopSponsor from './home/TopSponsor.vue'
 import HomeCreateChart from './home/create-chart/index.vue'
 import HomeFAQ from './home/faq/index.vue'
 import HomeSponsor from './home/Sponsor.vue'
-import AsideSponsor from './AsideSponsor.vue'
+// import AsideSponsor from './AsideSponsor.vue'
 import NotFound from './NotFound.vue'
+import ColorPalette from './ColorPalette.vue'
+import Loading from '../@components/Loading.vue'
 
 const { isDark } = useData()
+
+const mounted = ref(false)
+
+onMounted(() => {
+  mounted.value = true
+  document.body.style.overflow = 'auto'
+})
 
 const enableTransitions = () =>
   'startViewTransition' in document &&
@@ -42,6 +51,7 @@ provide('toggle-appearance', async ({ clientX: x, clientY: y }) => {
     {
       duration: 300,
       easing: 'ease-in',
+      fill: 'forwards',
       pseudoElement: `::view-transition-${isDark.value ? 'old' : 'new'}(root)`
     }
   )
@@ -49,6 +59,7 @@ provide('toggle-appearance', async ({ clientX: x, clientY: y }) => {
 </script>
 
 <template>
+  <Loading v-if="!mounted" className="page-loading"/>
   <DefaultTheme.Layout>
     <template #layout-top>
       <Banner/>
@@ -62,11 +73,14 @@ provide('toggle-appearance', async ({ clientX: x, clientY: y }) => {
       <HomeFAQ/>
       <HomeSponsor/>
     </template>
-    <template #aside-bottom>
+    <!-- <template #aside-bottom>
       <AsideSponsor/>
-    </template>
+    </template> -->
     <template #not-found>
       <NotFound/>
+    </template>
+    <template #layout-bottom>
+      <ColorPalette/>
     </template>
   </DefaultTheme.Layout>
 </template>
@@ -94,5 +108,13 @@ provide('toggle-appearance', async ({ clientX: x, clientY: y }) => {
 
 .VPSwitchAppearance .check {
   transform: none !important;
+}
+
+.page-loading {
+  position: fixed!important;
+  width: 100vw!important;
+  height: 100vh!important;
+  color: var(--vp-c-text-1)!important;
+  background-color: var(--vp-c-bg)!important;
 }
 </style>

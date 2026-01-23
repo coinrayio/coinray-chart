@@ -49,6 +49,7 @@ import CreateOverlayBasic from '../../@views/api/samples/createOverlay-basic/ind
 import CreateOverlayExtension from '../../@views/api/samples/custom-figure-custom-overlay/index.vue'
 import CreateOverlayPoints from '../../@views/api/samples/createOverlay-points/index.vue'
 import CreateOverlayBatch from '../../@views/api/samples/createOverlay-batch/index.vue'
+import CreateOverlayFreePath from '../../@views/api/samples/createOverlay-freePath/index.vue'
 </script>
 
 ### 基本使用 {#basic}
@@ -62,3 +63,6 @@ import CreateOverlayBatch from '../../@views/api/samples/createOverlay-batch/ind
 
 ### 批量创建 {#batch}
 <CreateOverlayBatch/>
+
+### 自由路径绘制（双击并拖动可绘制无限次）{#freePath}
+<CreateOverlayFreePath/>
