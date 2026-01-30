@@ -66,7 +66,14 @@ import { checkCoordinateOnText } from './extension/figure/text'
 import { registerFigure, getSupportedFigures, getFigureClass } from './extension/figure/index'
 import { registerIndicator, getSupportedIndicators } from './extension/indicator/index'
 import { registerLocale, getSupportedLocales } from './extension/i18n/index'
-import { registerOverlay, getOverlayClass, getSupportedOverlays } from './extension/overlay/index'
+import {
+  registerOverlay, getOverlayClass, getSupportedOverlays,
+  createOrderLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES
+} from './extension/overlay/index'
+import type {
+  OverlayProperties, ProOverlayTemplate, OverlayPropertiesStore,
+  OrderLineProperties, OrderLine, OrderLineStyle, OrderLineEventListener
+} from './extension/overlay/index'
 import { registerStyles } from './extension/styles/index'
 import { registerXAxis } from './extension/x-axis'
 import { registerYAxis } from './extension/y-axis'
@@ -173,7 +180,13 @@ export {
   registerStyles,
   registerXAxis, registerYAxis,
   utils,
+  // Pro overlay utilities
+  createOrderLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
+  // Types
   type LineType, type PolygonType, type TooltipShowRule, type TooltipShowType, type FeatureType, type TooltipFeaturePosition, type CandleTooltipRectPosition,
   type CandleType, type FormatDateType, type BarSpaceLimit, type ZoomAnchor,
-  type DomPosition, type ActionType, type IndicatorSeries, type OverlayMode, type OverlayDrawingMode
+  type DomPosition, type ActionType, type IndicatorSeries, type OverlayMode, type OverlayDrawingMode,
+  // Pro overlay types
+  type OverlayProperties, type ProOverlayTemplate, type OverlayPropertiesStore,
+  type OrderLineProperties, type OrderLine, type OrderLineStyle, type OrderLineEventListener
 }

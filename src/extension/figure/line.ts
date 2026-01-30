@@ -201,6 +201,8 @@ export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | Line
 }
 
 export interface LineAttrs {
+  /** Optional key for per-figure styling via overlay.figureStyles */
+  key?: string
   coordinates: Coordinate[]
 }
 

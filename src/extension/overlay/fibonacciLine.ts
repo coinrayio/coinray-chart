@@ -50,8 +50,14 @@ const fibonacciLine: OverlayTemplate = {
         percents.forEach(percent => {
           const y = coordinates[1].y + yDif * percent
           const value = chart.getDecimalFold().format(chart.getThousandsSeparator().format(((points[1].value ?? 0) + valueDif * percent).toFixed(precision)))
-          lines.push({ coordinates: [{ x: startX, y }, { x: endX, y }] })
+          // Add key for per-level styling via overlay.figureStyles
+          const levelKey = `fib_${percent}`
+          lines.push({
+            key: levelKey,
+            coordinates: [{ x: startX, y }, { x: endX, y }]
+          })
           texts.push({
+            key: `${levelKey}_text`,
             x: startX,
             y,
             text: `${value} (${(percent * 100).toFixed(1)}%)`,
@@ -59,6 +65,8 @@ const fibonacciLine: OverlayTemplate = {
           })
         })
       }
+      // Return figures with individual keys for per-figure styling
+      // Consumer can use overlay.figureStyles['fib_0.618'] = { color: 'gold' }
       return [
         {
           type: 'line',

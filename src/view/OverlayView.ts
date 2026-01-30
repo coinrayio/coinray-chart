@@ -531,16 +531,22 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   protected drawFigures (ctx: CanvasRenderingContext2D, overlay: OverlayImp, figures: OverlayFigure[]): void {
     const defaultStyles = this.getWidget().getPane().getChart().getStyles().overlay
     figures.forEach((figure, figureIndex) => {
-      const { type, styles, attrs } = figure
+      const { type, key: figureKey, styles, attrs } = figure
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
       // @ts-expect-error
       const attrsArray = [].concat(attrs)
       attrsArray.forEach((ats) => {
         const events = this._createFigureEvents(overlay, 'other', figureIndex, figure)
+        // Support per-attr key for granular styling (e.g., each Fibonacci level)
+        // Attr key takes precedence over figure key
+        const attrKey = (ats as { key?: string }).key
+        const effectiveKey = attrKey ?? figureKey
+        const keyedStyles = effectiveKey != null && effectiveKey !== '' ? overlay.figureStyles[effectiveKey] : undefined
+        // Style merge order: defaults < instance type styles < keyed styles < figure styles
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
         // @ts-expect-error
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-        const ss = { ...defaultStyles[type], ...overlay.styles?.[type], ...styles }
+        const ss = { ...defaultStyles[type], ...overlay.styles?.[type], ...keyedStyles, ...styles }
         this.createFigure({
           name: type, attrs: ats, styles: ss
         }, events ?? undefined)?.draw(ctx)
