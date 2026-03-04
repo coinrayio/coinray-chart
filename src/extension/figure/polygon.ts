@@ -86,6 +86,8 @@ export function drawPolygon (ctx: CanvasRenderingContext2D, attrs: PolygonAttrs 
 }
 
 export interface PolygonAttrs {
+  /** Optional key for per-figure styling via overlay.figureStyles */
+  key?: string
   coordinates: Coordinate[]
 }
 

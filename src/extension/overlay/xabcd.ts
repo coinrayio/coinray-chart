@@ -18,10 +18,7 @@ import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import type { LineAttrs } from '../figure/line'
 import type { TextAttrs } from '../figure/text'
-
-interface PolygonAttrs {
-  coordinates: Array<{ x: number; y: number }>
-}
+import type { PolygonAttrs } from '../figure/polygon'
 
 /**
  * XABCD overlay - XABCD harmonic pattern
@@ -108,13 +105,13 @@ const xabcd = (): ProOverlayTemplate => {
       }))
 
       if (coordinates.length > 2) {
-        dashedLines.push({ coordinates: [coordinates[0], coordinates[2]] })
-        polygons.push({ coordinates: [coordinates[0], coordinates[1], coordinates[2]] })
+        dashedLines.push({ key: 'connector_xb', coordinates: [coordinates[0], coordinates[2]] })
+        polygons.push({ key: 'tri_xab', coordinates: [coordinates[0], coordinates[1], coordinates[2]] })
         if (coordinates.length > 3) {
-          dashedLines.push({ coordinates: [coordinates[1], coordinates[3]] })
+          dashedLines.push({ key: 'connector_ac', coordinates: [coordinates[1], coordinates[3]] })
           if (coordinates.length > 4) {
-            dashedLines.push({ coordinates: [coordinates[2], coordinates[4]] })
-            polygons.push({ coordinates: [coordinates[2], coordinates[3], coordinates[4]] })
+            dashedLines.push({ key: 'connector_bd', coordinates: [coordinates[2], coordinates[4]] })
+            polygons.push({ key: 'tri_bcd', coordinates: [coordinates[2], coordinates[3], coordinates[4]] })
           }
         }
       }
@@ -122,6 +119,7 @@ const xabcd = (): ProOverlayTemplate => {
       return [
         {
           type: 'line',
+          key: 'main',
           attrs: { coordinates },
           styles: lineStyle(id)
         },

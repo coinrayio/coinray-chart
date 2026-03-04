@@ -541,12 +541,22 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         // Attr key takes precedence over figure key
         const attrKey = (ats as { key?: string }).key
         const effectiveKey = attrKey ?? figureKey
-        const keyedStyles = effectiveKey != null && effectiveKey !== '' ? overlay.figureStyles[effectiveKey] : undefined
-        // Style merge order: defaults < instance type styles < keyed styles < figure styles
+        let keyedStyles = effectiveKey != null && effectiveKey !== '' ? overlay.figureStyles[effectiveKey] as Record<string, unknown> | undefined : undefined
+        // Prefix-match fallback: for composite keys like 'fan_0.5_grid_x', check 'fan_0.5'
+        if (keyedStyles == null && effectiveKey != null && effectiveKey !== '') {
+          for (const fKey of Object.keys(overlay.figureStyles)) {
+            if (effectiveKey.startsWith(fKey + '_')) {
+              keyedStyles = overlay.figureStyles[fKey] as Record<string, unknown> | undefined
+              break
+            }
+          }
+        }
+        // Style merge order: defaults < instance styles < figure styles < keyed figureStyles
+        // figureStyles override inline styles so per-figure customization always wins
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
         // @ts-expect-error
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-        const ss = { ...defaultStyles[type], ...overlay.styles?.[type], ...keyedStyles, ...styles }
+        const ss = { ...defaultStyles[type], ...overlay.styles?.[type], ...styles, ...keyedStyles }
         this.createFigure({
           name: type, attrs: ats, styles: ss
         }, events ?? undefined)?.draw(ctx)
@@ -596,7 +606,17 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       ) {
         const defaultStyles = chartStore.getStyles().overlay
         const styles = overlay.styles
-        const pointStyles = { ...defaultStyles.point, ...styles?.point }
+        // Derive point color from overlay's line/border color so points match the overlay
+        const overlayAny = overlay as unknown as Record<string, unknown>
+        let baseColor: string | undefined = (styles?.line as Record<string, unknown> | undefined)?.color as string | undefined
+        if (baseColor == null && typeof overlayAny.getProperties === 'function') {
+          const props = (overlayAny.getProperties as (id: string) => Record<string, unknown>)(overlay.id)
+          baseColor = (props.lineColor ?? props.borderColor) as string | undefined
+        }
+        const pointColorOverride = baseColor != null
+          ? { color: baseColor, activeColor: baseColor, borderColor: baseColor }
+          : {}
+        const pointStyles = { ...defaultStyles.point, ...pointColorOverride, ...styles?.point }
         coordinates.forEach(({ x, y }, index) => {
           let radius = pointStyles.radius
           let color = pointStyles.color

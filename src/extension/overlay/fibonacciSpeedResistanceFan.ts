@@ -16,12 +16,22 @@ import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 
-import type { OverlayProperties, ProOverlayTemplate } from './types'
+import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 
 import type { LineAttrs } from '../figure/line'
 import type { TextAttrs } from '../figure/text'
 
 import { getRayLine } from './utils'
+
+export const FIBONACCI_FAN_LEVELS: FigureLevel[] = [
+  { value: 0, enabled: true },
+  { value: 0.25, enabled: true },
+  { value: 0.382, enabled: true },
+  { value: 0.5, enabled: true },
+  { value: 0.618, enabled: true },
+  { value: 0.75, enabled: true },
+  { value: 1, enabled: true }
+]
 
 const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -54,29 +64,36 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
     createPointFigures: ({ coordinates, bounding, overlay }) => {
       const props = properties.get(overlay.id) ?? {}
       const lines1: LineAttrs[] = []
-      let lines2: LineAttrs[] = []
+      const lines2: LineAttrs[] = []
       const texts: TextAttrs[] = []
       if (coordinates.length > 1) {
         const xOffset = coordinates[1].x > coordinates[0].x ? -38 : 4
         const yOffset = coordinates[1].y > coordinates[0].y ? -2 : 20
         const xDistance = coordinates[1].x - coordinates[0].x
         const yDistance = coordinates[1].y - coordinates[0].y
-        const percents = [1, 0.75, 0.618, 0.5, 0.382, 0.25, 0]
-        percents.forEach(percent => {
+        const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_FAN_LEVELS)
+          .filter(l => l.enabled === true)
+        levels.forEach(level => {
+          const percent = level.value ?? 0
           const x = coordinates[1].x - xDistance * percent
           const y = coordinates[1].y - yDistance * percent
-          lines1.push({ coordinates: [{ x, y: coordinates[0].y }, { x, y: coordinates[1].y }] })
-          lines1.push({ coordinates: [{ x: coordinates[0].x, y }, { x: coordinates[1].x, y }] })
+          const levelKey = `fan_${percent}`
+          lines1.push({ key: `${levelKey}_grid_x`, coordinates: [{ x, y: coordinates[0].y }, { x, y: coordinates[1].y }] })
+          lines1.push({ key: `${levelKey}_grid_y`, coordinates: [{ x: coordinates[0].x, y }, { x: coordinates[1].x, y }] })
           const rayLine1 = getRayLine([coordinates[0], { x, y: coordinates[1].y }], bounding)
           const rayLine2 = getRayLine([coordinates[0], { x: coordinates[1].x, y }], bounding)
-          lines2 = lines2.concat(Array.isArray(rayLine1) ? rayLine1 : [rayLine1])
-          lines2 = lines2.concat(Array.isArray(rayLine2) ? rayLine2 : [rayLine2])
+          const rays1 = Array.isArray(rayLine1) ? rayLine1 : [rayLine1]
+          const rays2 = Array.isArray(rayLine2) ? rayLine2 : [rayLine2]
+          rays1.forEach((r, i) => { if ('coordinates' in r) lines2.push({ ...r, key: `${levelKey}_ray_x_${i}` }) })
+          rays2.forEach((r, i) => { if ('coordinates' in r) lines2.push({ ...r, key: `${levelKey}_ray_y_${i}` }) })
           texts.unshift({
+            key: `${levelKey}_text_y`,
             x: coordinates[0].x + xOffset,
             y: y + 10,
             text: percent.toFixed(3)
           })
           texts.unshift({
+            key: `${levelKey}_text_x`,
             x: x - 18,
             y: coordinates[0].y + yOffset,
             text: percent.toFixed(3)
@@ -91,7 +108,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
         },
         {
           type: 'line',
-          attrs: lines2.filter(l => 'coordinates' in l),
+          attrs: lines2,
           styles: fbLinesStyle(props)
         },
         {

@@ -22,6 +22,8 @@ import type { OverlayProperties, ProOverlayTemplate } from './types'
 import type { LineAttrs } from '../figure/line'
 import type { TextAttrs } from '../figure/text'
 
+import { FIBONACCI_RETRACEMENT_LEVELS } from './fibonacciLine'
+
 const fibonacciSegment = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
@@ -50,7 +52,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay, chart, yAxis }) => {
+    createPointFigures: ({ coordinates, bounding, overlay, chart, yAxis }) => {
       const props = properties.get(overlay.id) ?? {}
       const lines: LineAttrs[] = []
       const texts: TextAttrs[] = []
@@ -66,19 +68,31 @@ const fibonacciSegment = (): ProOverlayTemplate => {
             precision = Math.max(precision, indicator.precision)
           })
         }
-        const textX = coordinates[1].x > coordinates[0].x ? coordinates[0].x : coordinates[1].x
-        const percents = [1, 0.786, 0.618, 0.5, 0.382, 0.236, 0]
+
+        const ext = overlay.extendData as { extendLeft?: boolean; extendRight?: boolean } | undefined
+        const leftX = ext?.extendLeft === true ? 0 : Math.min(coordinates[0].x, coordinates[1].x)
+        const rightX = ext?.extendRight === true ? bounding.width : Math.max(coordinates[0].x, coordinates[1].x)
+        const textX = leftX
+
+        const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_RETRACEMENT_LEVELS)
+          .filter(l => l.enabled === true)
         const yDif = coordinates[0].y - coordinates[1].y
         const points = overlay.points
         const valueDif = (points[0]?.value ?? 0) - (points[1]?.value ?? 0)
         const decimalFold = chart.getDecimalFold()
         const thousandsSeparator = chart.getThousandsSeparator()
-        percents.forEach(percent => {
+        levels.forEach(level => {
+          const percent = level.value ?? 0
           const y = coordinates[1].y + yDif * percent
           const rawPrice = ((points[1]?.value ?? 0) + valueDif * percent).toFixed(precision)
           const price = decimalFold.format(thousandsSeparator.format(rawPrice))
-          lines.push({ coordinates: [{ x: coordinates[0].x, y }, { x: coordinates[1].x, y }] })
+          const levelKey = `level_${percent}`
+          lines.push({
+            key: levelKey,
+            coordinates: [{ x: leftX, y }, { x: rightX, y }]
+          })
           texts.push({
+            key: `${levelKey}_text`,
             x: textX,
             y,
             text: `${price} (${(percent * 100).toFixed(1)}%)`,

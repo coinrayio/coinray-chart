@@ -67,11 +67,13 @@ const fibonacciSpiral = (): ProOverlayTemplate => {
           offsetAngle
         )
         const arcs: ArcAttrs[] = [{
+          key: 'arc_0',
           ...rotateCoordinate1,
           r: startRadius,
           startAngle: offsetAngle,
           endAngle: offsetAngle + Math.PI / 2
         }, {
+          key: 'arc_1',
           ...rotateCoordinate2,
           r: startRadius * 2,
           startAngle: offsetAngle + Math.PI / 2,
@@ -107,6 +109,7 @@ const fibonacciSpiral = (): ProOverlayTemplate => {
           const endAngle = startAngle + Math.PI / 2
           const rotateCoordinate = getRotateCoordinate({ x, y }, coordinates[0], offsetAngle)
           arcs.push({
+            key: `arc_${i}`,
             ...rotateCoordinate,
             r,
             startAngle,
@@ -121,6 +124,7 @@ const fibonacciSpiral = (): ProOverlayTemplate => {
           },
           {
             type: 'line',
+            key: 'ray',
             attrs: getRayLine(coordinates, bounding),
             styles: lineStyle(props)
           }

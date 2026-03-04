@@ -17,10 +17,7 @@ import type { LineStyle, PolygonStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import type { LineAttrs } from '../figure/line'
-
-interface PolygonAttrs {
-  coordinates: Array<{ x: number; y: number }>
-}
+import type { PolygonAttrs } from '../figure/polygon'
 
 /**
  * Gann Box overlay - Gann grid with specific ratio lines
@@ -94,35 +91,28 @@ const gannBox = (): ProOverlayTemplate => {
         const xDis = coordinates[1].x - coordinates[0].x
 
         const dashedLines: LineAttrs[] = [
-          // Lines from top-left corner to various points on right edge (quarter ratios)
-          { coordinates: [coordinates[0], { x: coordinates[1].x, y: coordinates[1].y - quarterYDis }] },
-          { coordinates: [coordinates[0], { x: coordinates[1].x, y: coordinates[1].y - quarterYDis * 2 }] },
-          // Lines from bottom-left corner to various points on right edge (quarter ratios)
-          { coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[1].x, y: coordinates[0].y + quarterYDis }] },
-          { coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[1].x, y: coordinates[0].y + quarterYDis * 2 }] },
-          // Lines from top-left to bottom edge (Fibonacci ratios: 0.236, 0.5)
-          { coordinates: [{ ...coordinates[0] }, { x: coordinates[0].x + xDis * 0.236, y: coordinates[1].y }] },
-          { coordinates: [{ ...coordinates[0] }, { x: coordinates[0].x + xDis * 0.5, y: coordinates[1].y }] },
-          // Lines from bottom-left to top edge (Fibonacci ratios: 0.236, 0.5)
-          { coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[0].x + xDis * 0.236, y: coordinates[0].y }] },
-          { coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[0].x + xDis * 0.5, y: coordinates[0].y }] }
+          { key: 'dashed_0', coordinates: [coordinates[0], { x: coordinates[1].x, y: coordinates[1].y - quarterYDis }] },
+          { key: 'dashed_1', coordinates: [coordinates[0], { x: coordinates[1].x, y: coordinates[1].y - quarterYDis * 2 }] },
+          { key: 'dashed_2', coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[1].x, y: coordinates[0].y + quarterYDis }] },
+          { key: 'dashed_3', coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[1].x, y: coordinates[0].y + quarterYDis * 2 }] },
+          { key: 'dashed_4', coordinates: [{ ...coordinates[0] }, { x: coordinates[0].x + xDis * 0.236, y: coordinates[1].y }] },
+          { key: 'dashed_5', coordinates: [{ ...coordinates[0] }, { x: coordinates[0].x + xDis * 0.5, y: coordinates[1].y }] },
+          { key: 'dashed_6', coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[0].x + xDis * 0.236, y: coordinates[0].y }] },
+          { key: 'dashed_7', coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[0].x + xDis * 0.5, y: coordinates[0].y }] }
         ]
 
-        // Main diagonal lines (corner to corner)
         const solidLines: LineAttrs[] = [
-          { coordinates: [coordinates[0], coordinates[1]] },
-          { coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[1].x, y: coordinates[0].y }] }
+          { key: 'solid_0', coordinates: [coordinates[0], coordinates[1]] },
+          { key: 'solid_1', coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, { x: coordinates[1].x, y: coordinates[0].y }] }
         ]
 
-        // Box border lines
         const borderLines: LineAttrs[] = [
-          { coordinates: [coordinates[0], { x: coordinates[1].x, y: coordinates[0].y }] },
-          { coordinates: [{ x: coordinates[1].x, y: coordinates[0].y }, coordinates[1]] },
-          { coordinates: [coordinates[1], { x: coordinates[0].x, y: coordinates[1].y }] },
-          { coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, coordinates[0]] }
+          { key: 'border_0', coordinates: [coordinates[0], { x: coordinates[1].x, y: coordinates[0].y }] },
+          { key: 'border_1', coordinates: [{ x: coordinates[1].x, y: coordinates[0].y }, coordinates[1]] },
+          { key: 'border_2', coordinates: [coordinates[1], { x: coordinates[0].x, y: coordinates[1].y }] },
+          { key: 'border_3', coordinates: [{ x: coordinates[0].x, y: coordinates[1].y }, coordinates[0]] }
         ]
 
-        // Polygon fill for the box
         const polygonAttrs: PolygonAttrs = {
           coordinates: [
             coordinates[0],
@@ -140,6 +130,7 @@ const gannBox = (): ProOverlayTemplate => {
           },
           {
             type: 'polygon',
+            key: 'fill',
             ignoreEvent: true,
             attrs: polygonAttrs,
             styles: polygonStyle(id)

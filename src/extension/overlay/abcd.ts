@@ -76,8 +76,7 @@ const abcd = (): ProOverlayTemplate => {
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, overlay }) => {
       const id = overlay.id
-      const acLineCoordinates: LineAttrs[] = []
-      const bdLineCoordinates: LineAttrs[] = []
+      const connectorLines: LineAttrs[] = []
 
       const texts: TextAttrs[] = coordinates.map((coordinate, i) => ({
         x: coordinate.x,
@@ -87,21 +86,22 @@ const abcd = (): ProOverlayTemplate => {
       }))
 
       if (coordinates.length > 2) {
-        acLineCoordinates.push({ coordinates: [coordinates[0], coordinates[2]] })
+        connectorLines.push({ key: 'connector_ac', coordinates: [coordinates[0], coordinates[2]] })
         if (coordinates.length > 3) {
-          bdLineCoordinates.push({ coordinates: [coordinates[1], coordinates[3]] })
+          connectorLines.push({ key: 'connector_bd', coordinates: [coordinates[1], coordinates[3]] })
         }
       }
 
       return [
         {
           type: 'line',
+          key: 'main',
           attrs: { coordinates },
           styles: line1Style(id)
         },
         {
           type: 'line',
-          attrs: [...acLineCoordinates, ...bdLineCoordinates],
+          attrs: connectorLines,
           styles: line2Style(id)
         },
         {

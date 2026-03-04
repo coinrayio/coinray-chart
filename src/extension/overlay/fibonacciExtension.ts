@@ -17,10 +17,24 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 
-import type { OverlayProperties, ProOverlayTemplate } from './types'
+import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 
 import type { LineAttrs } from '../figure/line'
 import type { TextAttrs } from '../figure/text'
+
+export const FIBONACCI_EXTENSION_LEVELS: FigureLevel[] = [
+  { value: 0, enabled: true },
+  { value: 0.236, enabled: true },
+  { value: 0.382, enabled: true },
+  { value: 0.5, enabled: true },
+  { value: 0.618, enabled: true },
+  { value: 0.786, enabled: true },
+  { value: 1, enabled: true },
+  { value: 1.618, enabled: true },
+  { value: 2.618, enabled: true },
+  { value: 3.618, enabled: true },
+  { value: 4.236, enabled: true }
+]
 
 const fibonacciExtension = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -57,7 +71,7 @@ const fibonacciExtension = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ chart, yAxis, coordinates, overlay }) => {
+    createPointFigures: ({ chart, yAxis, coordinates, bounding, overlay }) => {
       const props = properties.get(overlay.id) ?? {}
       const fbLines: LineAttrs[] = []
       const texts: TextAttrs[] = []
@@ -73,19 +87,31 @@ const fibonacciExtension = (): ProOverlayTemplate => {
             precision = Math.max(precision, indicator.precision)
           })
         }
+
+        const ext = overlay.extendData as { extendLeft?: boolean; extendRight?: boolean } | undefined
+        const leftX = ext?.extendLeft === true ? 0 : Math.min(coordinates[1].x, coordinates[2].x)
+        const rightX = ext?.extendRight === true ? bounding.width : Math.max(coordinates[1].x, coordinates[2].x)
+
         const points = overlay.points
         const valueDif = (points[1]?.value ?? 0) - (points[0]?.value ?? 0)
         const yDif = coordinates[1].y - coordinates[0].y
-        const percents = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.618, 2.618, 3.618, 4.236]
-        const textX = coordinates[2].x > coordinates[1].x ? coordinates[1].x : coordinates[2].x
+        const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_EXTENSION_LEVELS)
+          .filter(l => l.enabled === true)
+        const textX = leftX
         const decimalFold = chart.getDecimalFold()
         const thousandsSeparator = chart.getThousandsSeparator()
-        percents.forEach(percent => {
+        levels.forEach(level => {
+          const percent = level.value ?? 0
           const y = coordinates[2].y + yDif * percent
           const rawPrice = ((points[2]?.value ?? 0) + valueDif * percent).toFixed(precision)
           const price = decimalFold.format(thousandsSeparator.format(rawPrice))
-          fbLines.push({ coordinates: [{ x: coordinates[1].x, y }, { x: coordinates[2].x, y }] })
+          const levelKey = `level_${percent}`
+          fbLines.push({
+            key: levelKey,
+            coordinates: [{ x: leftX, y }, { x: rightX, y }]
+          })
           texts.push({
+            key: `${levelKey}_text`,
             x: textX,
             y,
             text: `${price} (${(percent * 100).toFixed(1)}%)`,
@@ -96,6 +122,7 @@ const fibonacciExtension = (): ProOverlayTemplate => {
       return [
         {
           type: 'line',
+          key: 'diagonal',
           attrs: { coordinates },
           styles: diagLineStyle(props)
         },

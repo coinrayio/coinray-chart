@@ -17,6 +17,19 @@ import type { LineType, PolygonType } from '../../common/Styles'
 import type { OverlayTemplate } from '../../component/Overlay'
 
 /**
+ * Per-level configuration for multi-level overlays (fibonacci, etc.).
+ * Supports TradingView-style configurable levels with enable/disable and per-level colors.
+ */
+export interface FigureLevel {
+  /** The percentage/ratio value (e.g., 0.618, 1.0, 2.618) */
+  value: number
+  /** Whether this level is displayed */
+  enabled: boolean
+  /** Per-level color override (falls back to overlay's lineColor/borderColor) */
+  color?: string
+}
+
+/**
  * Extended overlay properties for per-instance styling.
  * This interface provides comprehensive styling options for overlays
  * that need individual property management (Pro overlays).
@@ -84,6 +97,9 @@ export interface OverlayProperties {
 
   /** Border width in pixels */
   borderWidth: number
+
+  /** Configurable figure levels for multi-level overlays (fibonacci, etc.) */
+  figureLevels: FigureLevel[]
 }
 
 /**
@@ -111,7 +127,8 @@ export const DEFAULT_OVERLAY_PROPERTIES: OverlayProperties = {
   backgroundColor: 'rgba(22, 119, 255, 0.25)',
   borderStyle: 'solid',
   borderColor: '#1677FF',
-  borderWidth: 1
+  borderWidth: 1,
+  figureLevels: []
 }
 
 /**

@@ -16,12 +16,21 @@ import type DeepPartial from '../../common/DeepPartial'
 import type { PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 
-import type { OverlayProperties, ProOverlayTemplate } from './types'
+import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 
 import type { CircleAttrs } from '../figure/circle'
 import type { TextAttrs } from '../figure/text'
 
 import { getDistance } from './utils'
+
+export const FIBONACCI_CIRCLE_LEVELS: FigureLevel[] = [
+  { value: 0.236, enabled: true },
+  { value: 0.382, enabled: true },
+  { value: 0.5, enabled: true },
+  { value: 0.618, enabled: true },
+  { value: 0.786, enabled: true },
+  { value: 1, enabled: true }
+]
 
 const fibonacciCircle = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -56,16 +65,21 @@ const fibonacciCircle = (): ProOverlayTemplate => {
       const props = properties.get(overlay.id) ?? {}
       if (coordinates.length > 1) {
         const radius = getDistance(coordinates[0], coordinates[1])
-        const percents = [0.236, 0.382, 0.5, 0.618, 0.786, 1]
+        const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_CIRCLE_LEVELS)
+          .filter(l => l.enabled === true)
         const circles: CircleAttrs[] = []
         const texts: TextAttrs[] = []
-        percents.forEach(percent => {
+        levels.forEach(level => {
+          const percent = level.value ?? 0
           const r = radius * percent
+          const levelKey = `circle_${percent}`
           circles.push({
+            key: levelKey,
             ...coordinates[0],
             r
           })
           texts.push({
+            key: `${levelKey}_text`,
             x: coordinates[0].x,
             y: coordinates[0].y + r + 6,
             text: `${(percent * 100).toFixed(1)}%`
