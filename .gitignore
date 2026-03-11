@@ -9,3 +9,5 @@
 .npmrc
 
 .DS_Store
+
+.claude/
