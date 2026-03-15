@@ -17,6 +17,7 @@ import type { PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 
 /**
  * Rectangle overlay - rectangle defined by two corner points
@@ -67,7 +68,7 @@ const rect = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
       if (coordinates.length < 2) {
         return []
       }
@@ -97,13 +98,9 @@ const rect = (): ProOverlayTemplate => {
       figures.push({
         type: 'editableText',
         attrs: {
-          x: (topLeft.x + bottomRight.x) / 2,
-          y: (topLeft.y + bottomRight.y) / 2,
-          text,
-          align: 'center',
-          baseline: 'middle'
+          ...computeTextPosition((topLeft.x + bottomRight.x) / 2, (topLeft.y + bottomRight.y) / 2, props, bounding.width, 'center', 'middle'), text
         },
-        styles: text.length > 0 ? textStyle(id) : { backgroundColor: 'transparent', borderColor: 'transparent' }
+        styles: textStyle(id)
       })
 
       return figures

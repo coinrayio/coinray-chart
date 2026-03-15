@@ -17,6 +17,7 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 
 const verticalSegment = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -61,7 +62,7 @@ const verticalSegment = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
       if (coordinates.length === 2) {
         const id = overlay.id
         const props = properties.get(id) ?? {}
@@ -74,19 +75,13 @@ const verticalSegment = (): ProOverlayTemplate => {
             styles: lineStyle(id)
           }
         ]
-        if (text.length > 0) {
-          figures.push({
-            type: 'editableText',
-            attrs: {
-              x: coordinates[0].x,
-              y: midY,
-              text,
-              align: 'left' as CanvasTextAlign,
-              baseline: 'bottom' as CanvasTextBaseline
-            },
-            styles: textStyle(id)
-          })
-        }
+        figures.push({
+          type: 'editableText',
+          attrs: {
+            ...computeTextPosition(coordinates[0].x, midY, props, bounding.width, 'center', 'middle'), text
+          },
+          styles: textStyle(id)
+        })
         return figures
       }
       return []

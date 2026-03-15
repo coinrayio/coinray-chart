@@ -19,6 +19,7 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 
 import { type LineAttrs, getLinearSlopeIntercept } from '../figure/line'
 
@@ -121,17 +122,13 @@ const parallelStraightLine = (): ProOverlayTemplate => {
           styles: lineStyle(id)
         }
       ]
-      if (text.length > 0 && lines.length > 0) {
+      if (lines.length > 0) {
         const firstLine = lines[0]
         const firstCoord = firstLine.coordinates[0]
         figures.push({
           type: 'editableText',
           attrs: {
-            x: 10,
-            y: firstCoord.y,
-            text,
-            align: 'left' as CanvasTextAlign,
-            baseline: 'bottom' as CanvasTextBaseline
+            ...computeTextPosition(firstCoord.x, firstCoord.y, props, bounding.width, 'center', 'top'), text
           },
           styles: textStyle(id)
         })

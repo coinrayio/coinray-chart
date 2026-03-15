@@ -17,6 +17,7 @@ import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 import { getRotateCoordinate } from './utils'
 import { getLinearSlopeIntercept } from '../figure/line'
 
@@ -79,7 +80,7 @@ const arrow = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
       if (coordinates.length < 2) {
         return []
       }
@@ -135,14 +136,8 @@ const arrow = (): ProOverlayTemplate => {
       const text = props.text ?? ''
       figures.push({
         type: 'editableText',
-        attrs: {
-          x: (start.x + end.x) / 2,
-          y: (start.y + end.y) / 2,
-          text,
-          align: 'center',
-          baseline: 'bottom'
-        },
-        styles: text.length > 0 ? textStyle(id) : { backgroundColor: 'transparent', borderColor: 'transparent' }
+        attrs: { ...computeTextPosition((start.x + end.x) / 2, (start.y + end.y) / 2, props, bounding.width, 'center', 'top'), text },
+        styles: textStyle(id)
       })
 
       return figures

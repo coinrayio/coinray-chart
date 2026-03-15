@@ -90,6 +90,7 @@ export interface Chart extends Store {
   zoomAtCoordinate: (scale: number, coordinate?: Coordinate, animationDuration?: number) => void
   zoomAtDataIndex: (scale: number, dataIndex: number, animationDuration?: number) => void
   zoomAtTimestamp: (scale: number, timestamp: number, animationDuration?: number) => void
+  setVisibleRange: (range: { from: number; to: number }) => void
   convertToPixel: (points: Partial<Point> | Array<Partial<Point>>, filter?: ConvertFilter) => Partial<Coordinate> | Array<Partial<Coordinate>>
   convertFromPixel: (coordinates: Array<Partial<Coordinate>>, filter?: ConvertFilter) => Partial<Point> | Array<Partial<Point>>
   executeAction: (type: ActionType, data: Crosshair) => void
@@ -1073,6 +1074,19 @@ export default class ChartImp implements Chart {
   zoomAtTimestamp (scale: number, timestamp: number, animationDuration?: number): void {
     const dataIndex = binarySearchNearest(this.getDataList(), 'timestamp', timestamp)
     this.zoomAtDataIndex(scale, dataIndex, animationDuration)
+  }
+
+  setVisibleRange (range: { from: number; to: number }): void {
+    const dataList = this.getDataList()
+    if (dataList.length === 0) return
+    const fromIndex = binarySearchNearest(dataList, 'timestamp', range.from)
+    const toIndex = binarySearchNearest(dataList, 'timestamp', range.to)
+    const barCount = Math.max(toIndex - fromIndex + 1, 1)
+    const totalBarSpace = this._chartStore.getTotalBarSpace()
+    const newBarSpace = totalBarSpace / barCount
+    this._chartStore.setBarSpace(newBarSpace)
+    // After bar space is set, scroll so the right edge aligns with toIndex
+    this.scrollToDataIndex(toIndex)
   }
 
   convertToPixel (points: Partial<Point> | Array<Partial<Point>>, filter?: ConvertFilter): Partial<Coordinate> | Array<Partial<Coordinate>> {

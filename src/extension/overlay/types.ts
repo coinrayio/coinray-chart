@@ -53,6 +53,15 @@ export interface OverlayProperties {
   /** Text font weight (number or CSS keyword) */
   textFontWeight: number | string
 
+  /** Text font style: 'normal' or 'italic' */
+  textFontStyle: 'normal' | 'italic'
+
+  /** Vertical text alignment relative to anchor point: 'top', 'middle', 'bottom' */
+  textAlignVertical: 'top' | 'middle' | 'bottom'
+
+  /** Horizontal text alignment relative to anchor point: 'left', 'center', 'right' */
+  textAlignHorizontal: 'left' | 'center' | 'right'
+
   /** Text background color */
   textBackgroundColor: string
 
@@ -113,6 +122,9 @@ export const DEFAULT_OVERLAY_PROPERTIES: OverlayProperties = {
   textFont: 'Helvetica Neue',
   textFontSize: 12,
   textFontWeight: 'normal',
+  textFontStyle: 'normal',
+  textAlignVertical: 'top',
+  textAlignHorizontal: 'center',
   textBackgroundColor: '#1677FF',
   textPaddingLeft: 4,
   textPaddingRight: 4,

@@ -17,6 +17,7 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 
 const verticalRayLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -77,19 +78,13 @@ const verticalRayLine = (): ProOverlayTemplate => {
             styles: lineStyle(id)
           }
         ]
-        if (text.length > 0) {
-          figures.push({
-            type: 'editableText',
-            attrs: {
-              x: coordinates[0].x,
-              y: coordinates[0].y,
-              text,
-              align: 'left' as CanvasTextAlign,
-              baseline: 'bottom' as CanvasTextBaseline
-            },
-            styles: textStyle(id)
-          })
-        }
+        figures.push({
+          type: 'editableText',
+          attrs: {
+            ...computeTextPosition(coordinates[0].x, coordinates[0].y, props, bounding.width, 'center', 'top'), text
+          },
+          styles: textStyle(id)
+        })
         return figures
       }
       return []

@@ -17,6 +17,7 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 
 const horizontalStraightLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -83,13 +84,11 @@ const horizontalStraightLine = (): ProOverlayTemplate => {
 
       const props = properties.get(id) ?? {}
       const text = props.text ?? ''
-      if (text.length > 0) {
-        figures.push({
-          type: 'editableText',
-          attrs: { x: 10, y: coordinates[0].y, text, align: 'left', baseline: 'bottom' },
-          styles: textStyle(id)
-        })
-      }
+      figures.push({
+        type: 'editableText',
+        attrs: { ...computeTextPosition(coordinates[0].x, coordinates[0].y, props, bounding.width, 'center', 'top'), text },
+        styles: textStyle(id)
+      })
 
       return figures
     },

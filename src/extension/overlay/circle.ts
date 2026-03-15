@@ -17,6 +17,7 @@ import type { PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 import { getDistance } from './utils'
 
 /**
@@ -68,7 +69,7 @@ const circle = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
       if (coordinates.length < 2) {
         return []
       }
@@ -94,13 +95,9 @@ const circle = (): ProOverlayTemplate => {
       figures.push({
         type: 'editableText',
         attrs: {
-          x: center.x,
-          y: center.y,
-          text,
-          align: 'center',
-          baseline: 'middle'
+          ...computeTextPosition(center.x, center.y, props, bounding.width, 'center', 'middle'), text
         },
-        styles: text.length > 0 ? textStyle(id) : { backgroundColor: 'transparent', borderColor: 'transparent' }
+        styles: textStyle(id)
       })
 
       return figures

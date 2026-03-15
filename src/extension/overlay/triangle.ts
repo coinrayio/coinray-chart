@@ -17,6 +17,7 @@ import type { PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 
 /**
  * Triangle overlay - triangle defined by three points
@@ -67,7 +68,7 @@ const triangle = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
       if (coordinates.length < 2) {
         return []
       }
@@ -105,13 +106,9 @@ const triangle = (): ProOverlayTemplate => {
       figures.push({
         type: 'editableText',
         attrs: {
-          x: (c[0].x + c[1].x + c[2].x) / 3,
-          y: (c[0].y + c[1].y + c[2].y) / 3,
-          text,
-          align: 'center',
-          baseline: 'middle'
+          ...computeTextPosition((c[0].x + c[1].x + c[2].x) / 3, (c[0].y + c[1].y + c[2].y) / 3, props, bounding.width, 'center', 'middle'), text
         },
-        styles: text.length > 0 ? textStyle(id) : { backgroundColor: 'transparent', borderColor: 'transparent' }
+        styles: textStyle(id)
       })
 
       return figures

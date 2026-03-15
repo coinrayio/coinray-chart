@@ -17,6 +17,7 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { isValid, merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 
 const horizontalRayLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -84,8 +85,8 @@ const horizontalRayLine = (): ProOverlayTemplate => {
       const text = props.text ?? ''
       figures.push({
         type: 'editableText',
-        attrs: { x: coordinates[0].x, y: coordinates[0].y, text, align: 'center', baseline: 'bottom' },
-        styles: text.length > 0 ? textStyle(id) : { backgroundColor: 'transparent', borderColor: 'transparent' }
+        attrs: { ...computeTextPosition(coordinates[0].x, coordinates[0].y, props, bounding.width, 'center', 'top'), text },
+        styles: textStyle(id)
       })
 
       return figures

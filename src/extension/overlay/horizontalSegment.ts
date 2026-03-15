@@ -17,6 +17,7 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { computeTextPosition } from './textUtils'
 import type { LineAttrs } from '../figure/line'
 
 const horizontalSegment = (): ProOverlayTemplate => {
@@ -62,7 +63,7 @@ const horizontalSegment = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
       const id = overlay.id
       const lines: LineAttrs[] = []
       if (coordinates.length === 2) {
@@ -83,12 +84,12 @@ const horizontalSegment = (): ProOverlayTemplate => {
 
       const props = properties.get(id) ?? {}
       const text = props.text ?? ''
-      if (text.length > 0 && coordinates.length === 2) {
+      if (coordinates.length === 2) {
         const midX = (coordinates[0].x + coordinates[1].x) / 2
         const midY = coordinates[0].y
         figures.push({
           type: 'editableText',
-          attrs: { x: midX, y: midY, text, align: 'center', baseline: 'bottom' },
+          attrs: { ...computeTextPosition(midX, midY, props, bounding.width, 'center', 'top'), text },
           styles: textStyle(id)
         })
       }

@@ -18,6 +18,7 @@ import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 import { getLinearYFromCoordinates } from '../figure/line'
+import { computeTextPosition } from './textUtils'
 
 const segment = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -116,8 +117,8 @@ const segment = (): ProOverlayTemplate => {
       const midY = (lineCoordinates[0].y + lineCoordinates[1].y) / 2
       figures.push({
         type: 'editableText',
-        attrs: { x: midX, y: midY, text, align: 'center', baseline: 'bottom' },
-        styles: text.length > 0 ? textStyle(id) : { backgroundColor: 'transparent', borderColor: 'transparent' }
+        attrs: { ...computeTextPosition(midX, midY, props, bounding.width, 'center', 'top'), text },
+        styles: textStyle(id)
       })
 
       return figures

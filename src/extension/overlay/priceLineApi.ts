@@ -71,15 +71,22 @@ export interface PriceLineProperties {
   /** Label padding bottom */
   labelPaddingBottom?: number
 
-  /** Whether label renders above, below, or centered on the line (default: 'above') */
+  /** Whether label renders above, below, or centered on the line (default: 'above').
+   *  'above' and 'below' apply a 6px gap between the line and label.
+   *  Use labelOffsetY for custom gap control. */
   labelPosition?: 'above' | 'below' | 'center'
-  /** Horizontal alignment of the label (default: 'left') */
+  /** Horizontal alignment of the label (default: 'left').
+   *  Controls both the text anchor and position when labelOffsetPercentX is not set.
+   *  Note: labelOffsetPercentX takes precedence over labelAlign for positioning. */
   labelAlign?: 'left' | 'center' | 'right'
-  /** Horizontal offset from the point in pixels (default: 10) */
+  /** Horizontal offset from the aligned position in pixels (default: 10) */
   labelOffsetX?: number
-  /** Vertical gap between line and label in pixels (default: 0) */
+  /** Vertical gap between line and label in pixels. When > 0, overrides the default 6px gap (default: 0) */
   labelOffsetY?: number
-  /** Percentage (0-100) of chart width to position the label from the left. -1 to disable (default: -1) */
+  /** Percentage (0-100) of chart width to position the label from the left.
+   *  Set to -1 to disable and fall back to labelAlign positioning.
+   *  When >= 0, this takes precedence over labelAlign for the X position.
+   *  (default: -1) */
   labelOffsetPercentX?: number
 
   // -- Y-axis price label --

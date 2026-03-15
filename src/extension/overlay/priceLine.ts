@@ -150,32 +150,48 @@ const priceLine = (): ProOverlayTemplate => {
             borderRadius: prop('labelBorderRadius')
           }
 
+          // Text tab properties override priceLine's own label positioning
+          const textAlignH = (props.textAlignHorizontal ?? ext?.textAlignHorizontal) as string | undefined
+          const textAlignV = (props.textAlignVertical ?? ext?.textAlignVertical) as string | undefined
+
           const labelPosition = prop('labelPosition')
           const labelAlign = prop('labelAlign')
           const offsetX = prop('labelOffsetX')
           const offsetY = prop('labelOffsetY')
           const percentX = prop('labelOffsetPercentX')
+          const gap = 6
 
-          // Compute label X based on alignment and percentX
-          const labelX = percentX >= 0
-            ? bounding.width * (percentX / 100)
-            : labelAlign === 'center'
-              ? bounding.width / 2 + offsetX
+          // Compute label X
+          // Priority: textAlignHorizontal (Text tab) > percentX > labelAlign
+          const { labelX, align } = textAlignH != null
+            ? {
+                labelX: textAlignH === 'left'
+                  ? Math.round(bounding.width * 0.04)
+                  : textAlignH === 'right'
+                    ? Math.round(bounding.width * 0.96)
+                    : bounding.width / 2,
+                align: textAlignH as CanvasTextAlign
+              }
+            : percentX >= 0
+              ? { labelX: bounding.width * (percentX / 100), align: labelAlign as CanvasTextAlign }
               : labelAlign === 'right'
-                ? bounding.width - offsetX
-                : offsetX
+                ? { labelX: bounding.width - offsetX, align: 'right' as CanvasTextAlign }
+                : labelAlign === 'left'
+                  ? { labelX: offsetX, align: 'left' as CanvasTextAlign }
+                  : { labelX: bounding.width / 2 + offsetX, align: 'center' as CanvasTextAlign }
 
-          // Compute label Y and baseline based on position
-          const labelY = labelPosition === 'center'
-            ? y + offsetY
-            : labelPosition === 'below'
-              ? y + offsetY
-              : y - offsetY
-          const baseline: CanvasTextBaseline = labelPosition === 'center'
-            ? 'middle'
-            : labelPosition === 'below'
+          // Compute label Y — textAlignVertical overrides if set
+          const effectiveVAlign = textAlignV ?? (labelPosition === 'above' ? 'top' : labelPosition === 'below' ? 'bottom' : 'middle')
+          const labelY = effectiveVAlign === 'top'
+            ? y - (offsetY > 0 ? offsetY : gap)
+            : effectiveVAlign === 'bottom'
+              ? y + (offsetY > 0 ? offsetY : gap)
+              : y + offsetY
+          const baseline: CanvasTextBaseline = effectiveVAlign === 'top'
+            ? 'bottom'
+            : effectiveVAlign === 'bottom'
               ? 'top'
-              : 'bottom'
+              : 'middle'
 
           figures.push({
             type: labelEditable ? 'editableText' : 'text',
@@ -183,7 +199,7 @@ const priceLine = (): ProOverlayTemplate => {
               x: labelX,
               y: labelY,
               text: labelText,
-              align: labelAlign as CanvasTextAlign,
+              align,
               baseline
             },
             styles: labelStyles

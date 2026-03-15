@@ -757,8 +757,11 @@ export default class StoreImp implements Store {
       from = 0
     }
     const realFrom = this._lastBarRightSideDiffBarCount > 0 ? Math.round(totalBarCount + this._lastBarRightSideDiffBarCount - visibleBarCount) - 1 : from
+    const prevRange = this._visibleRange
     this._visibleRange = { from, to, realFrom, realTo }
-    this.executeAction('onVisibleRangeChange', this._visibleRange)
+    if (prevRange.from !== from || prevRange.to !== to || prevRange.realFrom !== realFrom || prevRange.realTo !== realTo) {
+      this.executeAction('onVisibleRangeChange', this._visibleRange)
+    }
     this._visibleRangeDataList = []
     this._visibleRangeHighLowPrice = [
       { x: 0, price: Number.MIN_SAFE_INTEGER },
@@ -891,6 +894,10 @@ export default class StoreImp implements Store {
       buildYAxisTick: true,
       cacheYAxisWidth: true
     })
+  }
+
+  getTotalBarSpace (): number {
+    return this._totalBarSpace
   }
 
   setTotalBarSpace (totalSpace: number): void {

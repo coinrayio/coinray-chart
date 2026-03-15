@@ -19,6 +19,7 @@ import type { EventHandler, EventName, MouseTouchEvent, MouseTouchEventCallback 
 import { isFunction, isNumber, isValid } from '../common/utils/typeChecks'
 import type { TextStyle } from '../common/Styles'
 import { createFont } from '../common/utils/canvas'
+import { UpdateLevel } from '../common/Updater'
 
 import type { Axis } from '../component/Axis'
 import type { YAxis } from '../component/YAxis'
@@ -259,14 +260,16 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   private _stopTextEdit (commit: boolean): void {
     if (this._activeTextEditor === null) return
     const { input, overlay, figure, cleanup } = this._activeTextEditor
+    const chart = this.getWidget().getPane().getChart()
     if (commit && isFunction(overlay.onTextChange)) {
       const text = input.value
-      const chart = this.getWidget().getPane().getChart()
       const figureKey = figure.key
       overlay.onTextChange({ chart, overlay, figure, figureKey, text })
     }
     cleanup()
     this._activeTextEditor = null
+    // Re-render overlay so the canvas text figure reappears
+    chart.updatePane(UpdateLevel.Overlay)
   }
 
   private _startTextEdit (overlay: OverlayImp, figure: OverlayFigure, styles: Partial<TextStyle>): void {
@@ -274,13 +277,17 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     this._stopTextEdit(false)
 
     const attrs = figure.attrs as TextAttrs
-    const rect = getTextRect(attrs, styles)
+    // Use placeholder text for sizing when actual text is empty, so the input
+    // properly covers the placeholder area on the canvas
+    const sizingAttrs = attrs.text.length === 0 ? { ...attrs, text: '+ Add text' } : attrs
+    const rect = getTextRect(sizingAttrs, styles)
 
     const container = this.getWidget().getContainer()
 
     const input = document.createElement('input')
     input.type = 'text'
     input.value = attrs.text
+    input.placeholder = '+ Add text'
 
     const {
       size = 12,
@@ -300,7 +307,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       position: 'absolute',
       left: `${rect.x}px`,
       top: `${rect.y}px`,
-      width: `${Math.max(rect.width, 60)}px`,
+      width: `${Math.max(rect.width, 120)}px`,
       height: `${rect.height}px`,
       padding: `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`,
       margin: '0',
@@ -453,11 +460,38 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     return (event: MouseTouchEvent) => {
       const pane = this.getWidget().getPane()
       const paneId = pane.getId()
+      const chart = pane.getChart()
+      const chartStore = chart.getChartStore()
       const check = !overlay.isDrawing() && checkOverlayFigureEvent('onClick', figure)
-      if (check) {
-        overlay.onClick?.({ chart: this.getWidget().getPane().getChart(), overlay, figure, ...event })
+
+      // If overlay is already selected and user clicks on editableText, start inline editing
+      const wasSelected = chartStore.getClickOverlayInfo().overlay?.id === overlay.id
+      if (wasSelected && figure.type === 'editableText' && isFunction(overlay.onTextChange)) {
+        const defaultStyles = chart.getStyles().overlay
+        const figureKey = figure.key ?? ((figure.attrs as TextAttrs).key)
+        let keyedStyles = figureKey != null && figureKey !== '' ? overlay.figureStyles[figureKey] as Record<string, unknown> | undefined : undefined
+        if (keyedStyles == null && figureKey != null && figureKey !== '') {
+          for (const fKey of Object.keys(overlay.figureStyles)) {
+            if (figureKey.startsWith(fKey + '_')) {
+              keyedStyles = overlay.figureStyles[fKey] as Record<string, unknown> | undefined
+              break
+            }
+          }
+        }
+        const styles: Partial<TextStyle> = {
+          ...(defaultStyles.text as Partial<TextStyle>),
+          ...(overlay.styles?.text as Partial<TextStyle>),
+          ...(figure.styles as Partial<TextStyle>),
+          ...keyedStyles
+        }
+        this._startTextEdit(overlay, figure, styles)
+        return true
       }
-      pane.getChart().getChartStore().setClickOverlayInfo(
+
+      if (check) {
+        overlay.onClick?.({ chart, overlay, figure, ...event })
+      }
+      chartStore.setClickOverlayInfo(
         { paneId, overlay, figureType, figureIndex, figure },
         (o, f) => this._processOverlaySelectedEvent(o, f, event),
         (o, f) => this._processOverlayDeselectedEvent(o, f, event)
@@ -469,27 +503,6 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   private _figureMouseDoubleClickEvent (overlay: OverlayImp, _figureType: EventOverlayInfoFigureType, _figureIndex: number, figure: OverlayFigure): MouseTouchEventCallback {
     return (event: MouseTouchEvent) => {
       if (checkOverlayFigureEvent('onDoubleClick', figure)) {
-        // If the figure is editableText and the overlay has onTextChange, start inline editing
-        if (figure.type === 'editableText' && isFunction(overlay.onTextChange)) {
-          const defaultStyles = this.getWidget().getPane().getChart().getStyles().overlay
-          const figureKey = figure.key ?? ((figure.attrs as TextAttrs).key)
-          let keyedStyles = figureKey != null && figureKey !== '' ? overlay.figureStyles[figureKey] as Record<string, unknown> | undefined : undefined
-          if (keyedStyles == null && figureKey != null && figureKey !== '') {
-            for (const fKey of Object.keys(overlay.figureStyles)) {
-              if (figureKey.startsWith(fKey + '_')) {
-                keyedStyles = overlay.figureStyles[fKey] as Record<string, unknown> | undefined
-                break
-              }
-            }
-          }
-          const styles: Partial<TextStyle> = {
-            ...(defaultStyles.text as Partial<TextStyle>),
-            ...(overlay.styles?.text as Partial<TextStyle>),
-            ...(figure.styles as Partial<TextStyle>),
-            ...keyedStyles
-          }
-          this._startTextEdit(overlay, figure, styles)
-        }
         overlay.onDoubleClick?.({ ...event, chart: this.getWidget().getPane().getChart(), figure, overlay })
         return !overlay.isDrawing()
       }
@@ -658,6 +671,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         overlay,
         figures
       )
+      this._drawEditableTextPlaceholders(ctx, overlay, figures)
     }
     this.drawDefaultFigures(
       ctx,
@@ -666,10 +680,148 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     )
   }
 
+  /**
+   * Draw "+ Add text" placeholder for editableText figures that have empty text,
+   * but only when the overlay is both selected (clicked) and hovered.
+   * This mirrors TradingView's UX: an affordance appears only when the user
+   * is actively interacting with the overlay.
+   */
+  private _drawEditableTextPlaceholders (
+    ctx: CanvasRenderingContext2D,
+    overlay: OverlayImp,
+    figures: OverlayFigure[]
+  ): void {
+    const chartStore = this.getWidget().getPane().getChart().getChartStore()
+    const hoverOverlayInfo = chartStore.getHoverOverlayInfo()
+    const clickOverlayInfo = chartStore.getClickOverlayInfo()
+
+    const isSelected = clickOverlayInfo.overlay?.id === overlay.id
+    const isHovered = hoverOverlayInfo.overlay?.id === overlay.id
+
+    if (!isSelected || !isHovered) {
+      return
+    }
+
+    // Don't draw placeholders while actively editing text
+    if (this._activeTextEditor !== null && this._activeTextEditor.overlay.id === overlay.id) {
+      return
+    }
+
+    const defaultStyles = this.getWidget().getPane().getChart().getStyles().overlay
+
+    figures.forEach(figure => {
+      if (figure.type !== 'editableText') {
+        return
+      }
+
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
+      // @ts-expect-error
+      const attrsArray: TextAttrs[] = [].concat(figure.attrs)
+      attrsArray.forEach(attrs => {
+        if (attrs.text.length > 0) {
+          return
+        }
+
+        // Build merged styles the same way drawFigures does
+        const figureKey = figure.key
+        const attrKey = (attrs as { key?: string }).key
+        const effectiveKey = attrKey ?? figureKey
+        let keyedStyles = effectiveKey != null && effectiveKey !== ''
+          ? overlay.figureStyles[effectiveKey] as Record<string, unknown> | undefined
+          : undefined
+        if (keyedStyles == null && effectiveKey != null && effectiveKey !== '') {
+          for (const fKey of Object.keys(overlay.figureStyles)) {
+            if (effectiveKey.startsWith(fKey + '_')) {
+              keyedStyles = overlay.figureStyles[fKey] as Record<string, unknown> | undefined
+              break
+            }
+          }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
+        // @ts-expect-error
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
+        const baseStyles = { ...defaultStyles.text, ...overlay.styles?.text, ...figure.styles, ...keyedStyles }
+        const mergedStyles = baseStyles as Partial<TextStyle>
+
+        // Derive a dimmed placeholder color: 50% opacity of the text color
+        const baseColor: string = mergedStyles.color ?? '#FFFFFF'
+        const placeholderColor = this._dimColor(baseColor, 0.5)
+
+        const placeholderAttrs: TextAttrs = {
+          x: attrs.x,
+          y: attrs.y,
+          text: '+ Add text',
+          align: attrs.align,
+          baseline: attrs.baseline
+        }
+
+        const placeholderStyles: Partial<TextStyle> = {
+          ...mergedStyles,
+          color: placeholderColor,
+          backgroundColor: 'transparent',
+          borderColor: 'transparent',
+          borderSize: 0
+        }
+
+        this.createFigure({
+          name: 'text',
+          attrs: placeholderAttrs,
+          styles: placeholderStyles
+        })?.draw(ctx)
+      })
+    })
+  }
+
+  /**
+   * Return a CSS color string at reduced opacity.
+   * Handles hex (#RGB, #RRGGBB) and rgb/rgba strings.
+   * Falls back to 'rgba(255,255,255,0.5)' for unrecognised formats.
+   */
+  private _dimColor (color: string, opacity: number): string {
+    const trimmed = color.trim()
+
+    // hex shorthand #RGB
+    const hex3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(trimmed)
+    if (hex3 !== null) {
+      const r = parseInt(hex3[1] + hex3[1], 16)
+      const g = parseInt(hex3[2] + hex3[2], 16)
+      const b = parseInt(hex3[3] + hex3[3], 16)
+      return `rgba(${r},${g},${b},${opacity})`
+    }
+
+    // hex full #RRGGBB
+    const hex6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(trimmed)
+    if (hex6 !== null) {
+      const r = parseInt(hex6[1], 16)
+      const g = parseInt(hex6[2], 16)
+      const b = parseInt(hex6[3], 16)
+      return `rgba(${r},${g},${b},${opacity})`
+    }
+
+    // rgb(r, g, b)
+    const rgbMatch = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/.exec(trimmed)
+    if (rgbMatch !== null) {
+      return `rgba(${rgbMatch[1]},${rgbMatch[2]},${rgbMatch[3]},${opacity})`
+    }
+
+    // rgba(r, g, b, a) — replace existing alpha
+    const rgbaMatch = /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,[\d.]+\)$/.exec(trimmed)
+    if (rgbaMatch !== null) {
+      return `rgba(${rgbaMatch[1]},${rgbaMatch[2]},${rgbaMatch[3]},${opacity})`
+    }
+
+    return `rgba(255,255,255,${opacity})`
+  }
+
   protected drawFigures (ctx: CanvasRenderingContext2D, overlay: OverlayImp, figures: OverlayFigure[]): void {
     const defaultStyles = this.getWidget().getPane().getChart().getStyles().overlay
     figures.forEach((figure, figureIndex) => {
       const { type, key: figureKey, styles, attrs } = figure
+      // Skip drawing editableText figures that are currently being edited via HTML input
+      if (type === 'editableText' && this._activeTextEditor !== null && this._activeTextEditor.overlay.id === overlay.id && this._activeTextEditor.figure === figure) {
+        return
+      }
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
       // @ts-expect-error
       const attrsArray = [].concat(attrs)
@@ -755,6 +907,16 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
           ? { color: baseColor, activeColor: baseColor, borderColor: baseColor }
           : {}
         const pointStyles = { ...defaultStyles.point, ...pointColorOverride, ...styles?.point }
+        const isTvMode = pointStyles.mode === 'stroke'
+        // Get chart container background color for stroke-mode fill
+        let bgColor = '#000000'
+        if (isTvMode) {
+          const container = this.getWidget().getPane().getChart().getContainer()
+          const computed = window.getComputedStyle(container).backgroundColor
+          if (computed !== '' && computed !== 'transparent' && computed !== 'rgba(0, 0, 0, 0)') {
+            bgColor = computed
+          }
+        }
         coordinates.forEach(({ x, y }, index) => {
           let radius = pointStyles.radius
           let color = pointStyles.color
@@ -771,29 +933,65 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
             borderSize = pointStyles.activeBorderSize
           }
 
-          this.createFigure(
-            {
+          if (isTvMode) {
+            // TV-style: stroke circle with chart bg fill, 40% wider diameter (20% larger radius)
+            const tvRadius = Math.round(radius * 1.2)
+            // Draw filled background circle first, then stroke on top
+            this.createFigure({
               name: 'circle',
-              attrs: { x, y, r: radius + borderSize },
-              styles: { color: borderColor }
-            },
-            this._createFigureEvents(
-              overlay,
-              'point',
-              index,
+              attrs: { x, y, r: tvRadius },
+              styles: { color: bgColor }
+            })?.draw(ctx)
+            this.createFigure(
               {
-                key: `${OVERLAY_FIGURE_KEY_PREFIX}point_${index}`,
-                type: 'circle',
+                name: 'circle',
+                attrs: { x, y, r: tvRadius },
+                styles: {
+                  style: 'stroke',
+                  color: 'transparent',
+                  borderColor,
+                  borderSize,
+                  borderStyle: 'solid'
+                }
+              },
+              this._createFigureEvents(
+                overlay,
+                'point',
+                index,
+                {
+                  key: `${OVERLAY_FIGURE_KEY_PREFIX}point_${index}`,
+                  type: 'circle',
+                  attrs: { x, y, r: tvRadius },
+                  styles: { borderColor }
+                }
+              ) ?? undefined
+            )?.draw(ctx)
+          } else {
+            // Solid mode: two concentric filled circles (border + fill)
+            this.createFigure(
+              {
+                name: 'circle',
                 attrs: { x, y, r: radius + borderSize },
                 styles: { color: borderColor }
-              }
-            ) ?? undefined
-          )?.draw(ctx)
-          this.createFigure({
-            name: 'circle',
-            attrs: { x, y, r: radius },
-            styles: { color }
-          })?.draw(ctx)
+              },
+              this._createFigureEvents(
+                overlay,
+                'point',
+                index,
+                {
+                  key: `${OVERLAY_FIGURE_KEY_PREFIX}point_${index}`,
+                  type: 'circle',
+                  attrs: { x, y, r: radius + borderSize },
+                  styles: { color: borderColor }
+                }
+              ) ?? undefined
+            )?.draw(ctx)
+            this.createFigure({
+              name: 'circle',
+              attrs: { x, y, r: radius },
+              styles: { color }
+            })?.draw(ctx)
+          }
         })
       }
     }
