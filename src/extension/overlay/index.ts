@@ -68,6 +68,9 @@ import gannBox from './gannBox'
 // Order line overlay (Pro overlay with factory pattern)
 import orderLine from './orderLine'
 
+// Trade line overlay (Pro overlay with factory pattern)
+import tradeLine from './tradeLine'
+
 const overlays: Record<string, OverlayInnerConstructor> = {}
 
 // Standard overlays (direct templates)
@@ -87,7 +90,8 @@ const proExtensions = [
   threeWaves, fiveWaves, eightWaves, anyWaves,
   abcd, xabcd,
   gannBox,
-  orderLine
+  orderLine,
+  tradeLine
 ]
 
 // Register standard overlays (direct templates)
@@ -142,3 +146,7 @@ export { createOrderLine } from './orderLineApi'
 // Export price line types and fluent API
 export type { PriceLineProperties, PriceLine, PriceLineEventListener } from './priceLineApi'
 export { createPriceLine } from './priceLineApi'
+
+// Export trade line types and fluent API
+export type { TradeLineProperties, TradeLine } from './tradeLineApi'
+export { createTradeLine } from './tradeLineApi'

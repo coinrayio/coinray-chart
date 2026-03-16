@@ -68,14 +68,15 @@ import { registerIndicator, getSupportedIndicators } from './extension/indicator
 import { registerLocale, getSupportedLocales } from './extension/i18n/index'
 import {
   registerOverlay, getOverlayClass, getSupportedOverlays,
-  createOrderLine, createPriceLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
+  createOrderLine, createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
   FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS
 } from './extension/overlay/index'
 import type {
   OverlayProperties, ProOverlayTemplate, OverlayPropertiesStore,
   FigureLevel,
   OrderLineProperties, OrderLine, OrderLineStyle, OrderLineEventListener,
-  PriceLineProperties, PriceLine, PriceLineEventListener
+  PriceLineProperties, PriceLine, PriceLineEventListener,
+  TradeLineProperties, TradeLine
 } from './extension/overlay/index'
 import { registerStyles } from './extension/styles/index'
 import { registerXAxis } from './extension/x-axis'
@@ -184,7 +185,7 @@ export {
   registerXAxis, registerYAxis,
   utils,
   // Pro overlay utilities
-  createOrderLine, createPriceLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
+  createOrderLine, createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
   // Default fibonacci levels
   FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
   // Types
@@ -194,5 +195,6 @@ export {
   // Pro overlay types
   type OverlayProperties, type ProOverlayTemplate, type OverlayPropertiesStore, type FigureLevel,
   type OrderLineProperties, type OrderLine, type OrderLineStyle, type OrderLineEventListener,
-  type PriceLineProperties, type PriceLine, type PriceLineEventListener
+  type PriceLineProperties, type PriceLine, type PriceLineEventListener,
+  type TradeLineProperties, type TradeLine
 }
