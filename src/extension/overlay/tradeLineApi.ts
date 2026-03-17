@@ -31,10 +31,12 @@ export interface TradeLineProperties {
   text?: string
   /** Text font size in pixels */
   textFontSize?: number
-  /** Pixel gap between text label and arrow */
+  /** Pixel gap between label arrow and text label */
   textGap?: number
-  /** Pixel gap between arrow tip and candle high/low */
+  /** Pixel gap between candle wick (high/low) and label arrow tip */
   gap?: number
+  /** Show small indicator arrow between text label and candle */
+  showLabelArrow?: boolean
   /** Timestamp for positioning (milliseconds) */
   timestamp?: number
   /** Price value — used as fallback Y when candle data is unavailable */
@@ -59,6 +61,7 @@ export interface TradeLine {
   setTextFontSize: (size: number) => TradeLine
   setTextGap: (gap: number) => TradeLine
   setGap: (gap: number) => TradeLine
+  setShowLabelArrow: (show: boolean) => TradeLine
   setTimestamp: (timestamp: number) => TradeLine
   setPrice: (price: number) => TradeLine
 
@@ -156,6 +159,12 @@ export function createTradeLine (
 
     setGap (gap: number): TradeLine {
       properties.gap = gap
+      update()
+      return self
+    },
+
+    setShowLabelArrow (show: boolean): TradeLine {
+      properties.showLabelArrow = show
       update()
       return self
     },

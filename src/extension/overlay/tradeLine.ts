@@ -15,9 +15,23 @@
 /**
  * Trade Line Overlay
  *
- * A klinecharts overlay template that renders directional trade arrows
- * (buy/sell) positioned relative to candle high/low. Supports three
- * arrow types: wide, arrow, and tiny.
+ * Each tradeLine renders TWO arrows:
+ *
+ * 1. MAIN ARROW — inside the candle body (one of three types):
+ *    wide  — stroke_fill rect body + wider triangle head
+ *    arrow — line-based stem + chevron head (smaller)
+ *    tiny  — chevron head only (V for down, A for up — no stem)
+ *
+ * 2. LABEL ARROW — small indicator arrow between the text label and
+ *    the candle, pointing toward the candle. Optional (showLabelArrow).
+ *
+ * Layout (sell/down example):
+ *   "0.5 @2127.73"    ← text label above candle
+ *        ↓             ← label arrow (optional)
+ *      ┃   ┃           ← candle wick
+ *   ┌──────────┐
+ *   │    ▼     │       ← main arrow inside candle body
+ *   └──────────┘
  */
 
 import type DeepPartial from '../../common/DeepPartial'
@@ -38,11 +52,12 @@ const defaultTradeLineStyle: Required<Omit<TradeLineProperties, 'timestamp' | 'p
   text: '',
   textFontSize: 12,
   textGap: 2,
-  gap: 4
+  gap: 4,
+  showLabelArrow: true
 }
 
 // ---------------------------------------------------------------------------
-// Arrow geometry constants
+// Arrow geometry constants — main arrows (inside candle body)
 // ---------------------------------------------------------------------------
 
 // Wide arrow: narrow rect body + wider triangle head (stroke_fill)
@@ -51,17 +66,21 @@ const WIDE_BODY_H = 12
 const WIDE_HEAD_W = 16
 const WIDE_HEAD_H = 10
 
-// Arrow: line + chevron head
+// Arrow (line-based): stem + chevron head — smaller than wide
 const ARROW_LINE_W = 2
-const ARROW_LINE_H = 10
-const ARROW_HEAD_W = 8
-const ARROW_HEAD_H = 6
+const ARROW_LINE_H = 6
+const ARROW_HEAD_W = 7
+const ARROW_HEAD_H = 4
 
-// Tiny: miniature line arrow
-const TINY_LINE_W = 1
-const TINY_LINE_H = 4
-const TINY_HEAD_W = 4
-const TINY_HEAD_H = 3
+// Tiny: filled triangle head only (no stem) — like a mini wide head
+const TINY_HEAD_W = 10
+const TINY_HEAD_H = 6
+
+// Label indicator arrow (between text and candle)
+const LABEL_HEAD_W = 6
+const LABEL_HEAD_H = 4
+const LABEL_LINE_W = 1.5
+const LABEL_LINE_H = 4
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -86,16 +105,10 @@ const tradeLine = (): ProOverlayTemplate => {
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
 
-    createPointFigures: ({ coordinates, overlay, chart, yAxis }) => {
-      const figures: Array<{
-        type: string
-        key?: string
-        attrs: Record<string, unknown>
-        styles?: Record<string, unknown>
-        ignoreEvent?: boolean
-      }> = []
+    createPointFigures: ({ coordinates, overlay, chart, xAxis, yAxis }) => {
+      const figures: FigureArray = []
 
-      if (coordinates.length === 0 || yAxis == null) return []
+      if (coordinates.length === 0 || yAxis == null || xAxis == null) return []
 
       // Sync extendData
       _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
@@ -108,59 +121,112 @@ const tradeLine = (): ProOverlayTemplate => {
       const textColor = prop('textColor') ?? defaultTradeLineStyle.textColor
       const text = prop('text') ?? ''
       const gap = prop('gap') ?? defaultTradeLineStyle.gap
+      const showLabelArrow = prop('showLabelArrow') ?? defaultTradeLineStyle.showLabelArrow
 
       const x = coordinates[0].x
 
-      // Resolve Y from candle high/low at this dataIndex
-      const point = overlay.points[0]
+      // Resolve candle at this position using xAxis pixel → dataIndex
       const dataList = chart.getDataList()
-      const dataIndex = point.dataIndex
-      let anchorY = coordinates[0].y
+      const dataIndex = xAxis.convertFromPixel(x)
 
-      if (dataIndex != null && dataIndex >= 0 && dataIndex < dataList.length) {
+      let highY = coordinates[0].y
+      let lowY = coordinates[0].y
+      let bodyTopY = coordinates[0].y
+      let bodyBottomY = coordinates[0].y
+
+      if (dataIndex >= 0 && dataIndex < dataList.length) {
         const candle = dataList[dataIndex]
-        if (direction === 'up') {
-          // Buy: arrow below candle low
-          anchorY = yAxis.convertToPixel(candle.low)
-        } else {
-          // Sell: arrow above candle high
-          anchorY = yAxis.convertToPixel(candle.high)
-        }
+        highY = yAxis.convertToPixel(candle.high)
+        lowY = yAxis.convertToPixel(candle.low)
+        bodyTopY = yAxis.convertToPixel(Math.max(candle.open, candle.close))
+        bodyBottomY = yAxis.convertToPixel(Math.min(candle.open, candle.close))
       }
 
-      // anchorY is candle edge. Arrow tip is at anchorY +/- gap
-      // For 'up': tip points up toward candle, so tip is at anchorY + gap (below candle)
-      //   arrow body extends downward from tip
-      // For 'down': tip points down toward candle, so tip is at anchorY - gap (above candle)
-      //   arrow body extends upward from tip
-
-      const tipY = direction === 'up' ? anchorY + gap : anchorY - gap
+      // -------------------------------------------------------------------
+      // 1. MAIN ARROW — inside candle body, anchored to body edge
+      // -------------------------------------------------------------------
+      const mainTotalH = getArrowTotalHeight(arrowType)
+      // sell (down): starts from upper body, arrow extends downward
+      //   top of arrow = bodyTopY → tipY = bodyTopY + totalH
+      // buy (up): starts from lower body, arrow extends upward
+      //   bottom of arrow = bodyBottomY → tipY = bodyBottomY - totalH
+      const mainTipY = direction === 'up'
+        ? bodyBottomY - mainTotalH
+        : bodyTopY + mainTotalH
 
       if (arrowType === 'wide') {
-        drawWideArrow(figures, x, tipY, direction, color)
+        drawWideArrow(figures, x, mainTipY, direction, color)
       } else if (arrowType === 'arrow') {
-        drawArrow(figures, x, tipY, direction, color)
+        drawLineArrow(figures, x, mainTipY, direction, color)
       } else {
-        drawTinyArrow(figures, x, tipY, direction, color)
+        drawTinyArrow(figures, x, mainTipY, direction, color)
       }
 
-      // Text label
+      // -------------------------------------------------------------------
+      // Label arrow + text — positioned outside candle wick
+      //
+      // Layout (sell/down, building outward from wick):
+      //   text         ← textGap above label arrow
+      //     ↕ textGap
+      //   label arrow  ← gap above wick
+      //     ↕ gap
+      //   wick (highY)
+      // -------------------------------------------------------------------
       if (text.length > 0) {
         const textFontSize = prop('textFontSize') ?? defaultTradeLineStyle.textFontSize
         const textGap = prop('textGap') ?? defaultTradeLineStyle.textGap
-        const textY = getTextY(tipY, direction, arrowType, textGap)
-        figures.push({
-          type: 'editableText',
-          key: 'text',
-          attrs: {
-            x,
-            y: textY,
-            text,
-            align: 'center',
-            baseline: direction === 'up' ? 'top' : 'bottom'
-          },
-          styles: { color: textColor, size: textFontSize }
-        })
+        const labelTotalH = LABEL_HEAD_H + LABEL_LINE_H
+
+        if (showLabelArrow) {
+          // Label arrow tip closest to wick, body extends away
+          // sell (down): tip below, at highY - gap
+          // buy  (up):   tip above, at lowY + gap
+          const labelTipY = direction === 'up'
+            ? lowY + gap
+            : highY - gap
+
+          drawLabelArrow(figures, x, labelTipY, direction, color)
+
+          // Text beyond the label arrow
+          // sell (down): text above label arrow top (baseline = 'bottom')
+          //   label arrow top = tipY - labelTotalH → textY = that - textGap
+          // buy  (up):   text below label arrow bottom (baseline = 'top')
+          //   label arrow bottom = tipY + labelTotalH → textY = that + textGap
+          const textY = direction === 'up'
+            ? labelTipY + labelTotalH + textGap
+            : labelTipY - labelTotalH - textGap
+
+          figures.push({
+            type: 'editableText',
+            key: 'text',
+            attrs: {
+              x,
+              y: textY,
+              text,
+              align: 'center',
+              baseline: direction === 'up' ? 'top' : 'bottom'
+            },
+            styles: { color: textColor, size: textFontSize }
+          })
+        } else {
+          // No label arrow — text directly outside wick
+          const textY = direction === 'up'
+            ? lowY + gap
+            : highY - gap
+
+          figures.push({
+            type: 'editableText',
+            key: 'text',
+            attrs: {
+              x,
+              y: textY,
+              text,
+              align: 'center',
+              baseline: direction === 'up' ? 'top' : 'bottom'
+            },
+            styles: { color: textColor, size: textFontSize }
+          })
+        }
       }
 
       return figures
@@ -191,18 +257,28 @@ type FigureArray = Array<{
   ignoreEvent?: boolean
 }>
 
+function getArrowTotalHeight (arrowType: 'wide' | 'arrow' | 'tiny'): number {
+  return arrowType === 'wide'
+    ? WIDE_HEAD_H + WIDE_BODY_H
+    : arrowType === 'arrow'
+      ? ARROW_HEAD_H + ARROW_LINE_H
+      : TINY_HEAD_H
+}
+
+// ---------------------------------------------------------------------------
+// Main arrow type 1: WIDE — stroke_fill rect body + wider triangle head
+// ---------------------------------------------------------------------------
+
 function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
   const halfBodyW = WIDE_BODY_W / 2
   const halfHeadW = WIDE_HEAD_W / 2
   const strokeFillStyle = { style: 'stroke_fill', color, borderColor: color, borderSize: 1 }
 
   if (direction === 'up') {
-    // Tip at tipY, arrow extends downward
-    // Triangle head: tip -> left -> right (tip pointing up)
     const headBase = tipY + WIDE_HEAD_H
     figures.push({
       type: 'polygon',
-      key: 'head',
+      key: 'main-head',
       attrs: {
         coordinates: [
           { x, y: tipY },
@@ -213,47 +289,39 @@ function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction
       styles: strokeFillStyle,
       ignoreEvent: true
     })
-    // Rect body below head
-    const bodyTop = headBase
-    const bodyBottom = bodyTop + WIDE_BODY_H
     figures.push({
       type: 'polygon',
-      key: 'body',
+      key: 'main-body',
       attrs: {
         coordinates: [
-          { x: x - halfBodyW, y: bodyTop },
-          { x: x + halfBodyW, y: bodyTop },
-          { x: x + halfBodyW, y: bodyBottom },
-          { x: x - halfBodyW, y: bodyBottom }
+          { x: x - halfBodyW, y: headBase },
+          { x: x + halfBodyW, y: headBase },
+          { x: x + halfBodyW, y: headBase + WIDE_BODY_H },
+          { x: x - halfBodyW, y: headBase + WIDE_BODY_H }
         ]
       },
       styles: strokeFillStyle,
       ignoreEvent: true
     })
   } else {
-    // Tip at tipY, arrow extends upward
-    // Rect body above head
-    const bodyBottom = tipY - WIDE_HEAD_H
-    const bodyTop = bodyBottom - WIDE_BODY_H
-    figures.push({
-      type: 'polygon',
-      key: 'body',
-      attrs: {
-        coordinates: [
-          { x: x - halfBodyW, y: bodyTop },
-          { x: x + halfBodyW, y: bodyTop },
-          { x: x + halfBodyW, y: bodyBottom },
-          { x: x - halfBodyW, y: bodyBottom }
-        ]
-      },
-      styles: strokeFillStyle,
-      ignoreEvent: true
-    })
-    // Triangle head: tip -> left -> right (tip pointing down)
     const headBase = tipY - WIDE_HEAD_H
     figures.push({
       type: 'polygon',
-      key: 'head',
+      key: 'main-body',
+      attrs: {
+        coordinates: [
+          { x: x - halfBodyW, y: headBase - WIDE_BODY_H },
+          { x: x + halfBodyW, y: headBase - WIDE_BODY_H },
+          { x: x + halfBodyW, y: headBase },
+          { x: x - halfBodyW, y: headBase }
+        ]
+      },
+      styles: strokeFillStyle,
+      ignoreEvent: true
+    })
+    figures.push({
+      type: 'polygon',
+      key: 'main-head',
       attrs: {
         coordinates: [
           { x, y: tipY },
@@ -267,129 +335,103 @@ function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction
   }
 }
 
-function drawArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
-  const halfHeadW = ARROW_HEAD_W / 2
+// ---------------------------------------------------------------------------
+// Main arrow type 2: ARROW — line stem + chevron head
+// ---------------------------------------------------------------------------
 
-  if (direction === 'up') {
-    // Chevron head at tip pointing up
-    const headBase = tipY + ARROW_HEAD_H
-    figures.push({
-      type: 'line',
-      key: 'head-left',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x - halfHeadW, y: headBase }] },
-      styles: { color, size: ARROW_LINE_W },
-      ignoreEvent: true
-    })
-    figures.push({
-      type: 'line',
-      key: 'head-right',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x + halfHeadW, y: headBase }] },
-      styles: { color, size: ARROW_LINE_W },
-      ignoreEvent: true
-    })
-    // Vertical line from tip down
-    figures.push({
-      type: 'line',
-      key: 'stem',
-      attrs: { coordinates: [{ x, y: tipY }, { x, y: tipY + ARROW_HEAD_H + ARROW_LINE_H }] },
-      styles: { color, size: ARROW_LINE_W },
-      ignoreEvent: true
-    })
-  } else {
-    // Chevron head at tip pointing down
-    const headBase = tipY - ARROW_HEAD_H
-    figures.push({
-      type: 'line',
-      key: 'head-left',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x - halfHeadW, y: headBase }] },
-      styles: { color, size: ARROW_LINE_W },
-      ignoreEvent: true
-    })
-    figures.push({
-      type: 'line',
-      key: 'head-right',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x + halfHeadW, y: headBase }] },
-      styles: { color, size: ARROW_LINE_W },
-      ignoreEvent: true
-    })
-    // Vertical line from tip up
-    figures.push({
-      type: 'line',
-      key: 'stem',
-      attrs: { coordinates: [{ x, y: tipY }, { x, y: tipY - ARROW_HEAD_H - ARROW_LINE_H }] },
-      styles: { color, size: ARROW_LINE_W },
-      ignoreEvent: true
-    })
-  }
+function drawLineArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
+  const halfHeadW = ARROW_HEAD_W / 2
+  const sign = direction === 'up' ? 1 : -1
+  const headBase = tipY + ARROW_HEAD_H * sign
+
+  // Single 3-point polyline for chevron head: left-arm → tip → right-arm
+  figures.push({
+    type: 'line',
+    key: 'main-head',
+    attrs: {
+      coordinates: [
+        { x: x - halfHeadW, y: headBase },
+        { x, y: tipY },
+        { x: x + halfHeadW, y: headBase }
+      ]
+    },
+    styles: { color, size: ARROW_LINE_W },
+    ignoreEvent: true
+  })
+  // Vertical stem from tip extending away
+  figures.push({
+    type: 'line',
+    key: 'main-stem',
+    attrs: {
+      coordinates: [
+        { x, y: tipY },
+        { x, y: tipY + (ARROW_HEAD_H + ARROW_LINE_H) * sign }
+      ]
+    },
+    styles: { color, size: ARROW_LINE_W },
+    ignoreEvent: true
+  })
 }
+
+// ---------------------------------------------------------------------------
+// Main arrow type 3: TINY — filled triangle head only (no stem)
+// ---------------------------------------------------------------------------
 
 function drawTinyArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
   const halfHeadW = TINY_HEAD_W / 2
+  const headBase = direction === 'up' ? tipY + TINY_HEAD_H : tipY - TINY_HEAD_H
 
-  if (direction === 'up') {
-    const headBase = tipY + TINY_HEAD_H
-    figures.push({
-      type: 'line',
-      key: 'head-left',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x - halfHeadW, y: headBase }] },
-      styles: { color, size: TINY_LINE_W },
-      ignoreEvent: true
-    })
-    figures.push({
-      type: 'line',
-      key: 'head-right',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x + halfHeadW, y: headBase }] },
-      styles: { color, size: TINY_LINE_W },
-      ignoreEvent: true
-    })
-    figures.push({
-      type: 'line',
-      key: 'stem',
-      attrs: { coordinates: [{ x, y: tipY }, { x, y: tipY + TINY_HEAD_H + TINY_LINE_H }] },
-      styles: { color, size: TINY_LINE_W },
-      ignoreEvent: true
-    })
-  } else {
-    const headBase = tipY - TINY_HEAD_H
-    figures.push({
-      type: 'line',
-      key: 'head-left',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x - halfHeadW, y: headBase }] },
-      styles: { color, size: TINY_LINE_W },
-      ignoreEvent: true
-    })
-    figures.push({
-      type: 'line',
-      key: 'head-right',
-      attrs: { coordinates: [{ x, y: tipY }, { x: x + halfHeadW, y: headBase }] },
-      styles: { color, size: TINY_LINE_W },
-      ignoreEvent: true
-    })
-    figures.push({
-      type: 'line',
-      key: 'stem',
-      attrs: { coordinates: [{ x, y: tipY }, { x, y: tipY - TINY_HEAD_H - TINY_LINE_H }] },
-      styles: { color, size: TINY_LINE_W },
-      ignoreEvent: true
-    })
-  }
+  figures.push({
+    type: 'polygon',
+    key: 'main-head',
+    attrs: {
+      coordinates: [
+        { x, y: tipY },
+        { x: x - halfHeadW, y: headBase },
+        { x: x + halfHeadW, y: headBase }
+      ]
+    },
+    styles: { style: 'stroke_fill', color, borderColor: color, borderSize: 1 },
+    ignoreEvent: true
+  })
 }
 
-function getTextY (tipY: number, direction: 'up' | 'down', arrowType: 'wide' | 'arrow' | 'tiny', textGap: number): number {
-  const totalHeight = arrowType === 'wide'
-    ? WIDE_HEAD_H + WIDE_BODY_H
-    : arrowType === 'arrow'
-      ? ARROW_HEAD_H + ARROW_LINE_H
-      : TINY_HEAD_H + TINY_LINE_H
+// ---------------------------------------------------------------------------
+// LABEL ARROW — small indicator between text and candle
+// ---------------------------------------------------------------------------
 
-  // Text goes at the far end of the arrow (opposite the tip)
-  if (direction === 'up') {
-    // Arrow extends downward from tip, text below
-    return tipY + totalHeight + textGap
-  } else {
-    // Arrow extends upward from tip, text above
-    return tipY - totalHeight - textGap
-  }
+function drawLabelArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
+  const halfHeadW = LABEL_HEAD_W / 2
+  const sign = direction === 'up' ? 1 : -1
+  const headBase = tipY + LABEL_HEAD_H * sign
+
+  // Single 3-point polyline for chevron
+  figures.push({
+    type: 'line',
+    key: 'label-head',
+    attrs: {
+      coordinates: [
+        { x: x - halfHeadW, y: headBase },
+        { x, y: tipY },
+        { x: x + halfHeadW, y: headBase }
+      ]
+    },
+    styles: { color, size: LABEL_LINE_W },
+    ignoreEvent: true
+  })
+  // Short stem extending away from tip
+  figures.push({
+    type: 'line',
+    key: 'label-stem',
+    attrs: {
+      coordinates: [
+        { x, y: tipY },
+        { x, y: tipY + (LABEL_HEAD_H + LABEL_LINE_H) * sign }
+      ]
+    },
+    styles: { color, size: LABEL_LINE_W },
+    ignoreEvent: true
+  })
 }
 
 export default tradeLine
