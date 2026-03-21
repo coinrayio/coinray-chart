@@ -65,9 +65,6 @@ import xabcd from './xabcd'
 // Gann overlays (Pro overlays with factory pattern)
 import gannBox from './gannBox'
 
-// Order line overlay (Pro overlay with factory pattern)
-import orderLine from './orderLine'
-
 // Trade line overlay (Pro overlay with factory pattern)
 import tradeLine from './tradeLine'
 
@@ -90,7 +87,6 @@ const proExtensions = [
   threeWaves, fiveWaves, eightWaves, anyWaves,
   abcd, xabcd,
   gannBox,
-  orderLine,
   tradeLine
 ]
 
@@ -138,10 +134,6 @@ export { FIBONACCI_RETRACEMENT_LEVELS } from './fibonacciLine'
 export { FIBONACCI_EXTENSION_LEVELS } from './fibonacciExtension'
 export { FIBONACCI_CIRCLE_LEVELS } from './fibonacciCircle'
 export { FIBONACCI_FAN_LEVELS } from './fibonacciSpeedResistanceFan'
-
-// Export order line types and fluent API
-export type { OrderLineProperties, OrderLine, OrderLineStyle, OrderLineEventListener } from './orderLineApi'
-export { createOrderLine } from './orderLineApi'
 
 // Export price line types and fluent API
 export type { PriceLineProperties, PriceLine, PriceLineEventListener } from './priceLineApi'
