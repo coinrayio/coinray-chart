@@ -105,10 +105,10 @@ const tradeLine = (): ProOverlayTemplate => {
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
 
-    createPointFigures: ({ coordinates, overlay, chart, xAxis, yAxis }) => {
+    createPointFigures: ({ coordinates, overlay }) => {
       const figures: FigureArray = []
 
-      if (coordinates.length === 0 || yAxis == null || xAxis == null) return []
+      if (coordinates.length === 0) return []
 
       // Sync extendData
       _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
@@ -124,35 +124,19 @@ const tradeLine = (): ProOverlayTemplate => {
       const showLabelArrow = prop('showLabelArrow') ?? defaultTradeLineStyle.showLabelArrow
 
       const x = coordinates[0].x
-
-      // Resolve candle at this position using xAxis pixel → dataIndex
-      const dataList = chart.getDataList()
-      const dataIndex = xAxis.convertFromPixel(x)
-
-      let highY = coordinates[0].y
-      let lowY = coordinates[0].y
-      let bodyTopY = coordinates[0].y
-      let bodyBottomY = coordinates[0].y
-
-      if (dataIndex >= 0 && dataIndex < dataList.length) {
-        const candle = dataList[dataIndex]
-        highY = yAxis.convertToPixel(candle.high)
-        lowY = yAxis.convertToPixel(candle.low)
-        bodyTopY = yAxis.convertToPixel(Math.max(candle.open, candle.close))
-        bodyBottomY = yAxis.convertToPixel(Math.min(candle.open, candle.close))
-      }
+      // coordinates[0].y is the pixel Y of the `price` prop (or 0 fallback)
+      const priceY = coordinates[0].y
 
       // -------------------------------------------------------------------
-      // 1. MAIN ARROW — inside candle body, anchored to body edge
+      // 1. MAIN ARROW — anchored at the specified price level
+      //    The arrow tip points toward the price; body extends away from it.
       // -------------------------------------------------------------------
       const mainTotalH = getArrowTotalHeight(arrowType)
-      // sell (down): starts from upper body, arrow extends downward
-      //   top of arrow = bodyTopY → tipY = bodyTopY + totalH
-      // buy (up): starts from lower body, arrow extends upward
-      //   bottom of arrow = bodyBottomY → tipY = bodyBottomY - totalH
+      // buy (up): tip at priceY, body extends downward
+      // sell (down): tip at priceY, body extends upward
       const mainTipY = direction === 'up'
-        ? bodyBottomY - mainTotalH
-        : bodyTopY + mainTotalH
+        ? priceY - mainTotalH
+        : priceY + mainTotalH
 
       if (arrowType === 'wide') {
         drawWideArrow(figures, x, mainTipY, direction, color)
@@ -163,35 +147,38 @@ const tradeLine = (): ProOverlayTemplate => {
       }
 
       // -------------------------------------------------------------------
-      // Label arrow + text — positioned outside candle wick
+      // Label arrow + text — positioned below the main arrow (away from price)
       //
-      // Layout (sell/down, building outward from wick):
-      //   text         ← textGap above label arrow
-      //     ↕ textGap
-      //   label arrow  ← gap above wick
+      // Layout (buy/up):
+      //   price level (priceY)
+      //   main arrow (tip at priceY - totalH, base at priceY)
       //     ↕ gap
-      //   wick (highY)
+      //   label arrow tip
+      //     ↕ labelTotalH
+      //     ↕ textGap
+      //   text
       // -------------------------------------------------------------------
+      // Main arrow base: the end opposite the tip
+      const mainBaseY = direction === 'up'
+        ? mainTipY + mainTotalH
+        : mainTipY - mainTotalH
+
       if (text.length > 0) {
         const textFontSize = prop('textFontSize') ?? defaultTradeLineStyle.textFontSize
         const textGap = prop('textGap') ?? defaultTradeLineStyle.textGap
         const labelTotalH = LABEL_HEAD_H + LABEL_LINE_H
 
         if (showLabelArrow) {
-          // Label arrow tip closest to wick, body extends away
-          // sell (down): tip below, at highY - gap
-          // buy  (up):   tip above, at lowY + gap
+          // Label arrow tip starts gap px beyond the main arrow base
+          // buy (up): label tip below main base → mainBaseY + gap
+          // sell (down): label tip above main base → mainBaseY - gap
           const labelTipY = direction === 'up'
-            ? lowY + gap
-            : highY - gap
+            ? mainBaseY + gap
+            : mainBaseY - gap
 
           drawLabelArrow(figures, x, labelTipY, direction, color)
 
           // Text beyond the label arrow
-          // sell (down): text above label arrow top (baseline = 'bottom')
-          //   label arrow top = tipY - labelTotalH → textY = that - textGap
-          // buy  (up):   text below label arrow bottom (baseline = 'top')
-          //   label arrow bottom = tipY + labelTotalH → textY = that + textGap
           const textY = direction === 'up'
             ? labelTipY + labelTotalH + textGap
             : labelTipY - labelTotalH - textGap
@@ -209,10 +196,10 @@ const tradeLine = (): ProOverlayTemplate => {
             styles: { color: textColor, size: textFontSize }
           })
         } else {
-          // No label arrow — text directly outside wick
+          // No label arrow — text directly beyond main arrow base
           const textY = direction === 'up'
-            ? lowY + gap
-            : highY - gap
+            ? mainBaseY + gap
+            : mainBaseY - gap
 
           figures.push({
             type: 'editableText',
