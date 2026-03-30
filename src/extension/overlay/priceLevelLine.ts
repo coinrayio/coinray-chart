@@ -1,11 +1,12 @@
 /**
- * Break Even Line Overlay
+ * Price Level Line Overlay
  *
  * A horizontal price line split into two segments with plain text label
  * in the gap between them. No background or border on the text.
+ * Includes a customizable Y-axis price badge.
  *
  * Layout:
- *   ─── left line ───  "Break Even"  ─── right line ───
+ *   ─── left line ───  "Label"  ─── right line ───
  */
 
 import type DeepPartial from '../../common/DeepPartial'
@@ -18,7 +19,7 @@ import type { ProOverlayTemplate } from './types'
 // Properties
 // ---------------------------------------------------------------------------
 
-export interface BreakEvenLineProperties {
+export interface PriceLevelLineProperties {
   price?: number
   text?: string
   textColor?: string
@@ -33,10 +34,23 @@ export interface BreakEvenLineProperties {
 
   /** Position of the text along the line (0–100%, default: 50) */
   textPositionPercent?: number
+  /** Named text alignment shorthand: 'left' | 'center' | 'right' */
+  textAlign?: 'left' | 'center' | 'right'
+
+  /** Whether to show the Y-axis price label (default: true) */
+  yAxisLabelVisible?: boolean
+  /** Background color of the Y-axis label (falls back to lineColor) */
+  yAxisLabelBackgroundColor?: string
+  /** Text color of the Y-axis label (default: '#FFFFFF') */
+  yAxisLabelTextColor?: string
+  /** Border color of the Y-axis label (falls back to yAxisLabelBackgroundColor) */
+  yAxisLabelBorderColor?: string
 }
 
-const defaults: Required<Omit<BreakEvenLineProperties, 'price'>> = {
-  text: 'Break Even',
+const TEXT_ALIGN_PERCENT: Record<string, number> = { left: 5, center: 50, right: 95 }
+
+const defaults: Required<Omit<PriceLevelLineProperties, 'price' | 'textAlign' | 'yAxisLabelBackgroundColor' | 'yAxisLabelBorderColor'>> = {
+  text: '',
   textColor: '#D05DDF',
   textFontSize: 12,
   textFont: 'Helvetica Neue',
@@ -47,17 +61,20 @@ const defaults: Required<Omit<BreakEvenLineProperties, 'price'>> = {
   lineStyle: 'solid',
   lineDashedValue: [4, 4],
 
-  textPositionPercent: 50
+  textPositionPercent: 50,
+
+  yAxisLabelVisible: true,
+  yAxisLabelTextColor: '#FFFFFF'
 }
 
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
-const breakEvenLine = (): ProOverlayTemplate => {
-  let properties: DeepPartial<BreakEvenLineProperties> = {}
+const priceLevelLine = (): ProOverlayTemplate => {
+  let properties: DeepPartial<PriceLevelLineProperties> = {}
 
-  const _extRef: { data: DeepPartial<BreakEvenLineProperties> | null } = { data: null }
+  const _extRef: { data: DeepPartial<PriceLevelLineProperties> | null } = { data: null }
 
   const prop = <K extends keyof typeof defaults>(key: K): (typeof defaults)[K] => {
     const ext = _extRef.data as Record<string, unknown> | null
@@ -67,9 +84,9 @@ const breakEvenLine = (): ProOverlayTemplate => {
   }
 
   return {
-    name: 'breakEvenLine',
+    name: 'priceLevelLine',
     totalStep: 2,
-    needDefaultPointFigure: true,
+    needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
 
@@ -77,20 +94,31 @@ const breakEvenLine = (): ProOverlayTemplate => {
       if (coordinates.length === 0) return []
 
       _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
-        ? overlay.extendData as DeepPartial<BreakEvenLineProperties>
+        ? overlay.extendData as DeepPartial<PriceLevelLineProperties>
         : null
 
       const y = coordinates[0].y
       const text = prop('text')
-      const textColor = prop('textColor')
       const textFontSize = prop('textFontSize')
       const textFont = prop('textFont')
       const textGap = prop('textGap')
-      const textPositionPercent = prop('textPositionPercent')
+      const lineColor = prop('lineColor')
+
+      // textColor falls back to lineColor
+      const ext = _extRef.data as Record<string, unknown> | null
+      const props = properties as Record<string, unknown>
+      const textColor = (ext?.textColor ?? props.textColor ?? lineColor) as string
+
+      // Resolve text position: explicit percent > named align > default
+      const textAlign = (ext?.textAlign ?? props.textAlign) as string | undefined
+      const posPercent = (ext?.textPositionPercent ??
+        props.textPositionPercent ??
+        (textAlign != null ? TEXT_ALIGN_PERCENT[textAlign] : undefined) ??
+        defaults.textPositionPercent) as number
 
       const lineStyles = {
         style: prop('lineStyle'),
-        color: prop('lineColor'),
+        color: lineColor,
         size: prop('lineWidth'),
         dashedValue: prop('lineDashedValue')
       }
@@ -111,7 +139,7 @@ const breakEvenLine = (): ProOverlayTemplate => {
         const gapW = textW + textGap * 2
 
         // Position text along the line
-        const centerX = bounding.width * (textPositionPercent / 100)
+        const centerX = bounding.width * (posPercent / 100)
         const gapLeft = centerX - gapW / 2
         const gapRight = centerX + gapW / 2
 
@@ -166,8 +194,14 @@ const breakEvenLine = (): ProOverlayTemplate => {
       if (coordinates.length === 0) return []
 
       _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
-        ? overlay.extendData as DeepPartial<BreakEvenLineProperties>
+        ? overlay.extendData as DeepPartial<PriceLevelLineProperties>
         : null
+
+      const ext = _extRef.data as Record<string, unknown> | null
+      const props = properties as Record<string, unknown>
+
+      const yAxisLabelVisible = (ext?.yAxisLabelVisible ?? props.yAxisLabelVisible ?? defaults.yAxisLabelVisible) as boolean
+      if (!yAxisLabelVisible) return []
 
       const y = coordinates[0].y
       const price = overlay.points[0]?.value
@@ -177,15 +211,19 @@ const breakEvenLine = (): ProOverlayTemplate => {
       const priceText = Number(price).toFixed(precision)
       const lineColor = prop('lineColor')
 
+      const bgColor = (ext?.yAxisLabelBackgroundColor ?? props.yAxisLabelBackgroundColor ?? lineColor) as string
+      const textColor = (ext?.yAxisLabelTextColor ?? props.yAxisLabelTextColor ?? defaults.yAxisLabelTextColor) as string
+      const borderColor = (ext?.yAxisLabelBorderColor ?? props.yAxisLabelBorderColor ?? bgColor) as string
+
       return [{
         type: 'text',
         attrs: { x: 0, y, text: priceText, align: 'left', baseline: 'middle' },
         styles: {
           style: 'fill',
-          color: '#FFFFFF',
+          color: textColor,
           size: 12,
-          backgroundColor: lineColor,
-          borderColor: lineColor,
+          backgroundColor: bgColor,
+          borderColor,
           paddingLeft: 4,
           paddingRight: 4,
           paddingTop: 4,
@@ -201,14 +239,14 @@ const breakEvenLine = (): ProOverlayTemplate => {
       return false
     },
 
-    setProperties: (_properties: DeepPartial<BreakEvenLineProperties>, _id: string) => {
+    setProperties: (_properties: DeepPartial<PriceLevelLineProperties>, _id: string) => {
       const newProps = clone(properties) as Record<string, unknown>
       merge(newProps, _properties)
-      properties = newProps as DeepPartial<BreakEvenLineProperties>
+      properties = newProps as DeepPartial<PriceLevelLineProperties>
     },
 
-    getProperties: (_id: string): DeepPartial<BreakEvenLineProperties> => properties
+    getProperties: (_id: string): DeepPartial<PriceLevelLineProperties> => properties
   }
 }
 
-export default breakEvenLine
+export default priceLevelLine

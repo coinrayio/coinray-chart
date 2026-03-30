@@ -1,14 +1,13 @@
 /**
- * Time Alert Line Overlay
+ * Vertical Line Overlay
  *
  * A vertical line split into two segments with rotated (-90°) text label
- * in the gap between them. Similar to orderLine's split-line pattern
- * but oriented vertically.
+ * in the gap between them.
  *
  * Layout:
  *   ─── top line ───
  *        gap
- *   "Trigger At..."   ← rotated -90° text (reads bottom to top)
+ *   "Label text"   ← rotated -90° text (reads bottom to top)
  *        gap
  *   ─── bottom line ──
  */
@@ -23,7 +22,7 @@ import type { ProOverlayTemplate } from './types'
 // Properties
 // ---------------------------------------------------------------------------
 
-export interface TimeAlertLineProperties {
+export interface TimeLineProperties {
   lineColor?: string
   lineWidth?: number
   lineStyle?: 'solid' | 'dashed'
@@ -36,7 +35,7 @@ export interface TimeAlertLineProperties {
   textGap?: number
 }
 
-const defaults: Required<TimeAlertLineProperties> = {
+const defaults: Required<TimeLineProperties> = {
   lineColor: '#3ea6ff',
   lineWidth: 1,
   lineStyle: 'solid',
@@ -53,20 +52,20 @@ const defaults: Required<TimeAlertLineProperties> = {
 // Factory
 // ---------------------------------------------------------------------------
 
-const timeAlertLine = (): ProOverlayTemplate => {
-  let properties: DeepPartial<TimeAlertLineProperties> = {}
+const timeLine = (): ProOverlayTemplate => {
+  let properties: DeepPartial<TimeLineProperties> = {}
 
-  const _extRef: { data: DeepPartial<TimeAlertLineProperties> | null } = { data: null }
+  const _extRef: { data: DeepPartial<TimeLineProperties> | null } = { data: null }
 
-  const prop = <K extends keyof TimeAlertLineProperties>(key: K): TimeAlertLineProperties[K] => {
+  const prop = <K extends keyof TimeLineProperties>(key: K): TimeLineProperties[K] => {
     const ext = _extRef.data as Record<string, unknown> | null
     const props = properties as Record<string, unknown>
     const defs = defaults as Record<string, unknown>
-    return (ext?.[key] ?? props[key] ?? defs[key]) as TimeAlertLineProperties[K]
+    return (ext?.[key] ?? props[key] ?? defs[key]) as TimeLineProperties[K]
   }
 
   return {
-    name: 'timeAlertLine',
+    name: 'timeLine',
     totalStep: 2,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
@@ -76,7 +75,7 @@ const timeAlertLine = (): ProOverlayTemplate => {
       if (coordinates.length === 0) return []
 
       _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
-        ? overlay.extendData as DeepPartial<TimeAlertLineProperties>
+        ? overlay.extendData as DeepPartial<TimeLineProperties>
         : null
 
       const x = coordinates[0].x
@@ -96,43 +95,34 @@ const timeAlertLine = (): ProOverlayTemplate => {
       const figures: Array<{ type: string; key?: string; attrs: Record<string, unknown>; styles?: Record<string, unknown>; ignoreEvent?: boolean }> = []
 
       if (text.length === 0) {
-        // No text — single full-height vertical line
         figures.push({
           type: 'line',
           key: 'line',
           attrs: { coordinates: [{ x, y: 0 }, { x, y: bounding.height }] },
-          styles: lineStyles,
-          ignoreEvent: true
+          styles: lineStyles
         })
       } else {
-        // Measure text width (which becomes the vertical gap when rotated)
         const textW = calcTextWidth(text, textFontSize, 'normal', textFont)
         const gapH = textW + textGap * 2
 
-        // Center the gap vertically in the bounding area
         const midY = bounding.height / 2
         const gapTop = midY - gapH / 2
         const gapBottom = midY + gapH / 2
 
-        // Top line: from top to gap
         figures.push({
           type: 'line',
           key: 'line-top',
           attrs: { coordinates: [{ x, y: 0 }, { x, y: gapTop }] },
-          styles: lineStyles,
-          ignoreEvent: true
+          styles: lineStyles
         })
 
-        // Bottom line: from gap to bottom
         figures.push({
           type: 'line',
           key: 'line-bottom',
           attrs: { coordinates: [{ x, y: gapBottom }, { x, y: bounding.height }] },
-          styles: lineStyles,
-          ignoreEvent: true
+          styles: lineStyles
         })
 
-        // Rotated text in the gap
         figures.push({
           type: 'rotatedText',
           key: 'label',
@@ -156,14 +146,14 @@ const timeAlertLine = (): ProOverlayTemplate => {
       return false
     },
 
-    setProperties: (_properties: DeepPartial<TimeAlertLineProperties>, _id: string) => {
+    setProperties: (_properties: DeepPartial<TimeLineProperties>, _id: string) => {
       const newProps = clone(properties) as Record<string, unknown>
       merge(newProps, _properties)
-      properties = newProps as DeepPartial<TimeAlertLineProperties>
+      properties = newProps as DeepPartial<TimeLineProperties>
     },
 
-    getProperties: (_id: string): DeepPartial<TimeAlertLineProperties> => properties
+    getProperties: (_id: string): DeepPartial<TimeLineProperties> => properties
   }
 }
 
-export default timeAlertLine
+export default timeLine
