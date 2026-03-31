@@ -91,6 +91,7 @@ export interface Chart extends Store {
   zoomAtDataIndex: (scale: number, dataIndex: number, animationDuration?: number) => void
   zoomAtTimestamp: (scale: number, timestamp: number, animationDuration?: number) => void
   setVisibleRange: (range: { from: number; to: number }) => void
+  getVisibleRangeTimestamps: () => Nullable<{ from: number; to: number }>
   convertToPixel: (points: Partial<Point> | Array<Partial<Point>>, filter?: ConvertFilter) => Partial<Coordinate> | Array<Partial<Coordinate>>
   convertFromPixel: (coordinates: Array<Partial<Coordinate>>, filter?: ConvertFilter) => Partial<Point> | Array<Partial<Point>>
   executeAction: (type: ActionType, data: Crosshair) => void
@@ -699,6 +700,27 @@ export default class ChartImp implements Chart {
 
   getVisibleRange (): VisibleRange {
     return this._chartStore.getVisibleRange()
+  }
+
+  getVisibleRangeTimestamps (): Nullable<{ from: number; to: number }> {
+    const store = this._chartStore
+    const dataList = store.getDataList()
+    if (dataList.length === 0) return null
+
+    const size = this.getSize('candle_pane', 'main')
+    if (!isValid(size)) return null
+
+    // Use coordinateToFloatIndex for sub-bar precision at both edges
+    const leftFloat = store.coordinateToFloatIndex(0)
+    const rightFloat = store.coordinateToFloatIndex(size.width)
+
+    // Round left up to first bar whose center is in view,
+    // right to nearest bar (crosshair snaps to nearest)
+    const fromTs = store.floatIndexToTimestamp(Math.ceil(leftFloat))
+    const toTs = store.floatIndexToTimestamp(Math.round(rightFloat))
+
+    if (!isValid(fromTs) || !isValid(toTs)) return null
+    return { from: fromTs, to: toTs }
   }
 
   resetData (): void {
