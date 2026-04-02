@@ -16,10 +16,13 @@ import type { ProOverlayTemplate } from './types'
 
 export interface BoxProperties {
   backgroundColor?: string
+  /** Whether the overlay ignores mouse/touch events (default: true) */
+  ignoreEvent?: boolean
 }
 
 const defaults: Required<BoxProperties> = {
-  backgroundColor: 'rgba(33,150,243,0.15)'
+  backgroundColor: 'rgba(33,150,243,0.15)',
+  ignoreEvent: true
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +58,9 @@ const box = (): ProOverlayTemplate => {
       const topLeft = coordinates[0]
       const bottomRight = coordinates[1]
 
+      const ignoreEvent = ((_extRef.data as Record<string, unknown> | null)?.ignoreEvent ??
+        (properties as Record<string, unknown>).ignoreEvent ?? true) as boolean
+
       return [{
         type: 'polygon',
         attrs: {
@@ -70,7 +76,7 @@ const box = (): ProOverlayTemplate => {
           color: prop('backgroundColor'),
           borderSize: 0
         },
-        ignoreEvent: true
+        ignoreEvent
       }]
     },
 

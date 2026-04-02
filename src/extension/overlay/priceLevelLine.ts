@@ -45,6 +45,9 @@ export interface PriceLevelLineProperties {
   yAxisLabelTextColor?: string
   /** Border color of the Y-axis label (falls back to yAxisLabelBackgroundColor) */
   yAxisLabelBorderColor?: string
+
+  /** Whether the overlay ignores mouse/touch events (default: true) */
+  ignoreEvent?: boolean
 }
 
 const TEXT_ALIGN_PERCENT: Record<string, number> = { left: 5, center: 50, right: 95 }
@@ -64,7 +67,9 @@ const defaults: Required<Omit<PriceLevelLineProperties, 'price' | 'textAlign' | 
   textPositionPercent: 50,
 
   yAxisLabelVisible: true,
-  yAxisLabelTextColor: '#FFFFFF'
+  yAxisLabelTextColor: '#FFFFFF',
+
+  ignoreEvent: true
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +121,8 @@ const priceLevelLine = (): ProOverlayTemplate => {
         (textAlign != null ? TEXT_ALIGN_PERCENT[textAlign] : undefined) ??
         defaults.textPositionPercent) as number
 
+      const ignoreEvent = (ext?.ignoreEvent ?? (properties as Record<string, unknown>).ignoreEvent ?? true) as boolean
+
       const lineStyles = {
         style: prop('lineStyle'),
         color: lineColor,
@@ -132,7 +139,7 @@ const priceLevelLine = (): ProOverlayTemplate => {
           key: 'line',
           attrs: { coordinates: [{ x: 0, y }, { x: bounding.width, y }] },
           styles: lineStyles,
-          ignoreEvent: true
+          ignoreEvent
         })
       } else {
         const textW = calcTextWidth(text, textFontSize, 'normal', textFont)
@@ -149,7 +156,7 @@ const priceLevelLine = (): ProOverlayTemplate => {
           key: 'line-left',
           attrs: { coordinates: [{ x: 0, y }, { x: Math.max(0, gapLeft), y }] },
           styles: lineStyles,
-          ignoreEvent: true
+          ignoreEvent
         })
 
         // Right line: from gap to right edge
@@ -158,7 +165,7 @@ const priceLevelLine = (): ProOverlayTemplate => {
           key: 'line-right',
           attrs: { coordinates: [{ x: Math.min(bounding.width, gapRight), y }, { x: bounding.width, y }] },
           styles: lineStyles,
-          ignoreEvent: true
+          ignoreEvent
         })
 
         // Text in the gap — no background, no border
@@ -215,6 +222,8 @@ const priceLevelLine = (): ProOverlayTemplate => {
       const textColor = (ext?.yAxisLabelTextColor ?? props.yAxisLabelTextColor ?? defaults.yAxisLabelTextColor) as string
       const borderColor = (ext?.yAxisLabelBorderColor ?? props.yAxisLabelBorderColor ?? bgColor) as string
 
+      const ignoreEvent = (ext?.ignoreEvent ?? (properties as Record<string, unknown>).ignoreEvent ?? true) as boolean
+
       return [{
         type: 'text',
         attrs: { x: 0, y, text: priceText, align: 'left', baseline: 'middle' },
@@ -230,7 +239,7 @@ const priceLevelLine = (): ProOverlayTemplate => {
           paddingBottom: 4,
           borderRadius: 0
         },
-        ignoreEvent: true
+        ignoreEvent
       }]
     },
 
