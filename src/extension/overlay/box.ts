@@ -1,8 +1,21 @@
 /**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+
+ * http://www.apache.org/licenses/LICENSE-2.0
+
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Box Overlay
  *
  * A filled rectangle defined by two corner points.
- * All styling is passed via extendData (no setProperties needed).
  */
 
 import type DeepPartial from '../../common/DeepPartial'
@@ -34,11 +47,11 @@ const box = (): ProOverlayTemplate => {
 
   const _extRef: { data: DeepPartial<BoxProperties> | null } = { data: null }
 
-  const prop = <K extends keyof BoxProperties>(key: K): BoxProperties[K] => {
+  const prop = <K extends keyof BoxProperties>(key: K): Required<BoxProperties>[K] => {
     const ext = _extRef.data as Record<string, unknown> | null
     const props = properties as Record<string, unknown>
     const defs = defaults as Record<string, unknown>
-    return (ext?.[key] ?? props[key] ?? defs[key]) as BoxProperties[K]
+    return (ext?.[key] ?? props[key] ?? defs[key]) as Required<BoxProperties>[K]
   }
 
   return {
@@ -55,20 +68,19 @@ const box = (): ProOverlayTemplate => {
         ? overlay.extendData as DeepPartial<BoxProperties>
         : null
 
-      const topLeft = coordinates[0]
-      const bottomRight = coordinates[1]
+      const corner1 = coordinates[0]
+      const corner2 = coordinates[1]
 
-      const ignoreEvent = ((_extRef.data as Record<string, unknown> | null)?.ignoreEvent ??
-        (properties as Record<string, unknown>).ignoreEvent ?? true) as boolean
+      const ignoreEvent = prop('ignoreEvent')
 
       return [{
         type: 'polygon',
         attrs: {
           coordinates: [
-            topLeft,
-            { x: bottomRight.x, y: topLeft.y },
-            bottomRight,
-            { x: topLeft.x, y: bottomRight.y }
+            corner1,
+            { x: corner2.x, y: corner1.y },
+            corner2,
+            { x: corner1.x, y: corner2.y }
           ]
         },
         styles: {

@@ -1,4 +1,18 @@
 /**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+
+ * http://www.apache.org/licenses/LICENSE-2.0
+
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Price Level Line Overlay
  *
  * A horizontal price line split into two segments with plain text label
@@ -79,13 +93,23 @@ const defaults: Required<Omit<PriceLevelLineProperties, 'price' | 'textAlign' | 
 const priceLevelLine = (): ProOverlayTemplate => {
   let properties: DeepPartial<PriceLevelLineProperties> = {}
 
-  const _extRef: { data: DeepPartial<PriceLevelLineProperties> | null } = { data: null }
+  let _ext: Record<string, unknown> | null = null
 
+  /** Resolve a property: extendData > properties > defaults */
   const prop = <K extends keyof typeof defaults>(key: K): (typeof defaults)[K] => {
-    const ext = _extRef.data as Record<string, unknown> | null
     const props = properties as Record<string, unknown>
     const defs = defaults as Record<string, unknown>
-    return (ext?.[key] ?? props[key] ?? defs[key]) as (typeof defaults)[K]
+    return (_ext?.[key] ?? props[key] ?? defs[key]) as (typeof defaults)[K]
+  }
+
+  /** Resolve a property with a dynamic fallback instead of a static default */
+  const propOr = (key: string, fallback: unknown): unknown =>
+    _ext?.[key] ?? (properties as Record<string, unknown>)[key] ?? fallback
+
+  const syncExt = (overlay: { extendData?: unknown }): void => {
+    _ext = (overlay.extendData != null && typeof overlay.extendData === 'object')
+      ? overlay.extendData as Record<string, unknown>
+      : null
   }
 
   return {
@@ -97,10 +121,7 @@ const priceLevelLine = (): ProOverlayTemplate => {
 
     createPointFigures: ({ coordinates, bounding, overlay }) => {
       if (coordinates.length === 0) return []
-
-      _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
-        ? overlay.extendData as DeepPartial<PriceLevelLineProperties>
-        : null
+      syncExt(overlay)
 
       const y = coordinates[0].y
       const text = prop('text')
@@ -108,20 +129,17 @@ const priceLevelLine = (): ProOverlayTemplate => {
       const textFont = prop('textFont')
       const textGap = prop('textGap')
       const lineColor = prop('lineColor')
+      const ignoreEvent = prop('ignoreEvent')
 
-      // textColor falls back to lineColor
-      const ext = _extRef.data as Record<string, unknown> | null
-      const props = properties as Record<string, unknown>
-      const textColor = (ext?.textColor ?? props.textColor ?? lineColor) as string
+      const textColor = propOr('textColor', lineColor) as string
 
       // Resolve text position: explicit percent > named align > default
-      const textAlign = (ext?.textAlign ?? props.textAlign) as string | undefined
-      const posPercent = (ext?.textPositionPercent ??
-        props.textPositionPercent ??
-        (textAlign != null ? TEXT_ALIGN_PERCENT[textAlign] : undefined) ??
-        defaults.textPositionPercent) as number
-
-      const ignoreEvent = (ext?.ignoreEvent ?? (properties as Record<string, unknown>).ignoreEvent ?? true) as boolean
+      const textAlign = propOr('textAlign', undefined) as string | undefined
+      const posPercent = Math.max(0, Math.min(100,
+        (propOr('textPositionPercent',
+          textAlign != null ? TEXT_ALIGN_PERCENT[textAlign] : defaults.textPositionPercent
+        )) as number
+      ))
 
       const lineStyles = {
         style: prop('lineStyle'),
@@ -199,16 +217,9 @@ const priceLevelLine = (): ProOverlayTemplate => {
     // Y-axis label
     createYAxisFigures: ({ overlay, coordinates, chart }) => {
       if (coordinates.length === 0) return []
+      syncExt(overlay)
 
-      _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
-        ? overlay.extendData as DeepPartial<PriceLevelLineProperties>
-        : null
-
-      const ext = _extRef.data as Record<string, unknown> | null
-      const props = properties as Record<string, unknown>
-
-      const yAxisLabelVisible = (ext?.yAxisLabelVisible ?? props.yAxisLabelVisible ?? defaults.yAxisLabelVisible) as boolean
-      if (!yAxisLabelVisible) return []
+      if (!prop('yAxisLabelVisible')) return []
 
       const y = coordinates[0].y
       const price = overlay.points[0]?.value
@@ -217,12 +228,11 @@ const priceLevelLine = (): ProOverlayTemplate => {
       const precision = chart.getSymbol()?.pricePrecision ?? 2
       const priceText = Number(price).toFixed(precision)
       const lineColor = prop('lineColor')
+      const ignoreEvent = prop('ignoreEvent')
 
-      const bgColor = (ext?.yAxisLabelBackgroundColor ?? props.yAxisLabelBackgroundColor ?? lineColor) as string
-      const textColor = (ext?.yAxisLabelTextColor ?? props.yAxisLabelTextColor ?? defaults.yAxisLabelTextColor) as string
-      const borderColor = (ext?.yAxisLabelBorderColor ?? props.yAxisLabelBorderColor ?? bgColor) as string
-
-      const ignoreEvent = (ext?.ignoreEvent ?? (properties as Record<string, unknown>).ignoreEvent ?? true) as boolean
+      const bgColor = propOr('yAxisLabelBackgroundColor', lineColor) as string
+      const textColor = prop('yAxisLabelTextColor')
+      const borderColor = propOr('yAxisLabelBorderColor', bgColor) as string
 
       return [{
         type: 'text',

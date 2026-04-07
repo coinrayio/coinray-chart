@@ -1,9 +1,21 @@
 /**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+
+ * http://www.apache.org/licenses/LICENSE-2.0
+
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Styled Segment Overlay
  *
  * A line between two points with optional rotated text label at the midpoint.
- * All styling is passed via extendData (no setProperties needed).
- *
  * Used for trendline alerts and base segments.
  */
 
@@ -57,11 +69,11 @@ const styledSegment = (): ProOverlayTemplate => {
 
   const _extRef: { data: DeepPartial<StyledSegmentProperties> | null } = { data: null }
 
-  const prop = <K extends keyof StyledSegmentProperties>(key: K): StyledSegmentProperties[K] => {
+  const prop = <K extends keyof StyledSegmentProperties>(key: K): Required<StyledSegmentProperties>[K] => {
     const ext = _extRef.data as Record<string, unknown> | null
     const props = properties as Record<string, unknown>
     const defs = defaults as Record<string, unknown>
-    return (ext?.[key] ?? props[key] ?? defs[key]) as StyledSegmentProperties[K]
+    return (ext?.[key] ?? props[key] ?? defs[key]) as Required<StyledSegmentProperties>[K]
   }
 
   return {
@@ -78,12 +90,12 @@ const styledSegment = (): ProOverlayTemplate => {
         ? overlay.extendData as DeepPartial<StyledSegmentProperties>
         : null
 
-      const text = prop('text') ?? ''
-      const textColor = prop('textColor') ?? defaults.textColor
-      const textFontSize = prop('textFontSize') ?? defaults.textFontSize
-      const textFont = prop('textFont') ?? defaults.textFont
-      const textOffset = prop('textOffset') ?? defaults.textOffset
-      const ignoreEvent = prop('ignoreEvent') ?? defaults.ignoreEvent
+      const text = prop('text')
+      const textColor = prop('textColor')
+      const textFontSize = prop('textFontSize')
+      const textFont = prop('textFont')
+      const textOffset = prop('textOffset')
+      const ignoreEvent = prop('ignoreEvent')
 
       const lineStyles = {
         style: prop('lineStyle'),

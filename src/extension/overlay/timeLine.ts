@@ -1,4 +1,18 @@
 /**
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+
+ * http://www.apache.org/licenses/LICENSE-2.0
+
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Vertical Line Overlay
  *
  * A vertical line split into two segments with rotated (-90°) text label
@@ -33,6 +47,9 @@ export interface TimeLineProperties {
   textFontSize?: number
   textFont?: string
   textGap?: number
+
+  /** Whether the overlay ignores mouse/touch events (default: true) */
+  ignoreEvent?: boolean
 }
 
 const defaults: Required<TimeLineProperties> = {
@@ -45,7 +62,9 @@ const defaults: Required<TimeLineProperties> = {
   textColor: '#3ea6ff',
   textFontSize: 12,
   textFont: 'Helvetica Neue',
-  textGap: 4
+  textGap: 4,
+
+  ignoreEvent: true
 }
 
 // ---------------------------------------------------------------------------
@@ -57,11 +76,11 @@ const timeLine = (): ProOverlayTemplate => {
 
   const _extRef: { data: DeepPartial<TimeLineProperties> | null } = { data: null }
 
-  const prop = <K extends keyof TimeLineProperties>(key: K): TimeLineProperties[K] => {
+  const prop = <K extends keyof TimeLineProperties>(key: K): Required<TimeLineProperties>[K] => {
     const ext = _extRef.data as Record<string, unknown> | null
     const props = properties as Record<string, unknown>
     const defs = defaults as Record<string, unknown>
-    return (ext?.[key] ?? props[key] ?? defs[key]) as TimeLineProperties[K]
+    return (ext?.[key] ?? props[key] ?? defs[key]) as Required<TimeLineProperties>[K]
   }
 
   return {
@@ -79,11 +98,12 @@ const timeLine = (): ProOverlayTemplate => {
         : null
 
       const x = coordinates[0].x
-      const text = prop('text') ?? ''
-      const textColor = prop('textColor') ?? defaults.textColor
-      const textFontSize = prop('textFontSize') ?? defaults.textFontSize
-      const textFont = prop('textFont') ?? defaults.textFont
-      const textGap = prop('textGap') ?? defaults.textGap
+      const text = prop('text')
+      const textColor = prop('textColor')
+      const textFontSize = prop('textFontSize')
+      const textFont = prop('textFont')
+      const textGap = prop('textGap')
+      const ignoreEvent = prop('ignoreEvent')
 
       const lineStyles = {
         style: prop('lineStyle'),
@@ -99,7 +119,8 @@ const timeLine = (): ProOverlayTemplate => {
           type: 'line',
           key: 'line',
           attrs: { coordinates: [{ x, y: 0 }, { x, y: bounding.height }] },
-          styles: lineStyles
+          styles: lineStyles,
+          ignoreEvent
         })
       } else {
         const textW = calcTextWidth(text, textFontSize, 'normal', textFont)
@@ -113,14 +134,16 @@ const timeLine = (): ProOverlayTemplate => {
           type: 'line',
           key: 'line-top',
           attrs: { coordinates: [{ x, y: 0 }, { x, y: gapTop }] },
-          styles: lineStyles
+          styles: lineStyles,
+          ignoreEvent
         })
 
         figures.push({
           type: 'line',
           key: 'line-bottom',
           attrs: { coordinates: [{ x, y: gapBottom }, { x, y: bounding.height }] },
-          styles: lineStyles
+          styles: lineStyles,
+          ignoreEvent
         })
 
         figures.push({
