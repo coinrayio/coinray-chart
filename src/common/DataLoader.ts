@@ -40,8 +40,24 @@ export interface DataLoaderSubscribeBarParams {
 
 export type DataLoaderUnsubscribeBarParams = Omit<DataLoaderSubscribeBarParams, 'callback'>
 
+export interface DataLoaderGetRangeParams {
+  symbol: SymbolInfo
+  period: Period
+  from: number
+  to: number
+  callback: (data: KLineData[]) => void
+}
+
+export interface DataLoaderGetFirstCandleTimeParams {
+  symbol: SymbolInfo
+  period: Period
+  callback: (timestamp: number | null) => void
+}
+
 export interface DataLoader {
   getBars: (params: DataLoaderGetBarsParams) => void | Promise<void>
   subscribeBar?: (params: DataLoaderSubscribeBarParams) => void
   unsubscribeBar?: (params: DataLoaderUnsubscribeBarParams) => void
+  getRange?: (params: DataLoaderGetRangeParams) => void | Promise<void>
+  getFirstCandleTime?: (params: DataLoaderGetFirstCandleTimeParams) => void | Promise<void>
 }
