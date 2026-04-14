@@ -17,45 +17,40 @@ import type { KLineData } from '../common/Data'
 import type { Period } from '../common/Period'
 import type { SymbolInfo } from '../common/SymbolInfo'
 import type { DataLoader } from '../common/DataLoader'
+import type StoreImp from '../Store'
 
 import type { ReplayStatus } from './types'
 
 // ---------------------------------------------------------------------------
-// Host interface — Store implements this so ReplayEngine can call back into
-// Store for data operations without importing Store directly.
+// StoreAccess — narrow view of Store's fields and methods the engine calls into.
+// Declared here so that Store internals changing surface as compile errors in
+// this file (the replay dev's playground), not leaked into Store.ts as wiring.
 // ---------------------------------------------------------------------------
 
-export interface ReplayEngineHost {
-  // Data access
-  getDataList: () => KLineData[]
+interface StoreAccess {
+  _dataList: KLineData[]
+  _dataLoader: Nullable<DataLoader>
+  _period: Nullable<Period>
+  _crosshair: Record<string, unknown>
+  _loading: boolean
+  _chart: {
+    layout: (opts: {
+      measureWidth?: boolean
+      update?: boolean
+      buildYAxisTick?: boolean
+      cacheYAxisWidth?: boolean
+    }) => void
+  }
+  _addData: (data: KLineData, type: string) => void
+  _adjustVisibleRange: () => void
+  _processDataLoad: (type: string) => void
+  _processDataUnsubscribe: () => void
+  _calcIndicator: (indicators: unknown) => void
   getSymbol: () => Nullable<SymbolInfo>
   getPeriod: () => Nullable<Period>
-  getDataLoader: () => Nullable<DataLoader>
-
-  // Data mutation
-  spliceDataList: (start: number, deleteCount?: number) => KLineData[]
-  popDataList: () => KLineData | undefined
-  setDataListEntry: (index: number, candle: KLineData) => void
-
-  // Rendering
-  adjustVisibleRange: () => void
-  resetCrosshair: () => void
-  triggerLayout: (options: { cacheYAxisWidth: boolean }) => void
-
-  // Indicator recalculation — must be called after data mutations (stepBack, boundary processing)
-  recalcIndicators: () => void
-
-  // Data loading
-  addData: (data: KLineData, type: 'update') => void
-  processDataLoad: (type: 'init') => void
-  processDataUnsubscribe: () => void
+  setCrosshair: (crosshair: unknown, opts: { notInvalidate: boolean }) => void
+  getIndicatorsByFilter: (filter: Record<string, unknown>) => unknown[]
   resetData: (fn?: () => void) => void
-
-  // For _addData guard — engine sets this, Store reads it
-  getCurrentTimeLimit: () => Nullable<number>
-
-  // Used by engine to revert period on failed resolution change
-  setPeriodRaw: (period: Nullable<Period>) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +58,7 @@ export interface ReplayEngineHost {
 // ---------------------------------------------------------------------------
 
 export class ReplayEngine {
-  private readonly _host: ReplayEngineHost
+  private readonly _s: StoreAccess
 
   /**
    * Time limit for replay mode — only show candles up to this timestamp
@@ -139,12 +134,12 @@ export class ReplayEngine {
    */
   private _generation = 0
 
-  constructor (host: ReplayEngineHost) {
-    this._host = host
+  constructor (store: StoreImp) {
+    this._s = store as unknown as StoreAccess
   }
 
   // ---------------------------------------------------------------------------
-  // Raw accessors — used by Store's addData wrapper for save/restore pattern
+  // Accessors used by Store
   // ---------------------------------------------------------------------------
 
   getCurrentTimeLimit (): Nullable<number> {
@@ -153,10 +148,6 @@ export class ReplayEngine {
 
   isInReplay (): boolean {
     return this._currentTimeLimit !== null
-  }
-
-  setCurrentTimeLimitRaw (value: Nullable<number>): void {
-    this._currentTimeLimit = value
   }
 
   getReplayEndTime (): Nullable<number> {
@@ -191,7 +182,7 @@ export class ReplayEngine {
     const gen = ++this._generation
 
     // A period change during replay when no period is set is invalid — bail out.
-    const savedPeriod = this._host.getPeriod()
+    const savedPeriod = this._s.getPeriod()
     if (savedPeriod === null) return
 
     // Reject second-resolution — not supported for replay
@@ -223,7 +214,7 @@ export class ReplayEngine {
           // Abort if a newer operation (setCurrentTime or another handlePeriodChange) superseded this one
           if (this._generation !== gen) return
 
-          const dataList = this._host.getDataList()
+          const dataList = this._s._dataList
           // Check if fetched data covers the cursor position.
           const dataEmpty = dataList.length === 0
           const dataAfterCursor = !dataEmpty && dataList[dataList.length - 1].timestamp > (cursorLimit ?? 0)
@@ -252,7 +243,7 @@ export class ReplayEngine {
             this._onInitComplete = () => {
               this._updateStatus('ready')
             }
-            this._host.resetData(() => { this._host.setPeriodRaw(savedPeriod) })
+            this._s.resetData(() => { this._s._period = savedPeriod })
 
             if (errorType === 'unsupported_resolution') {
               this._emitReplayError('unsupported_resolution', { period })
@@ -283,7 +274,7 @@ export class ReplayEngine {
           this._onInitComplete = () => {
             this._updateStatus('ready')
           }
-          this._host.resetData(() => { this._host.setPeriodRaw(savedPeriod) })
+          this._s.resetData(() => { this._s._period = savedPeriod })
           this._emitReplayError('resolution_change_failed', { period, error: err instanceof Error ? err.message : String(err) })
         }
       })()
@@ -324,20 +315,20 @@ export class ReplayEngine {
       this._clearPlayInterval()
       this._updateStatus('loading')
 
-      this._host.processDataUnsubscribe()
+      this._s._processDataUnsubscribe()
       this._currentTimeLimit = timestamp
       // Capture effective end time at entry (avoid Date.now() drift across awaits)
       const capturedEndTime = endTime ?? Date.now()
       this._replayEndTime = capturedEndTime
 
       // Reject second-resolution — not supported for replay
-      const currentPeriod = this._host.getPeriod()
+      const currentPeriod = this._s.getPeriod()
       if (currentPeriod !== null && currentPeriod.type === 'second') {
         this._emitReplayError('unsupported_resolution', { period: currentPeriod })
         this._currentTimeLimit = prevLimit
         this._updateStatus(prevLimit !== null ? prevStatus : 'idle')
         if (prevLimit === null) {
-          this._host.resetData()
+          this._s.resetData()
         }
         return
       }
@@ -347,12 +338,12 @@ export class ReplayEngine {
       // Abort if superseded by a newer setCurrentTime call
       if (this._generation !== gen) return
       if (firstCandleTime !== null && timestamp < firstCandleTime) {
-        this._emitReplayError('no_data_at_time', { timestamp, firstCandleTime, period: this._host.getPeriod() })
+        this._emitReplayError('no_data_at_time', { timestamp, firstCandleTime, period: this._s.getPeriod() })
         // Restore previous state
         this._currentTimeLimit = prevLimit
         this._updateStatus(prevLimit !== null ? prevStatus : 'idle')
         if (prevLimit === null) {
-          this._host.resetData()
+          this._s.resetData()
         }
         return
       }
@@ -377,12 +368,12 @@ export class ReplayEngine {
       if (this._generation !== gen) return
       // Check if the init fetch returned any data. Empty dataList after all processing
       // likely means the resolution is unsupported (e.g., 1W/1M).
-      if (this._host.getDataList().length === 0 && this._replayBuffer.length === 0) {
-        this._emitReplayError('unsupported_resolution', { period: this._host.getPeriod() })
+      if (this._s._dataList.length === 0 && this._replayBuffer.length === 0) {
+        this._emitReplayError('unsupported_resolution', { period: this._s.getPeriod() })
         this._currentTimeLimit = prevLimit
         this._updateStatus(prevLimit !== null ? prevStatus : 'idle')
         if (prevLimit === null) {
-          this._host.resetData()
+          this._s.resetData()
         }
         return
       }
@@ -394,7 +385,7 @@ export class ReplayEngine {
     } else {
       // Exit playback mode
       this.exitPlayback()
-      this._host.resetData()
+      this._s.resetData()
     }
   }
 
@@ -469,7 +460,7 @@ export class ReplayEngine {
     }
 
     // Update effective current time to candle close
-    const period = this._host.getPeriod()
+    const period = this._s.getPeriod()
     if (period !== null) {
       this._replayCurrentTime = Math.min(
         candle.timestamp + this._getPeriodDurationMs(period),
@@ -487,7 +478,7 @@ export class ReplayEngine {
     this._clearPlayInterval()
 
     const candle = this._drawnFromBuffer.pop()!
-    const period = this._host.getPeriod()
+    const period = this._s.getPeriod()
     const startTime = this._replayStartTime ?? 0
 
     if (candle.timestamp < startTime && period !== null) {
@@ -499,9 +490,9 @@ export class ReplayEngine {
       // Construct boundary partial via sub-resolution fetch
       const partial = await this._fetchSubResolutionPartial(candle, startTime)
       if (partial !== null) {
-        const dataList = this._host.getDataList()
+        const dataList = this._s._dataList
         if (dataList.length > 0) {
-          this._host.setDataListEntry(dataList.length - 1, partial)
+          this._s._dataList[dataList.length - 1] = partial
         }
       } else {
         // Fallback: no sub-resolution data available — the full candle stays in _dataList.
@@ -513,19 +504,19 @@ export class ReplayEngine {
 
       // Emit the partial (or current last candle in _dataList) — not the popped candle,
       // which is now in the buffer. The consumer should see what's actually visible.
-      const lastInDataList = this._host.getDataList()
+      const lastInDataList = this._s._dataList
       const emitCandle = lastInDataList.length > 0 ? lastInDataList[lastInDataList.length - 1] : candle
       this._emitReplayStep(emitCandle, 'back')
     } else {
       // Normal stepBack: remove the candle from _dataList, put back in buffer
-      const dataList = this._host.getDataList()
+      const dataList = this._s._dataList
       if (dataList.length > 0) {
-        this._host.popDataList()
+        this._s._dataList.pop()
       }
       this._replayBuffer.unshift(candle)
 
       // currentTime = close time of last visible candle in _dataList
-      const updatedDataList = this._host.getDataList()
+      const updatedDataList = this._s._dataList
       if (updatedDataList.length > 0 && period !== null) {
         const last = updatedDataList[updatedDataList.length - 1]
         this._replayCurrentTime = last.timestamp + this._getPeriodDurationMs(period)
@@ -550,9 +541,9 @@ export class ReplayEngine {
     truncateAt: number,
     gen?: number
   ): Promise<KLineData | null> {
-    const dataLoader = this._host.getDataLoader()
-    const symbol = this._host.getSymbol()
-    const period = this._host.getPeriod()
+    const dataLoader = this._s._dataLoader
+    const symbol = this._s.getSymbol()
+    const period = this._s.getPeriod()
 
     if (dataLoader?.getRange == null || symbol === null || period === null) {
       return null
@@ -687,7 +678,7 @@ export class ReplayEngine {
     // Emit initial candle when session becomes ready, so consumers get the
     // starting price through onReplayStep without reaching into getDataList().
     if (status === 'ready') {
-      const dataList = this._host.getDataList()
+      const dataList = this._s._dataList
       if (dataList.length > 0) {
         this._emitReplayStep(dataList[dataList.length - 1], 'forward')
       }
@@ -706,11 +697,11 @@ export class ReplayEngine {
    */
   private _trackExtraCandlesBeyondStart (): void {
     const startTime = this._replayStartTime
-    const period = this._host.getPeriod()
+    const period = this._s.getPeriod()
     if (startTime === null || period === null) return
 
     const periodMs = this._getPeriodDurationMs(period)
-    const dataList = this._host.getDataList()
+    const dataList = this._s._dataList
 
     // _postProcessDataBoundary may have already pushed the partial to _drawnFromBuffer.
     // We need to track any OTHER candles between the partial and the start boundary.
@@ -729,10 +720,10 @@ export class ReplayEngine {
   }
 
   private _finalizeStepBack (): void {
-    this._host.recalcIndicators()
-    this._host.resetCrosshair()
-    this._host.adjustVisibleRange()
-    this._host.triggerLayout({ cacheYAxisWidth: true })
+    this._recalcIndicators()
+    this._resetCrosshair()
+    this._s._adjustVisibleRange()
+    this._triggerLayout(true)
     if (this._replayStatus === 'finished') {
       this._updateStatus('paused')
     }
@@ -761,14 +752,15 @@ export class ReplayEngine {
   private async _waitForInit (): Promise<void> {
     await new Promise<void>((resolve) => {
       this._onInitComplete = resolve
-      this._host.processDataLoad('init')
+      this._s._loading = false
+      this._s._processDataLoad('init')
     })
   }
 
   private async _fetchReplayBuffer (): Promise<void> {
-    const dataLoader = this._host.getDataLoader()
-    const symbol = this._host.getSymbol()
-    const period = this._host.getPeriod()
+    const dataLoader = this._s._dataLoader
+    const symbol = this._s.getSymbol()
+    const period = this._s.getPeriod()
     const getRange = dataLoader?.getRange
     if (getRange == null || this._currentTimeLimit === null || symbol === null || period === null) {
       return
@@ -828,8 +820,8 @@ export class ReplayEngine {
   }
 
   private async _postProcessDataBoundary (gen?: number): Promise<void> {
-    const period = this._host.getPeriod()
-    const dataList = this._host.getDataList()
+    const period = this._s.getPeriod()
+    const dataList = this._s._dataList
 
     if (this._currentTimeLimit === null || dataList.length === 0 || period === null) {
       this._triggerDeferredLayout()
@@ -848,14 +840,14 @@ export class ReplayEngine {
 
     // Case 2: candle just opened at cursor time — no data yet, remove and queue in buffer
     if (this._currentTimeLimit <= lastCandle.timestamp) {
-      this._host.popDataList()
+      this._s._dataList.pop()
       // Only queue if not already in buffer (already fetched by _fetchReplayBuffer)
       if (this._replayBuffer.length === 0 || this._replayBuffer[0].timestamp !== lastCandle.timestamp) {
         this._replayBuffer.unshift(lastCandle)
       }
-      this._host.resetCrosshair()
-      this._host.adjustVisibleRange()
-      this._host.triggerLayout({ cacheYAxisWidth: true })
+      this._resetCrosshair()
+      this._s._adjustVisibleRange()
+      this._triggerLayout(true)
       return
     }
 
@@ -868,18 +860,18 @@ export class ReplayEngine {
     }
 
     // Remove the original candle and replace with partial
-    const currentDataList = this._host.getDataList()
-    this._host.setDataListEntry(currentDataList.length - 1, partial)
+    const currentDataList = this._s._dataList
+    this._s._dataList[currentDataList.length - 1] = partial
 
     // Always track the partial as a drawn entry so stepBack can handle it
     this._drawnFromBuffer.push(partial)
 
     // Recalculate indicators after partial candle replacement
-    this._host.recalcIndicators()
+    this._recalcIndicators()
 
     // Force repaint so the partial candle is visible immediately
-    this._host.adjustVisibleRange()
-    this._host.triggerLayout({ cacheYAxisWidth: true })
+    this._s._adjustVisibleRange()
+    this._triggerLayout(true)
 
     // Queue the full original candle at the front of the buffer with the ORIGINAL
     // timestamp (not _currentTimeLimit). This way drawCandle sees a matching timestamp
@@ -895,20 +887,39 @@ export class ReplayEngine {
    * Called after _postProcessDataBoundary finishes modifying data.
    */
   private _triggerDeferredLayout (): void {
-    this._host.resetCrosshair()
-    this._host.triggerLayout({ cacheYAxisWidth: false })
+    this._resetCrosshair()
+    this._triggerLayout(false)
   }
 
   private _drawCandle (candle: KLineData): void {
-    // host.addData handles the save/restore of _currentTimeLimit to bypass the
-    // _addData guard — see Store.ts constructor: addData wrapper temporarily clears _currentTimeLimit
-    this._host.addData(candle, 'update')
+    // Store._addData blocks 'update' type when isInReplay() is true.
+    // Save/restore _currentTimeLimit to bypass the guard for engine-driven draws.
+    const savedLimit = this._currentTimeLimit
+    this._currentTimeLimit = null
+    this._s._addData(candle, 'update')
+    this._currentTimeLimit = savedLimit
+  }
+
+  private _resetCrosshair (): void {
+    this._s._crosshair = {}
+    this._s.setCrosshair(this._s._crosshair, { notInvalidate: true })
+  }
+
+  private _triggerLayout (cacheYAxisWidth: boolean): void {
+    this._s._chart.layout({ measureWidth: true, update: true, buildYAxisTick: true, cacheYAxisWidth })
+  }
+
+  private _recalcIndicators (): void {
+    const filterIndicators = this._s.getIndicatorsByFilter({})
+    if (filterIndicators.length > 0) {
+      this._s._calcIndicator(filterIndicators)
+    }
   }
 
   private async _getFirstCandleTime (): Promise<number | null> {
-    const dataLoader = this._host.getDataLoader()
-    const symbol = this._host.getSymbol()
-    const period = this._host.getPeriod()
+    const dataLoader = this._s._dataLoader
+    const symbol = this._s.getSymbol()
+    const period = this._s.getPeriod()
 
     if (dataLoader?.getFirstCandleTime == null || symbol === null || period === null) {
       return null

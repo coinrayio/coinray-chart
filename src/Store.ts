@@ -421,44 +421,7 @@ export default class StoreImp implements Store {
       })
     })
 
-    this._replayEngine = new ReplayEngineImp({
-      getDataList: () => this._dataList,
-      getSymbol: () => this._symbol,
-      getPeriod: () => this._period,
-      getDataLoader: () => this._dataLoader,
-      spliceDataList: (start, count) => this._dataList.splice(start, count ?? this._dataList.length - start),
-      popDataList: () => this._dataList.pop(),
-      setDataListEntry: (i, candle) => { this._dataList[i] = candle },
-      adjustVisibleRange: () => { this._adjustVisibleRange() },
-      resetCrosshair: () => {
-        this._crosshair = {}
-        this.setCrosshair(this._crosshair, { notInvalidate: true })
-      },
-      triggerLayout: (opts) => {
-        this._chart.layout({ measureWidth: true, update: true, buildYAxisTick: true, cacheYAxisWidth: opts.cacheYAxisWidth })
-      },
-      addData: (data, type) => {
-        // Save/restore _currentTimeLimit to bypass the _addData guard
-        const savedLimit = this._replayEngine.getCurrentTimeLimit()
-        this._replayEngine.setCurrentTimeLimitRaw(null)
-        this._addData(data, type)
-        this._replayEngine.setCurrentTimeLimitRaw(savedLimit)
-      },
-      processDataLoad: (type) => {
-        this._loading = false
-        this._processDataLoad(type)
-      },
-      recalcIndicators: () => {
-        const filterIndicators = this.getIndicatorsByFilter({})
-        if (filterIndicators.length > 0) {
-          this._calcIndicator(filterIndicators)
-        }
-      },
-      processDataUnsubscribe: () => { this._processDataUnsubscribe() },
-      resetData: (fn) => { this.resetData(fn) },
-      getCurrentTimeLimit: () => this._replayEngine.getCurrentTimeLimit(),
-      setPeriodRaw: (period) => { this._period = period }
-    })
+    this._replayEngine = new ReplayEngineImp(this)
   }
 
   setStyles (value: string | DeepPartial<Styles>): void {
@@ -728,10 +691,8 @@ export default class StoreImp implements Store {
       }
       success = true
     } else {
-      // Block live updates when a time limit is set (replay mode).
-      // Only block the subscribeBar callback path — drawCandle() uses 'draw' type to bypass.
-      // isInReplay() checks _currentTimeLimit !== null. The addData host wrapper
-      // temporarily sets the limit to null to bypass this guard for drawCandle calls.
+      // Block live updates in replay mode. The engine's _drawCandle bypasses this
+      // guard by temporarily clearing its own _currentTimeLimit before calling _addData.
       if (this._replayEngine.isInReplay() && type === 'update') {
         return
       }

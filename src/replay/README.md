@@ -119,9 +119,11 @@ The engine is a standalone class. Store integrates it through 5 hooks in existin
 5. **`_processDataLoad`**: In replay mode, uses `_currentTimeLimit` as init timestamp,
    skips `subscribeBar`, and notifies the engine via `notifyInitComplete()`
 
-The engine communicates with Store through the `ReplayEngineHost` interface — a set of
-callbacks wired in the Store constructor. This keeps the engine decoupled from Store
-internals.
+The engine holds a direct reference to the Store and accesses its methods/fields
+through a narrow `StoreAccess` type declared locally in `ReplayEngine.ts`. This
+keeps the replay feature's footprint in `Store.ts` to a single constructor call.
+When Store internals change, the `StoreAccess` type in `ReplayEngine.ts` needs to
+be updated to match.
 
 ## Generation Counter
 
