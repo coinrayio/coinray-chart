@@ -68,10 +68,11 @@ import gannBox from './gannBox'
 // Trade line overlay (Pro overlay with factory pattern)
 import tradeLine from './tradeLine'
 
-// Alert overlays (Pro overlays with factory pattern)
-import timeAlertLine from './timeAlertLine'
-import breakEvenLine from './breakEvenLine'
-import trendlineAlertLine from './trendlineAlertLine'
+// Generic primitive overlays (Pro overlays with factory pattern)
+import timeLine from './timeLine'
+import priceLevelLine from './priceLevelLine'
+import styledSegment from './styledSegment'
+import box from './box'
 
 const overlays: Record<string, OverlayInnerConstructor> = {}
 
@@ -93,9 +94,10 @@ const proExtensions = [
   abcd, xabcd,
   gannBox,
   tradeLine,
-  timeAlertLine,
-  breakEvenLine,
-  trendlineAlertLine
+  timeLine,
+  priceLevelLine,
+  styledSegment,
+  box
 ]
 
 // Register standard overlays (direct templates)

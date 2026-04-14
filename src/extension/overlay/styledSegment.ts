@@ -1,8 +1,22 @@
 /**
- * Trendline Alert Line Overlay
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+
+ * http://www.apache.org/licenses/LICENSE-2.0
+
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * Styled Segment Overlay
  *
- * A two-point segment line with text label rotated to match the line's angle.
- * The text sits at the midpoint of the line.
+ * A line between two points with optional rotated text label at the midpoint.
+ * Used for trendline alerts and base segments.
  */
 
 import type DeepPartial from '../../common/DeepPartial'
@@ -14,7 +28,7 @@ import type { ProOverlayTemplate } from './types'
 // Properties
 // ---------------------------------------------------------------------------
 
-export interface TrendlineAlertLineProperties {
+export interface StyledSegmentProperties {
   lineColor?: string
   lineWidth?: number
   lineStyle?: 'solid' | 'dashed'
@@ -26,9 +40,12 @@ export interface TrendlineAlertLineProperties {
   textFont?: string
   /** Pixel gap between the line and the text (perpendicular offset) */
   textOffset?: number
+
+  /** Whether the line ignores mouse/touch events (default: true) */
+  ignoreEvent?: boolean
 }
 
-const defaults: Required<TrendlineAlertLineProperties> = {
+const defaults: Required<StyledSegmentProperties> = {
   lineColor: '#3ea6ff',
   lineWidth: 1,
   lineStyle: 'solid',
@@ -38,29 +55,31 @@ const defaults: Required<TrendlineAlertLineProperties> = {
   textColor: '#3ea6ff',
   textFontSize: 12,
   textFont: 'Helvetica Neue',
-  textOffset: 12
+  textOffset: 12,
+
+  ignoreEvent: true
 }
 
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
-const trendlineAlertLine = (): ProOverlayTemplate => {
-  let properties: DeepPartial<TrendlineAlertLineProperties> = {}
+const styledSegment = (): ProOverlayTemplate => {
+  let properties: DeepPartial<StyledSegmentProperties> = {}
 
-  const _extRef: { data: DeepPartial<TrendlineAlertLineProperties> | null } = { data: null }
+  const _extRef: { data: DeepPartial<StyledSegmentProperties> | null } = { data: null }
 
-  const prop = <K extends keyof TrendlineAlertLineProperties>(key: K): TrendlineAlertLineProperties[K] => {
+  const prop = <K extends keyof StyledSegmentProperties>(key: K): Required<StyledSegmentProperties>[K] => {
     const ext = _extRef.data as Record<string, unknown> | null
     const props = properties as Record<string, unknown>
     const defs = defaults as Record<string, unknown>
-    return (ext?.[key] ?? props[key] ?? defs[key]) as TrendlineAlertLineProperties[K]
+    return (ext?.[key] ?? props[key] ?? defs[key]) as Required<StyledSegmentProperties>[K]
   }
 
   return {
-    name: 'trendlineAlertLine',
+    name: 'styledSegment',
     totalStep: 3,
-    needDefaultPointFigure: true,
+    needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
 
@@ -68,14 +87,15 @@ const trendlineAlertLine = (): ProOverlayTemplate => {
       if (coordinates.length < 2) return []
 
       _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
-        ? overlay.extendData as DeepPartial<TrendlineAlertLineProperties>
+        ? overlay.extendData as DeepPartial<StyledSegmentProperties>
         : null
 
-      const text = prop('text') ?? ''
-      const textColor = prop('textColor') ?? defaults.textColor
-      const textFontSize = prop('textFontSize') ?? defaults.textFontSize
-      const textFont = prop('textFont') ?? defaults.textFont
-      const textOffset = prop('textOffset') ?? defaults.textOffset
+      const text = prop('text')
+      const textColor = prop('textColor')
+      const textFontSize = prop('textFontSize')
+      const textFont = prop('textFont')
+      const textOffset = prop('textOffset')
+      const ignoreEvent = prop('ignoreEvent')
 
       const lineStyles = {
         style: prop('lineStyle'),
@@ -84,10 +104,8 @@ const trendlineAlertLine = (): ProOverlayTemplate => {
         dashedValue: prop('lineDashedValue')
       }
 
-      const x1 = coordinates[0].x
-      const y1 = coordinates[0].y
-      const x2 = coordinates[1].x
-      const y2 = coordinates[1].y
+      const { x: x1, y: y1 } = coordinates[0]
+      const { x: x2, y: y2 } = coordinates[1]
 
       const figures: Array<{
         type: string
@@ -95,23 +113,20 @@ const trendlineAlertLine = (): ProOverlayTemplate => {
         attrs: Record<string, unknown>
         styles?: Record<string, unknown>
         ignoreEvent?: boolean
-      }> = []
+      }> = [
+        {
+          type: 'line',
+          key: 'segment',
+          attrs: { coordinates: [{ x: x1, y: y1 }, { x: x2, y: y2 }] },
+          styles: lineStyles,
+          ignoreEvent
+        }
+      ]
 
-      // Segment line
-      figures.push({
-        type: 'line',
-        key: 'segment',
-        attrs: { coordinates: [{ x: x1, y: y1 }, { x: x2, y: y2 }] },
-        styles: lineStyles
-      })
-
-      // Rotated text at midpoint, matching the line angle
       if (text.length > 0) {
         const midX = (x1 + x2) / 2
         const midY = (y1 + y2) / 2
         const angle = Math.atan2(y2 - y1, x2 - x1)
-
-        // Offset text perpendicular to the line (above it)
         const perpX = -Math.sin(angle) * textOffset
         const perpY = Math.cos(angle) * textOffset
 
@@ -142,14 +157,14 @@ const trendlineAlertLine = (): ProOverlayTemplate => {
       return false
     },
 
-    setProperties: (_properties: DeepPartial<TrendlineAlertLineProperties>, _id: string) => {
+    setProperties: (_properties: DeepPartial<StyledSegmentProperties>, _id: string) => {
       const newProps = clone(properties) as Record<string, unknown>
       merge(newProps, _properties)
-      properties = newProps as DeepPartial<TrendlineAlertLineProperties>
+      properties = newProps as DeepPartial<StyledSegmentProperties>
     },
 
-    getProperties: (_id: string): DeepPartial<TrendlineAlertLineProperties> => properties
+    getProperties: (_id: string): DeepPartial<StyledSegmentProperties> => properties
   }
 }
 
-export default trendlineAlertLine
+export default styledSegment
