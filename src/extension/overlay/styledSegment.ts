@@ -79,7 +79,7 @@ const styledSegment = (): ProOverlayTemplate => {
   return {
     name: 'styledSegment',
     totalStep: 3,
-    needDefaultPointFigure: false,
+    needDefaultPointFigure: true,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
 
