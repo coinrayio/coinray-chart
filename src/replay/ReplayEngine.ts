@@ -378,7 +378,20 @@ export class ReplayEngine {
         return
       }
 
-      this._replayStartTime ??= timestamp
+      // Reset _replayStartTime when entering a fresh session that starts earlier
+      // than the currently-recorded start. The old `??=` preserved _replayStartTime
+      // across calls, which is correct for intra-session seeks (goBackTo), but
+      // wrong when a consumer tears down a session and starts a new one at an
+      // earlier time without calling setCurrentTime(null). In that case the stale
+      // _replayStartTime from the previous session would make stepBack's boundary
+      // check (`candle.ts < _replayStartTime`) wrongly return true for every
+      // candle in the new session, sending every step-back through the PARTIAL
+      // branch and emitting phantom candles built from a 4-year sub-resolution
+      // span. Intra-session seeks are still safe because goBackTo always seeks
+      // to a time >= the original _replayStartTime.
+      if (this._replayStartTime === null || timestamp < this._replayStartTime) {
+        this._replayStartTime = timestamp
+      }
       this._trackExtraCandlesBeyondStart()
       this._replayCurrentTime = timestamp
       this._updateStatus('ready')
