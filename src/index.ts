@@ -55,6 +55,7 @@ import type { FigureTemplate } from './component/Figure'
 
 import type { FormatDateType, Options, BarSpaceLimit, ZoomAnchor } from './Options'
 import ChartImp, { type Chart, type DomPosition } from './Chart'
+import type { ReplayStatus, ReplayEngine } from './replay/types'
 
 import { checkCoordinateOnArc } from './extension/figure/arc'
 import { checkCoordinateOnCircle } from './extension/figure/circle'
@@ -104,7 +105,9 @@ function version (): string {
  * @returns {Chart}
  */
 function init (ds: HTMLElement | string, options?: Options): Nullable<Chart> {
-  logTag()
+  if (options?.debug !== false) {
+    logTag()
+  }
   let dom: Nullable<HTMLElement> = null
   if (isString(ds)) {
     dom = document.getElementById(ds)
@@ -192,6 +195,8 @@ export {
   createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
   // Default fibonacci levels
   FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
+  // Replay engine type — exported for consumer type annotations (sc.replay: ReplayEngine | null)
+  type ReplayEngine,
   // Core consumer types
   type Chart, type Nullable, type DeepPartial, type KLineData, type Point, type Styles, type Options,
   type Overlay, type OverlayCreate, type OverlayEvent, type OverlayTemplate,
@@ -204,5 +209,7 @@ export {
   // Pro overlay types
   type OverlayProperties, type ProOverlayTemplate, type OverlayPropertiesStore, type FigureLevel,
   type PriceLineProperties, type PriceLine, type PriceLineEventListener,
-  type TradeLineProperties, type TradeLine
+  type TradeLineProperties, type TradeLine,
+  // Replay types
+  type ReplayStatus
 }

@@ -107,4 +107,5 @@ export interface Options {
   layout?: LayoutChild[]
   zoomAnchor?: Partial<ZoomAnchor>
   barSpaceLimit?: Partial<BarSpaceLimit>
+  debug?: boolean
 }

@@ -40,6 +40,7 @@ import type { SymbolInfo } from './common/SymbolInfo'
 import type { Period } from './common/Period'
 
 import ChartStore, { SCALE_MULTIPLIER, type Store } from './Store'
+import type { ReplayEngine } from './replay/types'
 
 import CandlePane from './pane/CandlePane'
 import IndicatorPane from './pane/IndicatorPane'
@@ -99,6 +100,7 @@ export interface Chart extends Store {
   unsubscribeAction: (type: ActionType, callback?: ActionCallback) => void
   getConvertPictureUrl: (includeOverlay?: boolean, type?: 'png' | 'jpeg' | 'bmp', backgroundColor?: string) => string
   resize: () => void
+  getReplayEngine: () => ReplayEngine
 }
 
 export default class ChartImp implements Chart {
@@ -725,6 +727,10 @@ export default class ChartImp implements Chart {
 
   resetData (): void {
     this._chartStore.resetData()
+  }
+
+  getReplayEngine (): ReplayEngine {
+    return this._chartStore.getReplayEngine()
   }
 
   getDataList (mutateToCandleType = false): KLineData[] {
