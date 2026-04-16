@@ -129,14 +129,12 @@ const tradeLine = (): ProOverlayTemplate => {
 
       // -------------------------------------------------------------------
       // 1. MAIN ARROW — anchored at the specified price level
-      //    The arrow tip points toward the price; body extends away from it.
+      //    The arrow TIP sits on the price; body extends away from it.
       // -------------------------------------------------------------------
       const mainTotalH = getArrowTotalHeight(arrowType)
-      // buy (up): tip at priceY, body extends downward
-      // sell (down): tip at priceY, body extends upward
-      const mainTipY = direction === 'up'
-        ? priceY - mainTotalH
-        : priceY + mainTotalH
+      // buy (up): tip at priceY, body extends downward (away from tip)
+      // sell (down): tip at priceY, body extends upward (away from tip)
+      const mainTipY = priceY
 
       if (arrowType === 'wide') {
         drawWideArrow(figures, x, mainTipY, direction, color)
@@ -147,11 +145,11 @@ const tradeLine = (): ProOverlayTemplate => {
       }
 
       // -------------------------------------------------------------------
-      // Label arrow + text — positioned below the main arrow (away from price)
+      // Label arrow + text — positioned beyond the main arrow base
       //
       // Layout (buy/up):
-      //   price level (priceY)
-      //   main arrow (tip at priceY - totalH, base at priceY)
+      //   main arrow tip (priceY)
+      //   main arrow base (priceY + totalH)
       //     ↕ gap
       //   label arrow tip
       //     ↕ labelTotalH
