@@ -303,7 +303,7 @@ export default class Event implements EventHandler {
         const chartStore = this._chart.getChartStore()
         if (chartStore.hasAction('onChartClick')) {
           const crosshair = chartStore.getCrosshair()
-          const payload = { x: event.x, y: event.y, ...crosshair }
+          const payload = { x: event.x, y: event.y, pageX: event.pageX, pageY: event.pageY, ...crosshair }
           // Defer so a following double-click can cancel it
           if (this._pendingClickTimer !== null) clearTimeout(this._pendingClickTimer)
           this._pendingClickTimer = setTimeout(() => {
@@ -339,6 +339,8 @@ export default class Event implements EventHandler {
           chartStore.executeAction('onChartRightClick', {
             x: event.x,
             y: event.y,
+            pageX: event.pageX,
+            pageY: event.pageY,
             ...crosshair
           })
         }
@@ -371,6 +373,8 @@ export default class Event implements EventHandler {
               chartStore.executeAction('onChartDoubleClick', {
                 x: event.x,
                 y: event.y,
+                pageX: event.pageX,
+                pageY: event.pageY,
                 ...crosshair
               })
             }
