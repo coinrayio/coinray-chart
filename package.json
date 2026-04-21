@@ -50,7 +50,7 @@
     "prepublishOnly": "node scripts/pre-publish.js",
     "branch-lint": "node scripts/branch-lint.js",
     "commit-lint": "commitlint --edit",
-    "code-lint": "eslint src/**/*.ts",
+    "code-lint": "eslint src",
     "clean": "node scripts/build/clean.js",
     "build-esm": "node scripts/build/build-esm.js",
     "build-cjs": "cross-env NODE_ENV=production node scripts/build/build-cjs.js",

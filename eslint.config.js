@@ -3,6 +3,18 @@ import love from 'eslint-config-love'
 import progress from 'eslint-plugin-file-progress'
 
 export default [
+  // Global ignores — must be in a config object with ONLY `ignores` to apply globally.
+  {
+    ignores: [
+      'eslint.config.js',
+      'scripts/**/*',
+      'dist/**/*',
+      'docs/**/*',
+      'index.js',
+      'src/__tests__/**/*',
+      'vitest.config.ts'
+    ]
+  },
   ...new FlatCompat().extends('eslint-config-standard'),
   {
     ...love,
@@ -12,13 +24,6 @@ export default [
     plugins: {
       'file-progress': progress
     },
-    ignores: [
-      'eslint.config.js',
-      'scripts/**/*',
-      'dist/**/*',
-      'docs/**/*',
-      'index.js'
-    ],
     rules: {
       'file-progress/activate': 1,
       complexity: 'off',
