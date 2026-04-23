@@ -566,6 +566,25 @@ export default class Event implements EventHandler {
             consumed = true
           }
           this._touchCancelCrosshair = false
+
+          // Fire onChartClick when no overlay consumed — matches mouseClickEvent
+          // so Superchart's onSelect callback works on touch. Deferred 250ms
+          // so a following double-tap can cancel it via mouseDoubleClickEvent.
+          if (pane !== null && chartStore.hasAction('onChartClick')) {
+            const crosshair = chartStore.getCrosshair()
+            const payload = {
+              x: event.x,
+              y: event.y,
+              pageX: event.pageX,
+              pageY: event.pageY,
+              ...crosshair
+            }
+            if (this._pendingClickTimer !== null) clearTimeout(this._pendingClickTimer)
+            this._pendingClickTimer = setTimeout(() => {
+              this._pendingClickTimer = null
+              chartStore.executeAction('onChartClick', payload)
+            }, 250)
+          }
         }
       }
       if (consumed || result) {
@@ -585,6 +604,31 @@ export default class Event implements EventHandler {
       const event = this._makeWidgetEvent(e, widget)
       this._touchCoordinate = { x: event.x, y: event.y }
       this._chart.getChartStore().setCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() })
+
+      // Dispatch right-click semantics so overlays' onRightClick handlers fire
+      // (e.g. show OverlayOptionsPopup) on mobile/touch long-press.
+      const consumed = widget.dispatchEvent('mouseRightClickEvent', event)
+
+      // Fire onChartRightClick only when no overlay consumed the long-press —
+      // matches mouseRightClickEvent so Superchart's onRightSelect callback
+      // and chart background context menu work on touch.
+      if (!consumed && pane !== null) {
+        const chartStore = this._chart.getChartStore()
+        if (chartStore.hasAction('onChartRightClick')) {
+          const crosshair = chartStore.getCrosshair()
+          chartStore.executeAction('onChartRightClick', {
+            x: event.x,
+            y: event.y,
+            pageX: event.pageX,
+            pageY: event.pageY,
+            ...crosshair
+          })
+        }
+      }
+
+      if (consumed) {
+        this._chart.updatePane(UpdateLevel.Overlay)
+      }
       return true
     }
     return false
