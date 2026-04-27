@@ -81,7 +81,7 @@ import type {
   OverlayProperties, ProOverlayTemplate, OverlayPropertiesStore,
   FigureLevel,
   PriceLineProperties, PriceLine, PriceLineEventListener,
-  TradeLineProperties, TradeLine
+  TradeLineProperties, TradeLine, TradeLineOptions
 } from './extension/overlay/index'
 import { registerStyles } from './extension/styles/index'
 import { registerXAxis } from './extension/x-axis'
@@ -209,7 +209,7 @@ export {
   // Pro overlay types
   type OverlayProperties, type ProOverlayTemplate, type OverlayPropertiesStore, type FigureLevel,
   type PriceLineProperties, type PriceLine, type PriceLineEventListener,
-  type TradeLineProperties, type TradeLine,
+  type TradeLineProperties, type TradeLine, type TradeLineOptions,
   // Replay types
   type ReplayStatus
 }

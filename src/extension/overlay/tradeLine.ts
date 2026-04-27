@@ -271,8 +271,7 @@ function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction
           { x: x + halfHeadW, y: headBase }
         ]
       },
-      styles: strokeFillStyle,
-      ignoreEvent: true
+      styles: strokeFillStyle
     })
     figures.push({
       type: 'polygon',
@@ -285,8 +284,7 @@ function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction
           { x: x - halfBodyW, y: headBase + WIDE_BODY_H }
         ]
       },
-      styles: strokeFillStyle,
-      ignoreEvent: true
+      styles: strokeFillStyle
     })
   } else {
     const headBase = tipY - WIDE_HEAD_H
@@ -301,8 +299,7 @@ function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction
           { x: x - halfBodyW, y: headBase }
         ]
       },
-      styles: strokeFillStyle,
-      ignoreEvent: true
+      styles: strokeFillStyle
     })
     figures.push({
       type: 'polygon',
@@ -314,8 +311,7 @@ function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction
           { x: x + halfHeadW, y: headBase }
         ]
       },
-      styles: strokeFillStyle,
-      ignoreEvent: true
+      styles: strokeFillStyle
     })
   }
 }
@@ -340,8 +336,7 @@ function drawLineArrow (figures: FigureArray, x: number, tipY: number, direction
         { x: x + halfHeadW, y: headBase }
       ]
     },
-    styles: { color, size: ARROW_LINE_W },
-    ignoreEvent: true
+    styles: { color, size: ARROW_LINE_W }
   })
   // Vertical stem from tip extending away
   figures.push({
@@ -353,8 +348,7 @@ function drawLineArrow (figures: FigureArray, x: number, tipY: number, direction
         { x, y: tipY + (ARROW_HEAD_H + ARROW_LINE_H) * sign }
       ]
     },
-    styles: { color, size: ARROW_LINE_W },
-    ignoreEvent: true
+    styles: { color, size: ARROW_LINE_W }
   })
 }
 
@@ -376,8 +370,7 @@ function drawTinyArrow (figures: FigureArray, x: number, tipY: number, direction
         { x: x + halfHeadW, y: headBase }
       ]
     },
-    styles: { style: 'stroke_fill', color, borderColor: color, borderSize: 1 },
-    ignoreEvent: true
+    styles: { style: 'stroke_fill', color, borderColor: color, borderSize: 1 }
   })
 }
 
@@ -401,8 +394,7 @@ function drawLabelArrow (figures: FigureArray, x: number, tipY: number, directio
         { x: x + halfHeadW, y: headBase }
       ]
     },
-    styles: { color, size: LABEL_LINE_W },
-    ignoreEvent: true
+    styles: { color, size: LABEL_LINE_W }
   })
   // Short stem extending away from tip
   figures.push({
@@ -414,8 +406,7 @@ function drawLabelArrow (figures: FigureArray, x: number, tipY: number, directio
         { x, y: tipY + (LABEL_HEAD_H + LABEL_LINE_H) * sign }
       ]
     },
-    styles: { color, size: LABEL_LINE_W },
-    ignoreEvent: true
+    styles: { color, size: LABEL_LINE_W }
   })
 }
 

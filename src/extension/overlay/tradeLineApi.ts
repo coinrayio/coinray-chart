@@ -13,6 +13,7 @@
  */
 
 import type { Chart } from '../../Chart'
+import type { OverlayEventCallback } from '../../component/Overlay'
 
 // ---------------------------------------------------------------------------
 // TradeLineProperties — stored on the overlay, read by createPointFigures
@@ -75,11 +76,16 @@ export interface TradeLine {
 // createTradeLine factory function
 // ---------------------------------------------------------------------------
 
+export interface TradeLineOptions extends Partial<TradeLineProperties> {
+  onRightClick?: OverlayEventCallback<unknown>
+}
+
 export function createTradeLine (
   chart: Chart,
-  options?: Partial<TradeLineProperties>
+  options?: TradeLineOptions
 ): TradeLine {
-  const properties: TradeLineProperties = { ...options }
+  const { onRightClick, ...rest } = options ?? {}
+  const properties: TradeLineProperties = { ...rest }
 
   const result = chart.createOverlay({
     name: 'tradeLine',
@@ -90,7 +96,13 @@ export function createTradeLine (
     lock: true,
     visible: true,
     extendData: properties,
-    paneId: 'candle_pane'
+    paneId: 'candle_pane',
+    // preventDefault opts out of the engine's built-in right-click delete —
+    // trade lines are app-managed, deletion is the app's job.
+    onRightClick: (event) => {
+      event.preventDefault?.()
+      onRightClick?.(event)
+    }
   })
   const overlayId = typeof result === 'string' ? result : null
 

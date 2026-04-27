@@ -150,5 +150,5 @@ export type { PriceLineProperties, PriceLine, PriceLineEventListener } from './p
 export { createPriceLine } from './priceLineApi'
 
 // Export trade line types and fluent API
-export type { TradeLineProperties, TradeLine } from './tradeLineApi'
+export type { TradeLineProperties, TradeLine, TradeLineOptions } from './tradeLineApi'
 export { createTradeLine } from './tradeLineApi'
