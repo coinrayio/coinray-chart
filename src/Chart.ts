@@ -33,6 +33,7 @@ import { getPixelRatio } from './common/utils/canvas'
 import { isString, isArray, isValid, merge, isNumber } from './common/utils/typeChecks'
 import { logWarn } from './common/utils/logger'
 import { binarySearchNearest } from './common/utils/number'
+import { createSetVisibleRangeError } from './common/Errors'
 import type { Styles } from './common/Styles'
 import type BarSpace from './common/BarSpace'
 import type PickRequired from './common/PickRequired'
@@ -91,7 +92,7 @@ export interface Chart extends Store {
   zoomAtCoordinate: (scale: number, coordinate?: Coordinate, animationDuration?: number) => void
   zoomAtDataIndex: (scale: number, dataIndex: number, animationDuration?: number) => void
   zoomAtTimestamp: (scale: number, timestamp: number, animationDuration?: number) => void
-  setVisibleRange: (range: { from: number; to: number }) => void
+  setVisibleRange: (range: { from: number; to: number }) => Promise<void>
   getVisibleRangeTimestamps: () => Nullable<{ from: number; to: number }>
   convertToPixel: (points: Partial<Point> | Array<Partial<Point>>, filter?: ConvertFilter) => Partial<Coordinate> | Array<Partial<Coordinate>>
   convertFromPixel: (coordinates: Array<Partial<Coordinate>>, filter?: ConvertFilter) => Partial<Point> | Array<Partial<Point>>
@@ -1104,7 +1105,31 @@ export default class ChartImp implements Chart {
     this.zoomAtDataIndex(scale, dataIndex, animationDuration)
   }
 
-  setVisibleRange (range: { from: number; to: number }): void {
+  async setVisibleRange (range: { from: number; to: number }): Promise<void> {
+    const dataList = this.getDataList()
+    if (dataList.length === 0) return
+    const firstTimestamp = dataList[0].timestamp
+    if (range.from >= firstTimestamp) {
+      this._applyVisibleRange(range)
+      return
+    }
+    const firstCandleTime = await this._chartStore.fetchFirstCandleTime()
+    if (firstCandleTime !== null && range.from < firstCandleTime) {
+      throw createSetVisibleRangeError('no_data_at_time', {
+        timestamp: range.from,
+        firstCandleTime,
+        period: this._chartStore.getPeriod()
+      })
+    }
+    await new Promise<void>(resolve => {
+      this._chartStore.loadRangeBackward(range.from, firstTimestamp, () => {
+        this._applyVisibleRange(range)
+        resolve()
+      })
+    })
+  }
+
+  private _applyVisibleRange (range: { from: number; to: number }): void {
     const dataList = this.getDataList()
     if (dataList.length === 0) return
     const fromIndex = binarySearchNearest(dataList, 'timestamp', range.from)

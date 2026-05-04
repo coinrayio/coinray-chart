@@ -738,6 +738,52 @@ export default class StoreImp implements Store {
     })
   }
 
+  async fetchFirstCandleTime (): Promise<number | null> {
+    const dataLoader = this._dataLoader
+    const symbol = this._symbol
+    const period = this._period
+    if (dataLoader?.getFirstCandleTime == null || symbol === null || period === null) {
+      return null
+    }
+    const getFirstCandleTime = dataLoader.getFirstCandleTime
+    return await new Promise<number | null>(resolve => {
+      void getFirstCandleTime({ symbol, period, callback: resolve })
+    })
+  }
+
+  loadRangeBackward (from: number, to: number, callback: () => void): void {
+    if (
+      !isValid(this._dataLoader) ||
+      !isValid(this._symbol) ||
+      !isValid(this._period) ||
+      this._dataLoader.getRange == null ||
+      this._replayEngine.isInReplay()
+    ) {
+      callback()
+      return
+    }
+    const symbol = this._symbol
+    const period = this._period
+    void this._dataLoader.getRange({
+      symbol,
+      period,
+      from,
+      to,
+      callback: (data: KLineData[]) => {
+        if (this._symbol !== symbol || this._period !== period || this._dataList.length === 0) {
+          callback()
+          return
+        }
+        const firstTimestamp = this._dataList[0].timestamp
+        const filtered = data.filter(d => d.timestamp < firstTimestamp)
+        if (filtered.length > 0) {
+          this._addData(filtered, 'forward', { forward: true, backward: this._dataLoadMore.backward })
+        }
+        callback()
+      }
+    })
+  }
+
   private _calcOptimalBarSpace (): void {
     const specialBarSpace = 4
     const ratio = 1 - BAR_GAP_RATIO * Math.atan(Math.max(specialBarSpace, this._barSpace) - specialBarSpace) / (Math.PI * 0.5)

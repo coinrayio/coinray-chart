@@ -48,6 +48,7 @@ interface StoreAccess {
   _calcIndicator: (indicators: unknown) => void
   getSymbol: () => Nullable<SymbolInfo>
   getPeriod: () => Nullable<Period>
+  fetchFirstCandleTime: () => Promise<number | null>
   setCrosshair: (crosshair: unknown, opts: { notInvalidate: boolean }) => void
   getIndicatorsByFilter: (filter: Record<string, unknown>) => unknown[]
   resetData: (fn?: () => void) => void
@@ -228,7 +229,7 @@ export class ReplayEngine {
             if (dataAfterCursor) {
               errorType = 'no_data_at_time'
             } else {
-              const firstCandleTime = await this._getFirstCandleTime()
+              const firstCandleTime = await this._s.fetchFirstCandleTime()
               if (this._generation !== gen) return
               if (firstCandleTime !== null && cursorLimit !== null && cursorLimit < firstCandleTime) {
                 errorType = 'no_data_at_time'
@@ -334,7 +335,7 @@ export class ReplayEngine {
       }
 
       // Validate start time against first available candle
-      const firstCandleTime = await this._getFirstCandleTime()
+      const firstCandleTime = await this._s.fetchFirstCandleTime()
       // Abort if superseded by a newer setCurrentTime call
       if (this._generation !== gen) return
       if (firstCandleTime !== null && timestamp < firstCandleTime) {
@@ -927,25 +928,5 @@ export class ReplayEngine {
     if (filterIndicators.length > 0) {
       this._s._calcIndicator(filterIndicators)
     }
-  }
-
-  private async _getFirstCandleTime (): Promise<number | null> {
-    const dataLoader = this._s._dataLoader
-    const symbol = this._s.getSymbol()
-    const period = this._s.getPeriod()
-
-    if (dataLoader?.getFirstCandleTime == null || symbol === null || period === null) {
-      return null
-    }
-    const getFirstCandleTime = dataLoader.getFirstCandleTime
-    return await new Promise<number | null>((resolve) => {
-      void getFirstCandleTime({
-        symbol,
-        period,
-        callback: (timestamp) => {
-          resolve(timestamp)
-        }
-      })
-    })
   }
 }
