@@ -1369,11 +1369,17 @@ export default class StoreImp implements Store {
 
     if (position === 'xAxis') {
       if (this._zoomAnchor.xAxis === 'last_bar') {
-        zoomCoordinate.x = this.dataIndexToCoordinate(this._dataList.length - 1)
+        const lastBarX = this.dataIndexToCoordinate(this._dataList.length - 1)
+        if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
+          zoomCoordinate.x = lastBarX
+        }
       }
     } else {
       if (this._zoomAnchor.main === 'last_bar') {
-        zoomCoordinate.x = this.dataIndexToCoordinate(this._dataList.length - 1)
+        const lastBarX = this.dataIndexToCoordinate(this._dataList.length - 1)
+        if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
+          zoomCoordinate.x = lastBarX
+        }
       }
     }
     const x = zoomCoordinate.x!
