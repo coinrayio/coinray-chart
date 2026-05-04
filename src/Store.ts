@@ -223,6 +223,23 @@ export default class StoreImp implements Store {
   private _loading = false
 
   /**
+   * Init-type load specifically — distinct from `_loading` because only
+   * init resets scroll offset (`_addData` case 'init') and consumers gate
+   * deferred operations like `setVisibleRange` on this.
+   */
+  private _initLoadInFlight = false
+
+  /**
+   * Monotonically incremented on every `_processDataLoad('init')` call.
+   * Captured by each init-load callback closure; if the captured value no
+   * longer matches when the callback fires, that load was superseded by a
+   * later setSymbol/setPeriod/resetData and the callback bails out without
+   * touching state. Prevents stale data from a slow first request from
+   * clobbering the buffer or firing onInitLoadComplete prematurely.
+   */
+  private _initLoadGeneration = 0
+
+  /**
   * Whether there are forward and backward more flag
    */
   private readonly _dataLoadMore = { forward: false, backward: false }
@@ -670,6 +687,8 @@ export default class StoreImp implements Store {
           this._dataLoadMore.forward = realMore.forward
           this.setOffsetRightDistance(this._offsetRightDistance)
           adjustFlag = true
+          this._initLoadInFlight = false
+          this.executeAction('onInitLoadComplete', undefined)
           break
         }
         case 'backward': {
@@ -736,6 +755,10 @@ export default class StoreImp implements Store {
     this.resetData(() => {
       this._dataLoader = dataLoader
     })
+  }
+
+  isInitLoadInFlight (): boolean {
+    return this._initLoadInFlight
   }
 
   async fetchFirstCandleTime (): Promise<number | null> {
@@ -880,12 +903,21 @@ export default class StoreImp implements Store {
   private _processDataLoad (type: DataLoadType): void {
     if (!this._loading && isValid(this._dataLoader) && isValid(this._symbol) && isValid(this._period)) {
       this._loading = true
+      let loadGen = 0
+      if (type === 'init') {
+        this._initLoadInFlight = true
+        loadGen = ++this._initLoadGeneration
+      }
       const params: DataLoaderGetBarsParams = {
         type,
         symbol: this._symbol,
         period: this._period,
         timestamp: null,
         callback: (data: KLineData[], more?: DataLoadMore) => {
+          if (type === 'init' && loadGen !== this._initLoadGeneration) {
+            // Superseded by a newer init-load; drop this callback entirely.
+            return
+          }
           this._loading = false
           this._addData(data, type, more)
           if (type === 'init' && !this._replayEngine.isInReplay()) {

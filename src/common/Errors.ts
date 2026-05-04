@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-export type SetVisibleRangeErrorCode = 'no_data_at_time' | 'unsupported_resolution'
+export type SetVisibleRangeErrorCode = 'no_data_at_time' | 'unsupported_resolution' | 'aborted'
 
 export interface SetVisibleRangeError extends Error {
   name: 'SetVisibleRangeError'
