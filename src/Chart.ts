@@ -93,6 +93,7 @@ export interface Chart extends Store {
   zoomAtDataIndex: (scale: number, dataIndex: number, animationDuration?: number) => void
   zoomAtTimestamp: (scale: number, timestamp: number, animationDuration?: number) => void
   setVisibleRange: (range: { from: number; to: number }) => Promise<void>
+  resetView: () => Promise<void>
   getVisibleRangeTimestamps: () => Nullable<{ from: number; to: number }>
   convertToPixel: (points: Partial<Point> | Array<Partial<Point>>, filter?: ConvertFilter) => Partial<Coordinate> | Array<Partial<Coordinate>>
   convertFromPixel: (coordinates: Array<Partial<Coordinate>>, filter?: ConvertFilter) => Partial<Point> | Array<Partial<Point>>
@@ -131,14 +132,14 @@ export default class ChartImp implements Chart {
 
   private readonly _cacheYAxisWidth = { left: 0, right: 0 }
 
-  private _pendingVisibleRange: Nullable<{
-    range: { from: number, to: number }
+  private _pendingInitAction: Nullable<{
+    apply: () => Promise<void>
     resolve: () => void
     reject: (err: Error) => void
   }> = null
 
   private readonly _onInitLoadCompleteHandler: ActionCallback = () => {
-    void this._drainPendingVisibleRange()
+    void this._drainPendingInitAction()
   }
 
   constructor (container: HTMLElement, options?: Options) {
@@ -1118,7 +1119,7 @@ export default class ChartImp implements Chart {
 
   async setVisibleRange (range: { from: number; to: number }): Promise<void> {
     if (this._chartStore.isInitLoadInFlight()) {
-      await this._queueVisibleRange(range)
+      await this._queueInitAction(async () => { await this.setVisibleRange(range) })
       return
     }
     const dataList = this.getDataList()
@@ -1144,19 +1145,31 @@ export default class ChartImp implements Chart {
     })
   }
 
-  private async _queueVisibleRange (range: { from: number, to: number }): Promise<void> {
+  async resetView (): Promise<void> {
+    if (this._chartStore.isInitLoadInFlight()) {
+      await this._queueInitAction(async () => { await this.resetView() })
+      return
+    }
+    this._chartStore.setBarSpace(this._chartStore.getDefaultBarSpace())
+    this._chartStore.setOffsetRightDistance(this._chartStore.getDefaultOffsetRightDistance(), true)
+  }
+
+  // Single-slot queue shared by setVisibleRange and resetView. Latest call
+  // wins: enqueueing supersedes any pending action, resolving its promise
+  // cleanly without applying. Drained on `onInitLoadComplete`.
+  private async _queueInitAction (apply: () => Promise<void>): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      this._pendingVisibleRange?.resolve()
-      this._pendingVisibleRange = { range, resolve, reject }
+      this._pendingInitAction?.resolve()
+      this._pendingInitAction = { apply, resolve, reject }
     })
   }
 
-  private async _drainPendingVisibleRange (): Promise<void> {
-    const pending = this._pendingVisibleRange
+  private async _drainPendingInitAction (): Promise<void> {
+    const pending = this._pendingInitAction
     if (pending === null) return
-    this._pendingVisibleRange = null
+    this._pendingInitAction = null
     try {
-      await this.setVisibleRange(pending.range)
+      await pending.apply()
       pending.resolve()
     } catch (err) {
       pending.reject(err instanceof Error ? err : new Error(String(err)))
@@ -1308,9 +1321,9 @@ export default class ChartImp implements Chart {
   }
 
   destroy (): void {
-    if (this._pendingVisibleRange !== null) {
-      this._pendingVisibleRange.reject(createSetVisibleRangeError('aborted', { reason: 'chart_destroyed' }))
-      this._pendingVisibleRange = null
+    if (this._pendingInitAction !== null) {
+      this._pendingInitAction.reject(createSetVisibleRangeError('aborted', { reason: 'chart_destroyed' }))
+      this._pendingInitAction = null
     }
     this._chartStore.unsubscribeAction('onInitLoadComplete', this._onInitLoadCompleteHandler)
     this._chartEvent.destroy()

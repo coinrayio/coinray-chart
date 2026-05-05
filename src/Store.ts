@@ -761,6 +761,14 @@ export default class StoreImp implements Store {
     return this._initLoadInFlight
   }
 
+  getDefaultBarSpace (): number {
+    return DEFAULT_BAR_SPACE
+  }
+
+  getDefaultOffsetRightDistance (): number {
+    return DEFAULT_OFFSET_RIGHT_DISTANCE
+  }
+
   async fetchFirstCandleTime (): Promise<number | null> {
     const dataLoader = this._dataLoader
     const symbol = this._symbol

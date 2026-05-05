@@ -218,3 +218,34 @@ describe('_processDataLoad init-generation gating', () => {
     expect(store.getDataList()[0].open).toBe(101)
   })
 })
+
+describe('resetView defaults', () => {
+  it('exposes default bar-space and offset-right via Store getters', () => {
+    const store = new StoreImp(createMockChart())
+    // Constants from Store.ts (DEFAULT_BAR_SPACE = 10, DEFAULT_OFFSET_RIGHT_DISTANCE = 80)
+    expect(store.getDefaultBarSpace()).toBe(10)
+    expect(store.getDefaultOffsetRightDistance()).toBe(80)
+  })
+
+  it('applying defaults restores the freshly-mounted bar-space and offset', () => {
+    const store = new StoreImp(createMockChart())
+    store.setSymbol(SYMBOL_A)
+    store.setPeriod(PERIOD_1H)
+    const { loader, resolveAt } = createDeferredLoader()
+    store.setDataLoader(loader)
+    resolveAt(0, [candle(BASE), candle(BASE + HOUR_MS), candle(BASE + 2 * HOUR_MS)])
+
+    // Simulate user zoom + scroll
+    store.setBarSpace(25)
+    store.setOffsetRightDistance(200, true)
+    expect(store.getBarSpace().bar).toBe(25)
+    expect(store.getInitialOffsetRightDistance()).toBe(200)
+
+    // Apply defaults — same primitives that resetView uses
+    store.setBarSpace(store.getDefaultBarSpace())
+    store.setOffsetRightDistance(store.getDefaultOffsetRightDistance(), true)
+
+    expect(store.getBarSpace().bar).toBe(10)
+    expect(store.getInitialOffsetRightDistance()).toBe(80)
+  })
+})
