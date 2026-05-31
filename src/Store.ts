@@ -2039,6 +2039,12 @@ export default class StoreImp implements Store {
   }
 
   destroy (): void {
+    // Tell the data loader to unsubscribe from the active stream
+    // BEFORE we clear our local state — otherwise the consumer's
+    // datafeed (e.g. a poll loop in a backend-proxy adapter) keeps
+    // ticking forever and the subscription leaks every time a chart
+    // is disposed.
+    this._processDataUnsubscribe()
     this._clearData()
     this._clearLastPriceMarkExtendTextUpdateTimer()
     this._taskScheduler.clear()
