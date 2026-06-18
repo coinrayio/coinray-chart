@@ -35,6 +35,7 @@ import verticalStraightLine from './verticalStraightLine'
 import simpleAnnotation from './simpleAnnotation'
 import simpleTag from './simpleTag'
 import freePath from './freePath'
+import text from './text'
 
 // Basic shape overlays (Pro overlays with factory pattern)
 import arrow from './arrow'
@@ -78,7 +79,7 @@ const overlays: Record<string, OverlayInnerConstructor> = {}
 
 // Standard overlays (direct templates)
 const standardExtensions = [
-  simpleAnnotation, simpleTag, freePath
+  simpleAnnotation, simpleTag, freePath, text
 ]
 
 // Pro overlays (factory functions that return templates)
