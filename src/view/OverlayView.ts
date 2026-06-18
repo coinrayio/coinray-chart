@@ -109,6 +109,12 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
           if (!overlay.isDrawing()) {
             chartStore.progressOverlayComplete()
             overlay.onDrawEnd?.({ chart, overlay, ...event })
+            // TradingView-style auto-edit: if the freshly-drawn overlay
+            // includes an editableText figure with empty text (i.e. a
+            // text annotation), mount the inline editor automatically so
+            // the user can start typing without first hovering the
+            // 50%-opacity "+ Add text" placeholder.
+            this._maybeAutoStartEditingAfterDraw(overlay)
           }
         }
         return this._figureMouseClickEvent(
@@ -366,6 +372,80 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     container.appendChild(input)
     input.focus()
     input.select()
+  }
+
+  /**
+   * Called by the click-driven drawing flow right after the engine has
+   * fired `onDrawEnd` for a freshly-completed overlay. If the overlay
+   * exposes an `editableText` figure with empty text, we open the
+   * inline editor immediately so the user can start typing — matching
+   * TradingView's behaviour for Text/Note/Callout tools.
+   *
+   * Walks the same coordinate computation as `_drawOverlay` so the
+   * editor mounts at the figure's actual screen position.
+   */
+  private _maybeAutoStartEditingAfterDraw (overlay: OverlayImp): void {
+    if (overlay.createPointFigures == null) return
+
+    const { points } = overlay
+    if (points.length === 0) return
+
+    const pane = this.getWidget().getPane()
+    const chart = pane.getChart()
+    const chartStore = chart.getChartStore()
+    const yAxis = pane.getAxisComponent() as unknown as Nullable<YAxis>
+    const xAxis = chart.getXAxisPane().getAxisComponent()
+    const bounding = this.getWidget().getBounding()
+    const isContinuous = overlay.isContinuousDrawing()
+
+    const coordinates = points.map(point => {
+      let dataIndex: Nullable<number> = null
+      if (isContinuous && isNumber(point.timestamp)) {
+        dataIndex = chartStore.timestampToFloatIndex(point.timestamp)
+      } else if (isNumber(point.timestamp)) {
+        dataIndex = chartStore.timestampToDataIndex(point.timestamp)
+      } else if (isNumber(point.dataIndex)) {
+        dataIndex = point.dataIndex
+      }
+      const coordinate = { x: 0, y: 0 }
+      if (isNumber(dataIndex)) {
+        coordinate.x = chartStore.dataIndexToCoordinate(dataIndex)
+      }
+      if (isNumber(point.value)) {
+        coordinate.y = yAxis?.convertToPixel(point.value) ?? 0
+      }
+      return coordinate
+    })
+
+    const figuresRaw = overlay.createPointFigures({ chart, overlay, coordinates, bounding, xAxis, yAxis })
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
+    // @ts-expect-error
+    const figures: OverlayFigure[] = [].concat(figuresRaw)
+
+    const defaultTextStyles = chart.getStyles().overlay.text
+
+    for (const figure of figures) {
+      if (figure.type !== 'editableText') continue
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
+      // @ts-expect-error
+      const attrsArray: TextAttrs[] = [].concat(figure.attrs)
+      const firstEmpty = attrsArray.find(a => a.text.length === 0)
+      if (firstEmpty == null) continue
+
+      // Resolve merged styles the same way drawFigures + the placeholder
+      // path do — defaults → overlay.styles.text → per-figure styles.
+      const mergedStyles: Partial<TextStyle> = {
+        ...defaultTextStyles,
+        ...(overlay.styles?.text ?? {}),
+        ...(figure.styles as Partial<TextStyle> | undefined)
+      }
+
+      // Build a thin figure wrapper carrying just the empty attrs, so
+      // `_startTextEdit` mounts the input at the right spot.
+      const editFigure: OverlayFigure = { ...figure, attrs: firstEmpty }
+      this._startTextEdit(overlay, editFigure, mergedStyles)
+      return
+    }
   }
 
   private _createFigureEvents (
