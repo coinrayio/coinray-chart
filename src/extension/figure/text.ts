@@ -24,8 +24,16 @@ import { type RectAttrs, drawRect } from './rect'
 export function getTextRect (attrs: TextAttrs, styles: Partial<TextStyle>): RectAttrs {
   const { size = 12, paddingLeft = 0, paddingTop = 0, paddingRight = 0, paddingBottom = 0, weight = 'normal', family } = styles
   const { x, y, text, align = 'left', baseline = 'top', width: w, height: h } = attrs
-  const width = w ?? (paddingLeft + calcTextWidth(text, size, weight, family) + paddingRight)
-  const height = h ?? (paddingTop + size + paddingBottom)
+  // Multi-line aware: when the text contains \n, size the rect to the
+  // widest line and to the full line count. Backward-compatible — a
+  // text with no \n hits the single-call calcTextWidth path and gets
+  // exactly the same rect as before.
+  const lines = text.split('\n')
+  const maxLineWidth = lines.length === 1
+    ? calcTextWidth(text, size, weight, family)
+    : Math.max(...lines.map(l => calcTextWidth(l, size, weight, family)))
+  const width = w ?? (paddingLeft + maxLineWidth + paddingRight)
+  const height = h ?? (paddingTop + lines.length * size + paddingBottom)
   let startX = 0
   switch (align) {
     case 'left':
@@ -103,7 +111,29 @@ export function drawText (ctx: CanvasRenderingContext2D, attrs: TextAttrs | Text
 
   texts.forEach((text, index) => {
     const rect = rects[index]
-    ctx.fillText(text.text, rect.x + paddingLeft, rect.y + paddingTop, rect.width - paddingLeft - paddingRight)
+    // Single unified path handles both single-line and multi-line.
+    // Each line is positioned by its own width so that:
+    //   • align='center' keeps the line centred at attrs.x even when
+    //     the rect was widened beyond the natural text width (the
+    //     centring trick of rect.x + paddingLeft only worked when
+    //     rect.width == textWidth + paddings).
+    //   • align='left' / 'right' / 'end' keep the prior semantics.
+    // Vertical step is `size` (no extra leading) to match the height
+    // computed in getTextRect.
+    const align = text.align ?? 'left'
+    const lines = text.text.split('\n')
+    lines.forEach((line, i) => {
+      let lineX = rect.x + paddingLeft
+      if (align === 'center') {
+        const lineWidth = calcTextWidth(line, size, weight, family)
+        lineX = rect.x + (rect.width - lineWidth) / 2
+      } else if (align === 'right' || align === 'end') {
+        const lineWidth = calcTextWidth(line, size, weight, family)
+        lineX = rect.x + rect.width - paddingRight - lineWidth
+      }
+      const lineY = rect.y + paddingTop + i * size
+      ctx.fillText(line, lineX, lineY)
+    })
   })
 }
 

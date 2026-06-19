@@ -82,6 +82,18 @@ export interface OverlayFigure {
   attrs: unknown
   styles?: unknown
   ignoreEvent?: boolean | Array<keyof Omit<OverlayEventCollection<unknown>, 'onDrawStart' | 'onDrawing' | 'onDrawEnd' | 'onRemoved' | 'onTextChange'>>
+  /**
+   * Optional point index — when set, dragging this figure translates ONLY
+   * the overlay's point at this index, instead of the engine's default
+   * behaviour of translating every point by the cursor delta. Use this
+   * when one figure visually "belongs to" one specific point and should
+   * drag with it (e.g. a Callout's bubble owns its bubble-centre point;
+   * the anchor is owned by the engine's default point handle). Without
+   * this, the user drags the figure → the whole overlay moves, which is
+   * wrong for multi-point overlays whose points should be independently
+   * positionable.
+   */
+  pointIndex?: number
 }
 
 export interface OverlayCreateFiguresCallbackParams<E> {
@@ -163,9 +175,19 @@ export interface Overlay<E = unknown> extends OverlayEventCollection<E> {
   zLevel: number
 
   /**
-   * Whether the default figure corresponding to the point is required
+   * Controls whether the engine renders its default point handles
+   * (small circles drawn at each coordinate when the overlay is
+   * hovered or selected).
+   *
+   *   • `true`  — render at every point.
+   *   • `false` — render at none.
+   *   • `number[]` — render only at the listed point indices. Use this
+   *     when one of the points is already represented by a custom
+   *     figure (e.g. Callout's bubble rect IS the bubble-centre's
+   *     handle, so the default circle in the middle of the bubble
+   *     would just clutter the editing area).
    */
-  needDefaultPointFigure: boolean
+  needDefaultPointFigure: boolean | number[]
 
   /**
    * Whether the default figure on the Y axis is required
