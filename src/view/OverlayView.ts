@@ -304,10 +304,31 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       paddingTop = 0,
       paddingRight = 0,
       paddingBottom = 0,
-      backgroundColor
-    } = styles
+      backgroundColor,
+      // Additional style props for overlays that wrap the editor in a
+      // shape (Callout etc.): when the bubble has a visible border /
+      // rounded corners, the input element should pick those up so the
+      // editing state visually matches the rendered overlay.
+      borderColor,
+      borderSize,
+      borderRadius
+    } = styles as Partial<TextStyle> & {
+      borderColor?: string
+      borderSize?: number
+      borderRadius?: number
+    }
 
     const font = createFont(size, weight, family)
+
+    // Text alignment from the figure attrs — when omitted the input
+    // mirrors the canvas drawText default of left-aligned.
+    const textAlign = attrs.align ?? 'left'
+
+    // Border: only apply when an opaque border is configured. Default
+    // ('none') matches the prior behaviour for plain Text overlays.
+    const borderStyle = borderColor !== undefined && borderColor !== 'transparent' && (borderSize ?? 0) > 0
+      ? `${borderSize ?? 1}px solid ${borderColor}`
+      : 'none'
 
     Object.assign(input.style, {
       position: 'absolute',
@@ -317,11 +338,13 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       height: `${rect.height}px`,
       padding: `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`,
       margin: '0',
-      border: 'none',
+      border: borderStyle,
+      borderRadius: borderRadius !== undefined ? `${borderRadius}px` : '0',
       outline: 'none',
       font,
       color,
       backgroundColor: backgroundColor ?? 'transparent',
+      textAlign,
       boxSizing: 'border-box',
       zIndex: '1000',
       caretColor: color
@@ -906,7 +929,16 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       // @ts-expect-error
       const attrsArray = [].concat(attrs)
       attrsArray.forEach((ats) => {
-        const events = this._createFigureEvents(overlay, 'other', figureIndex, figure)
+        // Per-figure point ownership: when a figure declares `pointIndex`,
+        // dragging it moves only that point (e.g. Callout's bubble rect
+        // owns point 1 — its centre — so dragging the bubble doesn't
+        // also drag the anchor). Default is 'other' = translate all
+        // points by cursor delta, preserving the engine's prior
+        // behaviour for every overlay that doesn't opt in.
+        const ownPointIndex = (figure as { pointIndex?: number }).pointIndex
+        const events = typeof ownPointIndex === 'number'
+          ? this._createFigureEvents(overlay, 'point', ownPointIndex, figure)
+          : this._createFigureEvents(overlay, 'other', figureIndex, figure)
         // Support per-attr key for granular styling (e.g., each Fibonacci level)
         // Attr key takes precedence over figure key
         const attrKey = (ats as { key?: string }).key
@@ -966,7 +998,14 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     overlay: OverlayImp,
     coordinates: Coordinate[]
   ): void {
-    if (overlay.needDefaultPointFigure) {
+    const need = overlay.needDefaultPointFigure
+    // Whitelist when supplied (number[]): only render default handles
+    // for the listed point indices. Otherwise truthy renders all,
+    // falsy renders none — preserving prior boolean behaviour.
+    const allowedIndices: Set<number> | null = Array.isArray(need)
+      ? new Set(need)
+      : null
+    if (need) {
       const chartStore = this.getWidget().getPane().getChart().getChartStore()
       const hoverOverlayInfo = chartStore.getHoverOverlayInfo()
       const clickOverlayInfo = chartStore.getClickOverlayInfo()
@@ -998,6 +1037,9 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
           }
         }
         coordinates.forEach(({ x, y }, index) => {
+          // Skip points not in the allow-list (when `needDefaultPointFigure`
+          // is a number[] whitelist).
+          if (allowedIndices !== null && !allowedIndices.has(index)) return
           let radius = pointStyles.radius
           let color = pointStyles.color
           let borderColor = pointStyles.borderColor
