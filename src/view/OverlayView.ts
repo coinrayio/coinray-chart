@@ -41,7 +41,7 @@ import View from './View'
 
 export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   private _activeTextEditor: Nullable<{
-    input: HTMLInputElement
+    input: HTMLInputElement | HTMLTextAreaElement
     overlay: OverlayImp
     figure: OverlayFigure
     cleanup: () => void
@@ -263,6 +263,44 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     })
   }
 
+  /**
+   * Snap the active text editor to match the figure's current rect.
+   * Called from drawFigures every render — handles both zoom / pan
+   * during editing (figure's x / y change with the chart coordinate
+   * system) and live grow-around-text (figure's width / height
+   * change as the overlay rebuilds its figures off updated text).
+   *
+   * Sizes from the figure's attrs verbatim — including any explicit
+   * width / height the overlay pinned to match its visual shape
+   * (Callout's bubble does this). Both canvas and textarea route
+   * through the same getTextRect call, so they stay in lockstep.
+   */
+  private _repositionTextEditor (figureAttrs: TextAttrs, styles: Partial<TextStyle>): void {
+    if (this._activeTextEditor === null) return
+    const { input } = this._activeTextEditor
+    const rect = getTextRect(figureAttrs, styles)
+    // Engine-wide minimum width for the input — useful for plain
+    // Text overlays where the figure's natural rect can be a few
+    // pixels wide (just the inline cursor). When the floor kicks in
+    // we also recompute the left edge so the textarea stays centred
+    // / aligned on attrs.x instead of left-anchored at the unfloored
+    // rect.x (which was computed from the smaller natural width).
+    const effectiveWidth = Math.max(rect.width, 120)
+    let effectiveLeft = rect.x
+    if (effectiveWidth !== rect.width) {
+      const align = figureAttrs.align ?? 'left'
+      if (align === 'center') {
+        effectiveLeft = figureAttrs.x - effectiveWidth / 2
+      } else if (align === 'right' || align === 'end') {
+        effectiveLeft = figureAttrs.x - effectiveWidth
+      }
+    }
+    input.style.left = `${effectiveLeft}px`
+    input.style.top = `${rect.y}px`
+    input.style.width = `${effectiveWidth}px`
+    input.style.height = `${rect.height}px`
+  }
+
   private _stopTextEdit (commit: boolean): void {
     if (this._activeTextEditor === null) return
     const { input, overlay, figure, cleanup } = this._activeTextEditor
@@ -290,10 +328,20 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
 
     const container = this.getWidget().getContainer()
 
-    const input = document.createElement('input')
-    input.type = 'text'
+    // Textarea (not <input type="text">) so Enter inserts a newline
+    // natively — matching TV's Callout / Note behaviour. Single-line
+    // overlays still work fine: the textarea reads as one line when
+    // no newlines are typed, and the commit path collapses to the
+    // same `input.value` either way.
+    const input = document.createElement('textarea')
     input.value = attrs.text
     input.placeholder = '+ Add text'
+    // Disable browser features that interfere with looking-like-the-
+    // overlay: resize handle, scrollbars (we autosize the rect to
+    // fit the typed content), spellcheck red-underline.
+    input.spellcheck = false
+    input.style.resize = 'none'
+    input.style.overflow = 'hidden'
 
     const {
       size = 12,
@@ -303,20 +351,27 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       paddingLeft = 0,
       paddingTop = 0,
       paddingRight = 0,
-      paddingBottom = 0,
-      backgroundColor,
-      // Additional style props for overlays that wrap the editor in a
-      // shape (Callout etc.): when the bubble has a visible border /
-      // rounded corners, the input element should pick those up so the
-      // editing state visually matches the rendered overlay.
-      borderColor,
-      borderSize,
-      borderRadius
-    } = styles as Partial<TextStyle> & {
-      borderColor?: string
-      borderSize?: number
-      borderRadius?: number
-    }
+      paddingBottom = 0
+    } = styles
+
+    // Border / background / borderRadius for the editor element come
+    // from the FIGURE's own styles or an explicit overlay-level
+    // override — NOT the engine's default `overlay.text` style. That
+    // default carries a blue placeholder border + background which
+    // would otherwise leak into the textarea for every overlay (it's
+    // invisible on canvas because editableText forces a transparent
+    // draw, but the DOM input has no such mask). The result: by
+    // default the editor is borderless and transparent. An overlay
+    // opts into a border by setting `borderColor` + `borderSize` on
+    // its editableText figure's styles; into a fill by setting
+    // `backgroundColor`; into rounded corners by setting
+    // `borderRadius`.
+    const figureOwn = (figure.styles ?? {}) as Record<string, unknown>
+    const overlayOwn = (overlay.styles?.text ?? {}) as Record<string, unknown>
+    const backgroundColor = (figureOwn.backgroundColor ?? overlayOwn.backgroundColor) as string | undefined
+    const borderColor = (figureOwn.borderColor ?? overlayOwn.borderColor) as string | undefined
+    const borderSize = (figureOwn.borderSize ?? overlayOwn.borderSize) as number | undefined
+    const borderRadius = (figureOwn.borderRadius ?? overlayOwn.borderRadius) as number | undefined
 
     const font = createFont(size, weight, family)
 
@@ -352,17 +407,19 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
 
     const onKeyDown = (e: KeyboardEvent): void => {
       e.stopPropagation()
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        this._stopTextEdit(true)
-      } else if (e.key === 'Escape') {
+      // Enter inserts a newline (native textarea behaviour) so the
+      // user can write multi-line annotations. Commit is on blur /
+      // Escape — neither of those reads the newline as a commit
+      // trigger any longer.
+      if (e.key === 'Escape') {
         e.preventDefault()
         this._stopTextEdit(false)
       }
     }
 
     const onBlur = (): void => {
-      // Use setTimeout to avoid conflict with Enter key handling
+      // setTimeout deferral lets the user click-out-to-commit flow
+      // resolve cleanly without racing the editor teardown.
       setTimeout(() => {
         if (this._activeTextEditor?.input === input) {
           this._stopTextEdit(true)
@@ -370,8 +427,31 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       }, 0)
     }
 
+    // Live commit: each keystroke fires onTextChange so the overlay
+    // recomputes its figures (bubble width, polygon outline, etc.)
+    // off the typed text, and updatePane triggers a redraw whose
+    // drawFigures pass invokes the reposition hook below. The hook
+    // reads the FRESH figureAttrs from the just-rebuilt figure (same
+    // width / height the canvas just rendered), so the textarea is
+    // sized to the bubble's exact current dimensions — no drift
+    // between canvas-measured and browser-measured widths.
+    //
+    // The same redraw → reposition path covers zoom / pan during
+    // editing: any chart-coord change triggers the normal canvas
+    // redraw, the hook runs, the textarea snaps to follow.
+    const chart = this.getWidget().getPane().getChart()
+    const figureKeyForInput = figure.key
+    const onInput = (): void => {
+      const currentText = input.value
+      if (isFunction(overlay.onTextChange)) {
+        overlay.onTextChange({ chart, overlay, figure, figureKey: figureKeyForInput, text: currentText })
+      }
+      chart.updatePane(UpdateLevel.Overlay)
+    }
+
     input.addEventListener('keydown', onKeyDown)
     input.addEventListener('blur', onBlur)
+    input.addEventListener('input', onInput)
 
     // Prevent chart from handling mouse events on the input
     const stopPropagation = (e: Event): void => { e.stopPropagation() }
@@ -382,6 +462,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const cleanup = (): void => {
       input.removeEventListener('keydown', onKeyDown)
       input.removeEventListener('blur', onBlur)
+      input.removeEventListener('input', onInput)
       input.removeEventListener('mousedown', stopPropagation)
       input.removeEventListener('mouseup', stopPropagation)
       input.removeEventListener('click', stopPropagation)
@@ -921,10 +1002,6 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const defaultStyles = this.getWidget().getPane().getChart().getStyles().overlay
     figures.forEach((figure, figureIndex) => {
       const { type, key: figureKey, styles, attrs } = figure
-      // Skip drawing editableText figures that are currently being edited via HTML input
-      if (type === 'editableText' && this._activeTextEditor !== null && this._activeTextEditor.overlay.id === overlay.id && this._activeTextEditor.figure === figure) {
-        return
-      }
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
       // @ts-expect-error
       const attrsArray = [].concat(attrs)
@@ -959,6 +1036,24 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         // @ts-expect-error
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
         const ss = { ...defaultStyles[type], ...overlay.styles?.[type], ...styles, ...keyedStyles }
+        // Skip drawing editableText figures while the overlay is
+        // being edited. The live-resize path replaces figure objects
+        // each render, so a `figure === figure` identity check would
+        // let the stale-then-new editableText draw behind the
+        // textarea on every keystroke; an overlay-id match is the
+        // right granularity.
+        //
+        // We ALSO use this render pass to snap the textarea to the
+        // figure's current screen coordinates — that's what makes
+        // zoom / pan during editing keep the textarea aligned with
+        // the bubble (every chart-coord change triggers a redraw,
+        // drawFigures walks here with the figure's updated attrs,
+        // and the reposition reads off them before bailing out of
+        // the draw).
+        if (type === 'editableText' && this._activeTextEditor !== null && this._activeTextEditor.overlay.id === overlay.id) {
+          this._repositionTextEditor(ats as TextAttrs, ss as Partial<TextStyle>)
+          return
+        }
         this.createFigure({
           name: type, attrs: ats, styles: ss
         }, events ?? undefined)?.draw(ctx)

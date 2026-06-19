@@ -15,35 +15,40 @@
 /**
  * Callout overlay — TradingView-style speech-bubble annotation.
  *
- * Click 1 places an anchor; click 2 places the bubble centre. Output is
- * a rounded-rect bubble with a triangular tail pointing back to the
- * anchor. The tail's base attaches to whichever of eight candidate
- * positions on the bubble's edge is closest to the anchor — four side
- * midpoints (left / right / top / bottom) and four corners — recomputed
- * each render so the bubble looks correct as it resizes around typed
- * content.
+ * Click 1 places an anchor; click 2 places the bubble centre. Output
+ * is a rounded-rect speech bubble with a triangular tail pointing
+ * back to the anchor. The tail's base attaches to whichever of eight
+ * candidate positions on the bubble's edge (four side midpoints +
+ * four corners) is closest to the anchor — recomputed each render so
+ * the bubble looks correct as it auto-grows around typed content.
  *
- * The bubble reads as a single continuous shape:
- *   • Rect draws fill + border (border defaults to the same colour as
- *     fill so the structural outline is invisible until the user picks
- *     a distinct border colour).
- *   • Triangle fill polygon is INSET 2px inward from the rect edge so
- *     its fill paints over the rect's border segment that lies under
- *     the tail — masking the join line so rect + tail look continuous.
- *   • Two line figures from each base vertex (at the rect edge) to the
- *     apex (anchor) provide the tail's outline; they match the border
- *     colour so they continue the rect's outline seamlessly.
+ * Rendering — single combined polygon:
+ *   The bubble + tail is one polygon traced clockwise around the
+ *   combined perimeter, with the rounded corners approximated by
+ *   short line segments along the corner arcs. The polygon is drawn
+ *   stroke + fill in one pass so the rect-meets-tail boundary
+ *   disappears completely — even at semi-transparent fills, where
+ *   the earlier "rect + separate triangle" approach left a visible
+ *   join (the triangle fill couldn't fully opaque-mask the rect's
+ *   border line at non-1.0 alpha, and double-painted the overlap).
+ *   The border defaults to the same colour as the fill, so the
+ *   stroke is visually invisible until the user picks a distinct
+ *   border colour from the Style tab.
  *
- * The bubble's rect carries `pointIndex: 1`, which (per the new engine
- * convention) makes dragging it translate only the bubble centre — the
- * anchor stays put. Dragging the anchor's default point handle moves
- * only the anchor. This matches the during-drawing behaviour where the
- * two points are independently positioned.
+ * Interaction:
+ *   • The polygon carries `pointIndex: 1`, so dragging the bubble
+ *     body moves only the bubble centre.
+ *   • The anchor is exposed via the engine's default point handle
+ *     (`needDefaultPointFigure: [0]`); the bubble centre has no
+ *     handle — its rect/polygon IS the handle.
+ *   • The editable-text figure also carries `pointIndex: 1` so
+ *     dragging the typed text drags the bubble too, not both points.
  *
- * The editable-text figure carries the bubble's bg / border / radius /
- * padding so the inline editor's input element looks identical to the
- * canvas-rendered bubble — typing reads as if you're typing into the
- * bubble itself rather than into a separate widget.
+ * Multi-line text:
+ *   The bubble auto-grows both wider (longest line) and taller
+ *   (lineCount × fontSize) around `extendData.text`. The engine's
+ *   updated `getTextRect` / `drawText` handle `\n`, and the inline
+ *   editor is a textarea so Enter inserts a newline.
  */
 
 import type { OverlayTemplate, OverlayFigure } from '../../component/Overlay'
@@ -55,8 +60,6 @@ interface CalloutOverlayData {
   textColor?: string
   fontWeight?: number | 'normal' | 'bold'
   fontFamily?: string
-  // Style-tab knobs — kept in extendData so they survive round-trips
-  // even if the host writes them via overrideOverlay({ styles }) too.
   backgroundColor?: string
   borderColor?: string
 }
@@ -68,28 +71,19 @@ interface OverlayStyleSlice {
 
 // Visual defaults — chosen to match TradingView's Callout tool.
 const DEFAULT_FILL = 'rgba(30, 33, 41, 0.95)'
-// Border defaults to the same colour as the fill so the outline is
-// structurally present but visually invisible — TV's "single blob"
-// look. The user picks a distinct colour from the Style tab to make
-// the outline appear.
 const DEFAULT_BORDER = DEFAULT_FILL
 const BORDER_WIDTH = 1
 const LABEL_PADDING_H = 8
 const LABEL_PADDING_V = 14
-const LABEL_BORDER_RADIUS = 4
+const LABEL_BORDER_RADIUS = 7
 const TAIL_BASE_WIDTH = 18
-// Inset for the triangle fill: the triangle base sits this many pixels
-// INSIDE the rect (toward the rect's interior) so its fill paints over
-// the rect's border segment running under the tail. Without this, the
-// rect's border line where the tail attaches stays visible and the
-// join between rect and triangle reads as two separate shapes.
-const TAIL_INSET = 2
-// Bubble width floor — matches the engine's input-element minimum
-// width (also 120) so the inline editor doesn't stick out past the
-// bubble for narrow placeholder text on initial draw.
 const MIN_BUBBLE_WIDTH = 120
 const DEFAULT_FONT_SIZE = 14
 const DEFAULT_FONT_FAMILY = 'Helvetica Neue'
+// Number of straight segments approximating each rounded corner.
+// 8 is smooth enough at the default 4px radius without bloating the
+// polygon's vertex count.
+const ARC_SEGMENTS = 8
 
 function parseExtendData (extendData: unknown): CalloutOverlayData {
   if (extendData !== null && typeof extendData === 'object') {
@@ -100,35 +94,31 @@ function parseExtendData (extendData: unknown): CalloutOverlayData {
 
 interface XY { x: number, y: number }
 
+type AttachKind =
+  | 'edge-top' | 'edge-right' | 'edge-bottom' | 'edge-left'
+  | 'corner-TL' | 'corner-TR' | 'corner-BR' | 'corner-BL'
+
 interface TailAttachment {
-  /** True base vertices, on the rect's edge — used for the leg lines. */
-  base1: XY
-  base2: XY
-  /** Inset base vertices, INSIDE the rect — used for the fill polygon. */
-  fill1: XY
-  fill2: XY
+  kind: AttachKind
+  /** Where the bubble outline enters the tail detour (clockwise). */
+  entry: XY
+  /** Where the bubble outline exits the tail detour (clockwise). */
+  exit: XY
 }
 
 /**
  * Pick the nearest of eight attachment candidates on the bubble edge
- * (four side midpoints + four corners) and return both the true base
- * vertices (used to draw the two leg lines that complete the outline
- * along the tail) and the inset base vertices (used for the fill
- * polygon, pushed `TAIL_INSET` pixels into the rect's interior so the
- * fill masks the rect's border segment under the tail).
- *
- * For midpoint attachments, the base lies along one edge and the
- * inset moves perpendicular to that edge into the rect (e.g. top
- * midpoint → inset moves downward). For corner attachments, base1
- * sits along one adjacent edge and base2 along the other; their
- * insets each move perpendicular to their own edge.
+ * (four side midpoints + four corners) and return both the attachment
+ * kind and the two bubble-edge points where the perimeter splits to
+ * insert the tail detour. `entry` is the first point encountered
+ * clockwise, `exit` the second — so the detour is always inserted as
+ * `entry → anchor → exit` regardless of which side the tail is on.
  */
 function nearestTailAttachment (
   anchor: XY,
   rect: { x: number, y: number, width: number, height: number }
 ): TailAttachment {
   const k = TAIL_BASE_WIDTH / 2
-  const i = TAIL_INSET
   const left = rect.x
   const right = rect.x + rect.width
   const top = rect.y
@@ -136,73 +126,55 @@ function nearestTailAttachment (
   const midX = rect.x + rect.width / 2
   const midY = rect.y + rect.height / 2
 
-  // Each candidate carries (snap, base1, base2, fill1, fill2). The
-  // snap point is only used to pick the nearest candidate.
-  interface Cand { snap: XY, base1: XY, base2: XY, fill1: XY, fill2: XY }
+  interface Cand { kind: AttachKind, snap: XY, entry: XY, exit: XY }
   const candidates: Cand[] = [
-    // top-mid
     {
+      kind: 'edge-top',
       snap: { x: midX, y: top },
-      base1: { x: midX - k, y: top },
-      base2: { x: midX + k, y: top },
-      fill1: { x: midX - k, y: top + i },
-      fill2: { x: midX + k, y: top + i }
+      entry: { x: midX - k, y: top },
+      exit: { x: midX + k, y: top }
     },
-    // right-mid
     {
+      kind: 'edge-right',
       snap: { x: right, y: midY },
-      base1: { x: right, y: midY - k },
-      base2: { x: right, y: midY + k },
-      fill1: { x: right - i, y: midY - k },
-      fill2: { x: right - i, y: midY + k }
+      entry: { x: right, y: midY - k },
+      exit: { x: right, y: midY + k }
     },
-    // bottom-mid
     {
+      kind: 'edge-bottom',
       snap: { x: midX, y: bottom },
-      base1: { x: midX - k, y: bottom },
-      base2: { x: midX + k, y: bottom },
-      fill1: { x: midX - k, y: bottom - i },
-      fill2: { x: midX + k, y: bottom - i }
+      entry: { x: midX + k, y: bottom },
+      exit: { x: midX - k, y: bottom }
     },
-    // left-mid
     {
+      kind: 'edge-left',
       snap: { x: left, y: midY },
-      base1: { x: left, y: midY - k },
-      base2: { x: left, y: midY + k },
-      fill1: { x: left + i, y: midY - k },
-      fill2: { x: left + i, y: midY + k }
+      entry: { x: left, y: midY + k },
+      exit: { x: left, y: midY - k }
     },
-    // top-left corner
     {
+      kind: 'corner-TL',
       snap: { x: left, y: top },
-      base1: { x: left + k, y: top },
-      base2: { x: left, y: top + k },
-      fill1: { x: left + k, y: top + i },
-      fill2: { x: left + i, y: top + k }
+      entry: { x: left, y: top + k },
+      exit: { x: left + k, y: top }
     },
-    // top-right corner
     {
+      kind: 'corner-TR',
       snap: { x: right, y: top },
-      base1: { x: right - k, y: top },
-      base2: { x: right, y: top + k },
-      fill1: { x: right - k, y: top + i },
-      fill2: { x: right - i, y: top + k }
+      entry: { x: right - k, y: top },
+      exit: { x: right, y: top + k }
     },
-    // bottom-right corner
     {
+      kind: 'corner-BR',
       snap: { x: right, y: bottom },
-      base1: { x: right - k, y: bottom },
-      base2: { x: right, y: bottom - k },
-      fill1: { x: right - k, y: bottom - i },
-      fill2: { x: right - i, y: bottom - k }
+      entry: { x: right, y: bottom - k },
+      exit: { x: right - k, y: bottom }
     },
-    // bottom-left corner
     {
+      kind: 'corner-BL',
       snap: { x: left, y: bottom },
-      base1: { x: left + k, y: bottom },
-      base2: { x: left, y: bottom - k },
-      fill1: { x: left + k, y: bottom - i },
-      fill2: { x: left + i, y: bottom - k }
+      entry: { x: left + k, y: bottom },
+      exit: { x: left, y: bottom - k }
     }
   ]
 
@@ -217,19 +189,124 @@ function nearestTailAttachment (
       best = c
     }
   }
-  return { base1: best.base1, base2: best.base2, fill1: best.fill1, fill2: best.fill2 }
+  return { kind: best.kind, entry: best.entry, exit: best.exit }
+}
+
+/**
+ * Push the points along a corner-arc into `out`, sampled clockwise
+ * from `startAngle` to `endAngle` at `ARC_SEGMENTS + 1` evenly-spaced
+ * angles. Canvas angles: 0° = +x (right), 90° = +y (down), positive
+ * direction = clockwise (because y points down).
+ */
+function pushArc (
+  out: XY[],
+  cx: number, cy: number, r: number,
+  startAngle: number, endAngle: number
+): void {
+  for (let i = 0; i <= ARC_SEGMENTS; i++) {
+    const t = i / ARC_SEGMENTS
+    const angle = startAngle + (endAngle - startAngle) * t
+    out.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) })
+  }
+}
+
+/**
+ * Build the polygon vertex list for the combined bubble + tail
+ * outline, traced clockwise. For edge attachments all four rounded
+ * corners are present and the tail detour splits one straight edge.
+ * For corner attachments the tail detour replaces the named arc
+ * (and the rect's adjacent edge-tips up to the base points),
+ * sketching the corner as a triangle pointing at the anchor.
+ */
+function buildBubblePolygon (
+  rect: { x: number, y: number, width: number, height: number },
+  r: number,
+  anchor: XY,
+  attach: TailAttachment
+): XY[] {
+  const path: XY[] = []
+  const TL = { cx: rect.x + r, cy: rect.y + r, start: Math.PI, end: 1.5 * Math.PI }
+  const TR = { cx: rect.x + rect.width - r, cy: rect.y + r, start: 1.5 * Math.PI, end: 2 * Math.PI }
+  const BR = { cx: rect.x + rect.width - r, cy: rect.y + rect.height - r, start: 0, end: 0.5 * Math.PI }
+  const BL = { cx: rect.x + r, cy: rect.y + rect.height - r, start: 0.5 * Math.PI, end: Math.PI }
+
+  // Clockwise walk starting from the top of the left edge, after TL.
+  // For edge attachments: include all four arcs; splice the tail
+  // detour into the named edge.
+  // For corner attachments: skip the named arc and place the detour
+  // where it would have been — the polygon's straight segment from
+  // the previous arc's last point to `entry`, then `entry → anchor →
+  // exit`, then on to the next arc's first point, naturally forms
+  // the tail replacing the corner.
+  switch (attach.kind) {
+    case 'edge-top':
+      pushArc(path, TL.cx, TL.cy, r, TL.start, TL.end)
+      path.push(attach.entry, anchor, attach.exit)
+      pushArc(path, TR.cx, TR.cy, r, TR.start, TR.end)
+      pushArc(path, BR.cx, BR.cy, r, BR.start, BR.end)
+      pushArc(path, BL.cx, BL.cy, r, BL.start, BL.end)
+      break
+    case 'edge-right':
+      pushArc(path, TL.cx, TL.cy, r, TL.start, TL.end)
+      pushArc(path, TR.cx, TR.cy, r, TR.start, TR.end)
+      path.push(attach.entry, anchor, attach.exit)
+      pushArc(path, BR.cx, BR.cy, r, BR.start, BR.end)
+      pushArc(path, BL.cx, BL.cy, r, BL.start, BL.end)
+      break
+    case 'edge-bottom':
+      pushArc(path, TL.cx, TL.cy, r, TL.start, TL.end)
+      pushArc(path, TR.cx, TR.cy, r, TR.start, TR.end)
+      pushArc(path, BR.cx, BR.cy, r, BR.start, BR.end)
+      path.push(attach.entry, anchor, attach.exit)
+      pushArc(path, BL.cx, BL.cy, r, BL.start, BL.end)
+      break
+    case 'edge-left':
+      pushArc(path, TL.cx, TL.cy, r, TL.start, TL.end)
+      pushArc(path, TR.cx, TR.cy, r, TR.start, TR.end)
+      pushArc(path, BR.cx, BR.cy, r, BR.start, BR.end)
+      pushArc(path, BL.cx, BL.cy, r, BL.start, BL.end)
+      path.push(attach.entry, anchor, attach.exit)
+      break
+    case 'corner-TL':
+      // Skip TL arc. Detour sits between BL-arc-end (left edge top)
+      // and TR-arc-start (top edge left) — but with `entry`/`exit`
+      // pulled in by k from those, they naturally interpolate as
+      // straight segments along the edges, then the tail leg out
+      // to the anchor and back.
+      pushArc(path, TR.cx, TR.cy, r, TR.start, TR.end)
+      pushArc(path, BR.cx, BR.cy, r, BR.start, BR.end)
+      pushArc(path, BL.cx, BL.cy, r, BL.start, BL.end)
+      path.push(attach.entry, anchor, attach.exit)
+      break
+    case 'corner-TR':
+      pushArc(path, BR.cx, BR.cy, r, BR.start, BR.end)
+      pushArc(path, BL.cx, BL.cy, r, BL.start, BL.end)
+      pushArc(path, TL.cx, TL.cy, r, TL.start, TL.end)
+      path.push(attach.entry, anchor, attach.exit)
+      break
+    case 'corner-BR':
+      pushArc(path, BL.cx, BL.cy, r, BL.start, BL.end)
+      pushArc(path, TL.cx, TL.cy, r, TL.start, TL.end)
+      pushArc(path, TR.cx, TR.cy, r, TR.start, TR.end)
+      path.push(attach.entry, anchor, attach.exit)
+      break
+    case 'corner-BL':
+      pushArc(path, TL.cx, TL.cy, r, TL.start, TL.end)
+      pushArc(path, TR.cx, TR.cy, r, TR.start, TR.end)
+      pushArc(path, BR.cx, BR.cy, r, BR.start, BR.end)
+      path.push(attach.entry, anchor, attach.exit)
+      break
+  }
+  return path
 }
 
 const callout: OverlayTemplate = {
-  // 2 clicks (anchor + bubble centre). totalStep = clicks + 1.
   name: 'callout',
   totalStep: 3,
-  // Only render the engine's default point handle at index 0 (the
-  // anchor). The bubble centre (index 1) is already represented by
-  // the rect itself — a circle drawn in the middle of the editing
-  // area would just clutter it. The rect declares `pointIndex: 1`
-  // below so dragging the rect still translates only the bubble
-  // centre, matching what the default handle would have done.
+  // Only the anchor (index 0) gets the engine's default point handle.
+  // The bubble centre (index 1) IS the bubble polygon — putting a
+  // default circle in the middle of the editing area would just
+  // clutter it.
   needDefaultPointFigure: [0],
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -246,19 +323,20 @@ const callout: OverlayTemplate = {
     const fontFamily = styles.text?.family ?? data.fontFamily ?? DEFAULT_FONT_FAMILY
     const textColor = styles.text?.color ?? data.textColor
 
-    // Style-tab knobs.
     const fill = styles.polygon?.color ?? data.backgroundColor ?? DEFAULT_FILL
     const border = styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_BORDER
 
-    // Measure bubble against the same font we'll render with; auto-
-    // grows around typed content. When empty we size to the engine's
-    // placeholder so the bubble doesn't collapse. Floored at
-    // MIN_BUBBLE_WIDTH so the inline editor's 120px-floor input
-    // doesn't stick out past the bubble at initial draw.
+    // Multi-line-aware measurement: width tracks the widest line,
+    // height tracks the line count × fontSize. When empty we size to
+    // the placeholder so the bubble doesn't collapse before the user
+    // starts typing.
     const sizingText = textValue.length > 0 ? textValue : '+ Add text'
-    const textWidth = calcTextWidth(sizingText, fontSize, fontWeight, fontFamily)
-    const bubbleWidth = Math.max(textWidth + LABEL_PADDING_H * 2, MIN_BUBBLE_WIDTH)
-    const bubbleHeight = fontSize + LABEL_PADDING_V * 2
+    const lines = sizingText.split('\n')
+    const maxLineWidth = lines.length === 1
+      ? calcTextWidth(sizingText, fontSize, fontWeight, fontFamily)
+      : Math.max(...lines.map(l => calcTextWidth(l, fontSize, fontWeight, fontFamily)))
+    const bubbleWidth = Math.max(maxLineWidth + LABEL_PADDING_H * 2, MIN_BUBBLE_WIDTH)
+    const bubbleHeight = lines.length * fontSize + LABEL_PADDING_V * 2
 
     const anchor = coordinates[0]
     const centre = coordinates[1]
@@ -269,45 +347,29 @@ const callout: OverlayTemplate = {
       height: bubbleHeight
     }
 
-    const { base1, base2, fill1, fill2 } = nearestTailAttachment(anchor, rect)
+    const attach = nearestTailAttachment(anchor, rect)
+    const polygonCoords = buildBubblePolygon(rect, LABEL_BORDER_RADIUS, anchor, attach)
 
-    // Figure styling — explicit per-figure so the engine's overlay-
-    // level style merge doesn't paint the user's polygon-colour pick
-    // onto every shape on the canvas.
-    const bubbleRectStyle: Record<string, unknown> = {
+    const bubbleStyle: Record<string, unknown> = {
       style: 'stroke_fill',
       color: fill,
       borderColor: border,
-      borderSize: BORDER_WIDTH,
-      borderRadius: LABEL_BORDER_RADIUS
+      borderSize: BORDER_WIDTH
     }
 
-    const tailFillStyle: Record<string, unknown> = {
-      style: 'fill',
-      color: fill,
-      borderSize: 0
-    }
-
-    const tailLegStyle: Record<string, unknown> = {
-      color: border,
-      size: BORDER_WIDTH,
-      style: 'solid'
-    }
-
-    // EditableText carries the bubble's full styling — the engine's
-    // _startTextEdit reads bg / border / borderRadius / padding /
-    // text-align off these styles and applies them to the input
-    // element so the editing state looks identical to the canvas
-    // rendering. Canvas-side, the editableText figure already forces
-    // bg + border transparent at draw time so the rect figure stays
-    // responsible for the visual shape.
+    // EditableText carries the bubble's fill / radius / padding so
+    // the textarea visually blends into the bubble: same background
+    // colour, same rounded corners, same content inset. We
+    // deliberately omit borderColor / borderSize — the bubble's
+    // polygon underneath provides the visible outline, and we don't
+    // want the textarea to draw its own competing border on top of
+    // it. (Engine default is borderless anyway; this is explicit
+    // about Callout's intent.)
     const editableTextStyle: Record<string, unknown> = {
       size: fontSize,
       weight: fontWeight,
       family: fontFamily,
       backgroundColor: fill,
-      borderColor: border,
-      borderSize: BORDER_WIDTH,
       borderRadius: LABEL_BORDER_RADIUS,
       paddingLeft: LABEL_PADDING_H,
       paddingRight: LABEL_PADDING_H,
@@ -316,52 +378,31 @@ const callout: OverlayTemplate = {
     }
     if (textColor !== undefined) editableTextStyle.color = textColor
 
-    // Z-order matters:
-    //   1. Rect (fill + border) — full bubble shape including border.
-    //   2. Tail fill polygon (inset 2px into the rect) — masks the
-    //      rect's border segment that lies under the tail.
-    //   3. Two leg lines at the true base vertices on the rect edge
-    //      — complete the outline along the triangle's outer edges.
-    //   4. EditableText on top.
     const figures: OverlayFigure[] = [
       {
-        type: 'rect',
-        attrs: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-        styles: bubbleRectStyle,
-        pointIndex: 1
-      },
-      {
         type: 'polygon',
-        attrs: { coordinates: [fill1, fill2, anchor] },
-        styles: tailFillStyle,
-        ignoreEvent: true
-      },
-      {
-        type: 'line',
-        attrs: { coordinates: [base1, anchor] },
-        styles: tailLegStyle,
-        ignoreEvent: true
-      },
-      {
-        type: 'line',
-        attrs: { coordinates: [base2, anchor] },
-        styles: tailLegStyle,
-        ignoreEvent: true
+        attrs: { coordinates: polygonCoords },
+        styles: bubbleStyle,
+        pointIndex: 1
       },
       {
         type: 'editableText',
         attrs: {
           x: centre.x,
           y: centre.y,
+          // Explicit width / height pin the editor's rect to the
+          // bubble's actual size — without these, getTextRect would
+          // compute the rect from the natural text width and the
+          // textarea would centre on that instead of the (possibly
+          // wider) bubble, drifting right until typed content fills
+          // the bubble out.
+          width: bubbleWidth,
+          height: bubbleHeight,
           text: textValue,
           align: 'center',
           baseline: 'middle'
         },
         styles: editableTextStyle,
-        // Editable text sits inside the bubble — its drag must move
-        // the bubble centre too, not translate both points. Without
-        // this, clicking on the rendered text and dragging would slip
-        // back to the engine's default of moving every point.
         pointIndex: 1
       }
     ]
