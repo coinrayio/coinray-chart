@@ -371,7 +371,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const backgroundColor = (figureOwn.backgroundColor ?? overlayOwn.backgroundColor) as string | undefined
     const borderColor = (figureOwn.borderColor ?? overlayOwn.borderColor) as string | undefined
     const borderSize = (figureOwn.borderSize ?? overlayOwn.borderSize) as number | undefined
-    const borderRadius = (figureOwn.borderRadius ?? overlayOwn.borderRadius) as number | undefined
+    // borderRadius accepts a number (uniform corners in px) or a
+    // string (raw CSS shorthand) so per-corner radii like Comment's
+    // `'21px 21px 21px 0'` — three rounded corners + one sharp — can
+    // be expressed without forcing a number-only API.
+    const borderRadius = (figureOwn.borderRadius ?? overlayOwn.borderRadius) as number | string | undefined
 
     const font = createFont(size, weight, family)
 
@@ -394,7 +398,9 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       padding: `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`,
       margin: '0',
       border: borderStyle,
-      borderRadius: borderRadius !== undefined ? `${borderRadius}px` : '0',
+      borderRadius: borderRadius !== undefined
+        ? (typeof borderRadius === 'number' ? `${borderRadius}px` : borderRadius)
+        : '0',
       outline: 'none',
       font,
       color,
