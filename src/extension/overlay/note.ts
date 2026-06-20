@@ -190,17 +190,24 @@ const note: OverlayTemplate = {
     }
     if (textColor !== undefined) editableTextStyle.color = textColor
 
+    // Drag scoping — TV semantics:
+    //   * Drag the leader line  → whole overlay translates (no pointIndex).
+    //   * Drag the anchor       → only point 0 moves.
+    //   * Drag the label / text → only point 1 moves.
+    // No `ignoreEvent` on these — they need to participate in hover
+    // and click routing so the overlay highlights / selects from
+    // anywhere on the shape.
     const figures: OverlayFigure[] = [
       {
         type: 'line',
         attrs: { coordinates: [anchor, connectionPoint] },
-        styles: leaderStyle,
-        ignoreEvent: true
+        styles: leaderStyle
       },
       {
         type: 'rect',
         attrs: { x: labelRect.x, y: labelRect.y, width: labelRect.width, height: labelRect.height },
-        styles: labelFillStyle
+        styles: labelFillStyle,
+        pointIndex: 1
       }
     ]
 
@@ -215,7 +222,7 @@ const note: OverlayTemplate = {
           borderSize: borderWidth,
           borderRadius: LABEL_BORDER_RADIUS
         },
-        ignoreEvent: true
+        pointIndex: 1
       })
     }
 
@@ -228,21 +235,22 @@ const note: OverlayTemplate = {
         align: 'center',
         baseline: 'middle'
       },
-      styles: editableTextStyle
+      styles: editableTextStyle,
+      pointIndex: 1
     })
 
     figures.push({
       type: 'circle',
       attrs: { x: anchor.x, y: anchor.y, r: ANCHOR_DOT_RADIUS },
       styles: anchorDotStyle,
-      ignoreEvent: true
+      pointIndex: 0
     })
 
     figures.push({
       type: 'circle',
       attrs: { x: anchor.x, y: anchor.y, r: ANCHOR_RING_RADIUS },
       styles: anchorRingStyle,
-      ignoreEvent: true
+      pointIndex: 0
     })
 
     return figures

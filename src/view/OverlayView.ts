@@ -299,6 +299,13 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     input.style.top = `${rect.y}px`
     input.style.width = `${effectiveWidth}px`
     input.style.height = `${rect.height}px`
+    // Re-apply rotation each render so the textarea tracks the
+    // figure's current angle (Price Note's leader text computes a
+    // fresh angle every redraw as the user drags the endpoints).
+    const angle = (figureAttrs as { angle?: number }).angle
+    input.style.transform = angle !== undefined && angle !== 0
+      ? `rotate(${angle}rad)`
+      : 'none'
   }
 
   private _stopTextEdit (commit: boolean): void {
@@ -389,6 +396,17 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       ? `${borderSize ?? 1}px solid ${borderColor}`
       : 'none'
 
+    // Rotation: if the editableText figure carries `angle`, rotate
+    // the textarea around its centre so it visually parallels the
+    // canvas-rendered text. transform-origin is the textarea's
+    // centre, which coincides with `attrs.x` / `attrs.y` for an
+    // align='center', baseline='middle' figure — the only orientation
+    // the rotated-text path is currently used for.
+    const angle = (attrs as { angle?: number }).angle
+    const transform = angle !== undefined && angle !== 0
+      ? `rotate(${angle}rad)`
+      : 'none'
+
     Object.assign(input.style, {
       position: 'absolute',
       left: `${rect.x}px`,
@@ -407,6 +425,8 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       backgroundColor: backgroundColor ?? 'transparent',
       textAlign,
       boxSizing: 'border-box',
+      transform,
+      transformOrigin: 'center center',
       zIndex: '1000',
       caretColor: color
     })

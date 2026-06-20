@@ -19,7 +19,17 @@ import type { FigureTemplate } from '../../component/Figure'
 
 import { type TextAttrs, checkCoordinateOnText, drawText } from './text'
 
-export type EditableTextAttrs = TextAttrs
+export interface EditableTextAttrs extends TextAttrs {
+  /**
+   * Optional rotation in radians applied around (`x`, `y`). When set,
+   * the canvas draw rotates the text and the host's inline editor
+   * picks up the same angle via a CSS `transform: rotate(...)` so the
+   * textarea visually matches the rendered text. Hit-testing falls
+   * back to the axis-aligned bbox of the unrotated text — coarse but
+   * functional.
+   */
+  angle?: number
+}
 
 /**
  * Hit-test that uses the placeholder text '+ Add text' for measuring the
@@ -61,7 +71,25 @@ const editableText: FigureTemplate<EditableTextAttrs | EditableTextAttrs[], Part
       borderSize: 0
     }
 
-    drawText(ctx, nonEmpty.length === 1 ? nonEmpty[0] : nonEmpty, cleanStyles)
+    // Group by angle so we can apply ctx transforms only when needed.
+    // Unrotated case (angle === 0 / undefined) hits the existing
+    // drawText path so the prior behaviour for every overlay is
+    // preserved byte-for-byte.
+    const upright = nonEmpty.filter(a => a.angle === undefined || a.angle === 0)
+    const rotated = nonEmpty.filter(a => a.angle !== undefined && a.angle !== 0)
+    if (upright.length > 0) {
+      drawText(ctx, upright.length === 1 ? upright[0] : upright, cleanStyles)
+    }
+    for (const a of rotated) {
+      // Rotate around (a.x, a.y) — the figure's anchor point — so
+      // an align='center', baseline='middle' attrs stays centred on
+      // the rotation pivot.
+      ctx.save()
+      ctx.translate(a.x, a.y)
+      ctx.rotate(a.angle ?? 0)
+      drawText(ctx, { ...a, x: 0, y: 0 }, cleanStyles)
+      ctx.restore()
+    }
   }
 }
 
