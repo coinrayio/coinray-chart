@@ -39,6 +39,7 @@ import text from './text'
 import note from './note'
 import callout from './callout'
 import comment from './comment'
+import priceLabel from './priceLabel'
 
 // Basic shape overlays (Pro overlays with factory pattern)
 import arrow from './arrow'
@@ -82,7 +83,7 @@ const overlays: Record<string, OverlayInnerConstructor> = {}
 
 // Standard overlays (direct templates)
 const standardExtensions = [
-  simpleAnnotation, simpleTag, freePath, text, note, callout, comment
+  simpleAnnotation, simpleTag, freePath, text, note, callout, comment, priceLabel
 ]
 
 // Pro overlays (factory functions that return templates)
