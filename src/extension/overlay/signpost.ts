@@ -35,6 +35,7 @@
  */
 
 import type { OverlayTemplate, OverlayFigure } from '../../component/Overlay'
+import type ChartImp from '../../Chart'
 import { calcTextWidth } from '../../common/utils/canvas'
 import { isNumber } from '../../common/utils/typeChecks'
 
@@ -95,11 +96,12 @@ const signpost: OverlayTemplate = {
   // Single-click overlay; engine convention is clicks + 1.
   totalStep: 2,
   needDefaultPointFigure: false,
-  // Surface the snapped bar on the x-axis the same way segment /
-  // verticalLine / etc. do — TV's Signpost shows the bar's time on
-  // the time axis under the line so the user can read the exact
-  // anchored bar without zooming in.
-  needDefaultXAxisFigure: true,
+  // The default x-axis figure only shows while the overlay is
+  // selected (gated by `clickOverlayInfo` in OverlayXAxisView).
+  // Signpost wants the bar's time visible at all times — so we
+  // disable the default and provide our own via createXAxisFigures
+  // below, which is rendered unconditionally per frame.
+  needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
 
   createPointFigures: ({ chart, overlay, coordinates, bounding, yAxis }) => {
@@ -310,6 +312,28 @@ const signpost: OverlayTemplate = {
     })
 
     return figures
+  },
+
+  // Always-visible x-axis label — formatted date of the snapped bar.
+  // OverlayXAxisView calls this every frame (no selection gate), so
+  // the date sits under the vertical line whether the user has the
+  // overlay selected or not. The default-figure path is opt-out
+  // above to avoid double-drawing on selection.
+  createXAxisFigures: (params) => {
+    // `getChartStore` (and the inner formatter it exposes) live on
+    // the impl class — not the public Chart interface — so we widen
+    // just `chart` here. Every other param keeps its inferred type.
+    const { chart, overlay, coordinates } = params as typeof params & { chart: ChartImp }
+    if (coordinates.length < 1) return []
+    const point = overlay.points[0]
+    if (!isNumber(point.timestamp)) return []
+    const text = chart.getChartStore().getInnerFormatter()
+      .formatDate(point.timestamp, 'YYYY-MM-DD HH:mm', 'crosshair')
+    return [{
+      type: 'text',
+      attrs: { x: coordinates[0].x, y: 0, text, align: 'center' },
+      ignoreEvent: true
+    }]
   },
 
   onTextChange: ({ overlay, text: newText }) => {
