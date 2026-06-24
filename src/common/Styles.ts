@@ -63,6 +63,14 @@ export interface PathStyle {
   style: PathType
   color: string
   lineWidth: number
+  /**
+   * Canvas fill rule applied when `style === 'fill'`. Defaults to
+   * `'nonzero'` to preserve the prior single-subpath path behaviour.
+   * Pass `'evenodd'` for compound paths whose overlapping sub-paths
+   * should toggle filled / unfilled (matches SVG's `fill-rule:
+   * evenodd` — same trick that gives a map-pin its donut hole).
+   */
+  fillRule: CanvasFillRule
 }
 
 export type PolygonType = PathType | 'stroke_fill'
@@ -86,6 +94,13 @@ export interface TextStyle extends Padding {
   size: number
   family: string
   weight: number | string
+  /**
+   * Optional CSS font-style — typically `'italic'` to render in
+   * italic, or `'normal'` (default). Passes through to canvas's
+   * `ctx.font` via `createFont` and to the inline editor's
+   * `font-style` CSS so the textarea matches the rendered text.
+   */
+  fontStyle?: string
   borderStyle: LineType
   borderDashedValue: number[]
   borderSize: number

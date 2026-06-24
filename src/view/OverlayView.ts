@@ -354,6 +354,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       size = 12,
       weight = 'normal',
       family,
+      fontStyle,
       color = '#000000',
       paddingLeft = 0,
       paddingTop = 0,
@@ -384,7 +385,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     // be expressed without forcing a number-only API.
     const borderRadius = (figureOwn.borderRadius ?? overlayOwn.borderRadius) as number | string | undefined
 
-    const font = createFont(size, weight, family)
+    const font = createFont(size, weight, family, fontStyle)
 
     // Text alignment from the figure attrs — when omitted the input
     // mirrors the canvas drawText default of left-aligned.
