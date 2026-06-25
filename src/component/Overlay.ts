@@ -104,6 +104,14 @@ export interface OverlayFigure {
    * sub-shape geometry) rather than a point translation.
    */
   noTranslate?: boolean
+  /**
+   * Optional CSS cursor (e.g. `'col-resize'`, `'row-resize'`,
+   * `'grab'`) applied while the cursor hovers this figure. When
+   * omitted the engine uses its default `'pointer'`. Used by
+   * Table borders to surface the resize-affordance natively
+   * without each overlay having to wire its own onMouseMove.
+   */
+  cursor?: string
 }
 
 export interface OverlayCreateFiguresCallbackParams<E> {
