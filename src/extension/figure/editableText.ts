@@ -29,6 +29,15 @@ export interface EditableTextAttrs extends TextAttrs {
    * functional.
    */
   angle?: number
+  /**
+   * Placeholder text rendered (and used to size the hit area + the
+   * inline editor) when `text` is empty. Defaults to '+ Add text'.
+   * Pass `null` to suppress the placeholder entirely — used by
+   * Table cells, where the explicit `width`/`height` already gives
+   * the empty cell a click target and a "+ Add text" affordance
+   * would be visual noise across every cell.
+   */
+  placeholder?: string | null
 }
 
 /**
@@ -43,10 +52,15 @@ function checkEditableTextEventOn (
   styles: Partial<TextStyle>
 ): boolean {
   const arr: EditableTextAttrs[] = ([] as EditableTextAttrs[]).concat(attrs)
-  // Substitute empty texts with the placeholder so the hit area is non-zero
-  const patched = arr.map(a =>
-    a.text.length === 0 ? { ...a, text: '+ Add text' } : a
-  )
+  // Substitute empty texts with the placeholder so the hit area is
+  // non-zero. `placeholder === null` opts the figure out — for
+  // Table cells the explicit width/height already gives a click
+  // target without needing a phantom placeholder.
+  const patched = arr.map(a => {
+    if (a.text.length > 0) return a
+    if (a.placeholder === null) return a
+    return { ...a, text: a.placeholder ?? '+ Add text' }
+  })
   return checkCoordinateOnText(coordinate, patched.length === 1 ? patched[0] : patched, styles)
 }
 

@@ -94,6 +94,16 @@ export interface OverlayFigure {
    * positionable.
    */
   pointIndex?: number
+  /**
+   * When true, dragging this figure SKIPS the engine's default
+   * point translation entirely. The overlay's `onPressedMoving`
+   * handler takes full responsibility for whatever drag behaviour
+   * the figure encodes (e.g. resizing a Table column, instead of
+   * moving the whole table). Use this for "in-shape" draggable
+   * handles whose effect should be data-driven (cell sizes,
+   * sub-shape geometry) rather than a point translation.
+   */
+  noTranslate?: boolean
 }
 
 export interface OverlayCreateFiguresCallbackParams<E> {

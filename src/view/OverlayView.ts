@@ -241,10 +241,18 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         if (checkOverlayFigureEvent('onPressedMoving', figure)) {
           if (!overlay.lock) {
             const point = this._coordinateToPoint(overlay, event)
-            if (figureType === 'point') {
-              overlay.eventPressedPointMove(point, figureIndex)
-            } else {
-              overlay.eventPressedOtherMove(point, this.getWidget().getPane().getChart().getChartStore())
+            // When the pressed figure declares `noTranslate`, the
+            // engine skips the default point-translation step
+            // entirely — the overlay's `onPressedMoving` handler
+            // below owns the drag (typically updating extendData
+            // for in-shape resize handles like Table's borders).
+            const noTranslate = (figure as { noTranslate?: boolean } | null)?.noTranslate === true
+            if (!noTranslate) {
+              if (figureType === 'point') {
+                overlay.eventPressedPointMove(point, figureIndex)
+              } else {
+                overlay.eventPressedOtherMove(point, this.getWidget().getPane().getChart().getChartStore())
+              }
             }
             let prevented = false
             overlay.onPressedMoving?.({ chart, overlay, figure: figure ?? undefined, ...event, preventDefault: () => { prevented = true } })
@@ -299,6 +307,26 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     input.style.top = `${rect.y}px`
     input.style.width = `${effectiveWidth}px`
     input.style.height = `${rect.height}px`
+    // Re-apply vertical padding each render so figures whose padding
+    // is content-derived (e.g. Table cells, which centre their text
+    // vertically by computing padding from the row's effective
+    // height) keep the textarea's internal cursor / text block
+    // vertically aligned with the canvas as the user types and the
+    // row grows.
+    const pt = styles.paddingTop ?? 0
+    const pb = styles.paddingBottom ?? 0
+    const pl = styles.paddingLeft ?? 0
+    const pr = styles.paddingRight ?? 0
+    input.style.padding = `${pt}px ${pr}px ${pb}px ${pl}px`
+    // Re-apply text-align too — when the figure's align changes
+    // mid-edit (Table's per-table alignment dropdown updates
+    // extendData and re-renders), the textarea's CSS text-align
+    // would otherwise stay stuck at whatever was set in
+    // `_startTextEdit` (frozen at the time of click).
+    const figureAlign = figureAttrs.align
+    if (figureAlign !== undefined) {
+      input.style.textAlign = figureAlign === 'start' ? 'left' : figureAlign === 'end' ? 'right' : figureAlign
+    }
     // Re-apply rotation each render so the textarea tracks the
     // figure's current angle (Price Note's leader text computes a
     // fresh angle every redraw as the user drags the endpoints).
@@ -327,10 +355,18 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     // Stop any existing edit
     this._stopTextEdit(false)
 
-    const attrs = figure.attrs as TextAttrs
-    // Use placeholder text for sizing when actual text is empty, so the input
-    // properly covers the placeholder area on the canvas
-    const sizingAttrs = attrs.text.length === 0 ? { ...attrs, text: '+ Add text' } : attrs
+    const attrs = figure.attrs as TextAttrs & { placeholder?: string | null }
+    // Use placeholder text for sizing when actual text is empty so
+    // the input properly covers the placeholder area on the canvas.
+    // Figures that opt out (`placeholder === null`) — e.g. Table
+    // cells — keep their own empty `text` for sizing; they already
+    // declare explicit width/height on the figure.
+    const placeholderText = attrs.placeholder === null
+      ? ''
+      : (attrs.placeholder ?? '+ Add text')
+    const sizingAttrs = attrs.text.length === 0 && placeholderText.length > 0
+      ? { ...attrs, text: placeholderText }
+      : attrs
     const rect = getTextRect(sizingAttrs, styles)
 
     const container = this.getWidget().getContainer()
@@ -342,7 +378,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     // same `input.value` either way.
     const input = document.createElement('textarea')
     input.value = attrs.text
-    input.placeholder = '+ Add text'
+    input.placeholder = placeholderText
     // Disable browser features that interfere with looking-like-the-
     // overlay: resize handle, scrollbars (we autosize the rect to
     // fit the typed content), spellcheck red-underline.
@@ -932,6 +968,13 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         if (attrs.text.length > 0) {
           return
         }
+        // Honour explicit opt-out: figures (e.g. Table cells) can
+        // suppress the canvas placeholder by setting attrs.placeholder
+        // to null. They still get a usable click target through the
+        // figure's explicit width/height.
+        if ((attrs as { placeholder?: string | null }).placeholder === null) {
+          return
+        }
 
         // Build merged styles the same way drawFigures does
         const figureKey = figure.key
@@ -1078,8 +1121,19 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         // and the reposition reads off them before bailing out of
         // the draw).
         if (type === 'editableText' && this._activeTextEditor !== null && this._activeTextEditor.overlay.id === overlay.id) {
-          this._repositionTextEditor(ats as TextAttrs, ss as Partial<TextStyle>)
-          return
+          // When the overlay carries multiple editableText figures
+          // (e.g. Table cells), an overlay-id match alone would
+          // suppress every cell while one is edited AND repos the
+          // textarea onto whichever cell drew last. Disambiguate by
+          // figure key: only the ACTIVE cell skips draw + repos the
+          // textarea; every other cell draws normally so existing
+          // content stays visible during the edit.
+          const activeKey = this._activeTextEditor.figure.key ?? (this._activeTextEditor.figure.attrs as { key?: string }).key
+          const currentKey = figureKey ?? (ats as { key?: string }).key
+          if (activeKey === undefined || activeKey === currentKey) {
+            this._repositionTextEditor(ats as TextAttrs, ss as Partial<TextStyle>)
+            return
+          }
         }
         this.createFigure({
           name: type, attrs: ats, styles: ss
