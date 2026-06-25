@@ -327,6 +327,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     if (figureAlign !== undefined) {
       input.style.textAlign = figureAlign === 'start' ? 'left' : figureAlign === 'end' ? 'right' : figureAlign
     }
+    // Line-height tracks the figure styles each frame for the
+    // same reason as padding / text-align — content-driven changes
+    // (Table cell adding a line) shouldn't drift the textarea
+    // off the canvas grid.
+    input.style.lineHeight = String(styles.lineHeight ?? 1)
     // Re-apply rotation each render so the textarea tracks the
     // figure's current angle (Price Note's leader text computes a
     // fresh angle every redraw as the user drags the endpoints).
@@ -461,6 +466,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       color,
       backgroundColor: backgroundColor ?? 'transparent',
       textAlign,
+      // Unitless line-height multiplier — matches the canvas-side
+      // step of `size * lineHeight` so wrapped / multi-line edits
+      // sit on the same baselines after commit. Default 1 keeps
+      // every existing overlay's behaviour unchanged.
+      lineHeight: String(styles.lineHeight ?? 1),
       boxSizing: 'border-box',
       transform,
       transformOrigin: 'center center',
@@ -676,7 +686,13 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         if (prevented) {
           this.getWidget().setForceCursor(null)
         } else {
-          this.getWidget().setForceCursor('pointer')
+          // Per-figure cursor override — when a figure declares its
+          // own `cursor` (e.g. Table column borders set 'col-resize',
+          // row borders set 'row-resize'), use it instead of the
+          // default pointer. Communicates resize-affordance without
+          // each overlay having to wire its own onMouseMove.
+          const figureCursor = (figure as { cursor?: string }).cursor
+          this.getWidget().setForceCursor(figureCursor ?? 'pointer')
         }
       }
 

@@ -101,6 +101,15 @@ export interface TextStyle extends Padding {
    * `font-style` CSS so the textarea matches the rendered text.
    */
   fontStyle?: string
+  /**
+   * Optional unitless line-height multiplier. Vertical step between
+   * lines becomes `size * lineHeight`. Default is 1 (lines stacked
+   * at fontSize, matching the previous behaviour). Table cells
+   * lift this to ~1.4 so multi-line text has visible breathing
+   * room and stays aligned with the textarea's CSS line-height
+   * during edit.
+   */
+  lineHeight?: number
   borderStyle: LineType
   borderDashedValue: number[]
   borderSize: number

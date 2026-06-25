@@ -37,6 +37,7 @@
 
 import type { OverlayTemplate, OverlayFigure } from '../../component/Overlay'
 import type ChartImp from '../../Chart'
+import { wrapText } from '../figure/text'
 
 interface TableOverlayData {
   rows: number
@@ -72,12 +73,12 @@ const BORDER_HIT_SLOP = 4
 // Cell padding inside the editable-text figure.
 const CELL_PADDING_H = 4
 const CELL_PADDING_V = 3
-// Line-height multiplier used for row growth math. The canvas
-// `text` figure draws lines at exactly `fontSize` apart (no
-// leading), so a tight row would visually clip multi-line text.
-// We add 40% leading so each extra `\n` forces the row taller
-// than the default single-line height, and the canvas text
-// stays comfortably within the row.
+// Line-height multiplier — vertical step between lines becomes
+// `fontSize * LINE_HEIGHT_FACTOR`. The same value is fed to
+// canvas (`styles.lineHeight`) AND the textarea (CSS line-height),
+// so multi-line edits sit on identical baselines mid-edit and
+// post-commit. 40% leading gives a visible gap between rows
+// without losing the "tight grid" feel.
 const LINE_HEIGHT_FACTOR = 1.4
 
 function parseExtendData (extendData: unknown): TableOverlayData {
@@ -113,6 +114,40 @@ function parseExtendData (extendData: unknown): TableOverlayData {
 const cellKey = (row: number, col: number): string => `cell-${row}-${col}`
 const colBorderKey = (col: number): string => `col-border-${col}` // border between col j and j+1
 const rowBorderKey = (row: number): string => `row-border-${row}` // border between row i and i+1
+// Outer edges — only right + bottom carry hit-areas (their drag
+// grows the trailing column / row, matching how the floating
+// panel's Add column / row buttons extend the table).
+const RIGHT_EDGE_KEY = 'right-edge'
+const BOTTOM_EDGE_KEY = 'bottom-edge'
+// Corner keys — all four resize / reproportion the table; the
+// sign vectors below describe which direction each corner pulls.
+const CORNER_TL_KEY = 'corner-tl'
+const CORNER_TR_KEY = 'corner-tr'
+const CORNER_BL_KEY = 'corner-bl'
+const CORNER_BR_KEY = 'corner-br'
+
+interface CornerSign {
+  // 1 → anchor follows the cursor on that axis; 0 → anchor pinned.
+  ax: 0 | 1
+  ay: 0 | 1
+  // +1 → the dimension grows with the cursor; -1 → it shrinks.
+  sx: -1 | 1
+  sy: -1 | 1
+}
+const CORNER_SIGNS: Record<string, CornerSign> = {
+  [CORNER_TL_KEY]: { ax: 1, ay: 1, sx: -1, sy: -1 },
+  [CORNER_TR_KEY]: { ax: 0, ay: 1, sx: 1, sy: -1 },
+  [CORNER_BL_KEY]: { ax: 1, ay: 0, sx: -1, sy: 1 },
+  [CORNER_BR_KEY]: { ax: 0, ay: 0, sx: 1, sy: 1 }
+}
+// Inner-border intersections — drag both borders together. Key
+// encodes the (row-border-index, col-border-index) the cell touches.
+const intersectionKey = (rowBorder: number, colBorder: number): string => `corner-${rowBorder}-${colBorder}`
+function parseIntersectionKey (key: string): { rowBorder: number, colBorder: number } | null {
+  const m = /^corner-(\d+)-(\d+)$/.exec(key)
+  if (m === null) return null
+  return { rowBorder: parseInt(m[1], 10), colBorder: parseInt(m[2], 10) }
+}
 
 function parseCellKey (key: string): { row: number, col: number } | null {
   const m = /^cell-(\d+)-(\d+)$/.exec(key)
@@ -168,10 +203,11 @@ const table: OverlayTemplate = {
     }
 
     // Row heights are content-aware: each row grows as tall as its
-    // tallest cell's text needs, but never shrinks below the user's
-    // border-drag height. This matches TV — typing a multi-line
-    // entry auto-expands its row; dragging the border down sets a
-    // taller floor.
+    // tallest cell's text needs (counting BOTH `\n` newlines and
+    // soft-wrap at the cell width), but never shrinks below the
+    // user's border-drag height. Matches TV — typing past the cell
+    // width or hitting Enter auto-expands the row; dragging the
+    // border down sets a taller floor.
     const lineCounts: number[][] = []
     const effectiveRowHeights: number[] = []
     for (let r = 0; r < data.rows; r++) {
@@ -179,7 +215,12 @@ const table: OverlayTemplate = {
       let maxLines = 1
       for (let c = 0; c < data.cols; c++) {
         const txt = data.cells[r]?.[c] ?? ''
-        const lc = txt.length === 0 ? 1 : txt.split('\n').length
+        const colW = data.colWidths[c] ?? DEFAULT_COL_WIDTH
+        // Same wrap call the renderer will make — keeps row-height
+        // math byte-for-byte aligned with what `text` draws.
+        const wrapWidth = Math.max(0, colW - CELL_PADDING_H * 2)
+        const wrapped = wrapText(txt, wrapWidth, fontSize, fontWeight as number | string | undefined, fontFamily)
+        const lc = Math.max(1, wrapped.length)
         counts.push(lc)
         if (lc > maxLines) maxLines = lc
       }
@@ -201,24 +242,117 @@ const table: OverlayTemplate = {
     const totalHeight = rowYs[data.rows] - anchor.y
 
     const figures: OverlayFigure[] = []
+    // Hit-slops are kept in a SEPARATE array and appended at the
+    // very end so they're dispatched FIRST in reverse-order event
+    // dispatch — otherwise cells (last among the visible figures)
+    // would consume border / corner events before they reach the
+    // slop.
+    const slops: OverlayFigure[] = []
 
-    // 1. Outer rect — fills the whole table area.
+    // 1. Outer rect — fill only. The four outer borders draw as
+    //    separate line figures so the right + bottom edges can
+    //    carry their own hit-slop / hover-glow / drag handler
+    //    (mirrors the interior border treatment).
     figures.push({
       type: 'rect',
       attrs: { x: anchor.x, y: anchor.y, width: totalWidth, height: totalHeight },
-      styles: {
-        style: 'stroke_fill',
-        color: bg,
-        borderColor,
-        borderSize: 1
+      styles: { style: 'fill', color: bg, borderSize: 0 },
+      ignoreEvent: true
+    })
+
+    // Hovered figure key — used to draw the border resize glow
+    // beneath the matching border before the line itself draws.
+    // For an intersection hit-target both adjacent borders should
+    // glow, so we expand the single key into a set of glow keys.
+    const hoveredFigureKey = chart.getChartStore().getHoverOverlayInfo().figure?.key
+    const hoveredGlowKeys = new Set<string>()
+    if (hoveredFigureKey !== undefined) {
+      const inter = parseIntersectionKey(hoveredFigureKey)
+      if (inter !== null) {
+        hoveredGlowKeys.add(rowBorderKey(inter.rowBorder))
+        hoveredGlowKeys.add(colBorderKey(inter.colBorder))
+      } else {
+        hoveredGlowKeys.add(hoveredFigureKey)
       }
+    }
+    const BORDER_GLOW_HALF = 3
+
+    // 1b. Four outer borders — top + left are decorative only
+    //     (no drag); right + bottom get hit-slop rects so dragging
+    //     grows the trailing column / row, the same way the
+    //     floating-panel "Add column right" / "Add row bottom"
+    //     extend the table.
+    const drawOuterLine = (x1: number, y1: number, x2: number, y2: number): void => {
+      figures.push({
+        type: 'line',
+        attrs: { coordinates: [{ x: x1, y: y1 }, { x: x2, y: y2 }] },
+        styles: { color: borderColor, size: 1, style: 'solid' },
+        ignoreEvent: true
+      })
+    }
+    const rightX = anchor.x + totalWidth
+    const bottomY = anchor.y + totalHeight
+    // Top + left — purely decorative.
+    drawOuterLine(anchor.x, anchor.y, rightX, anchor.y)
+    drawOuterLine(anchor.x, anchor.y, anchor.x, bottomY)
+    // Right edge — hover glow + line + hit-slop.
+    if (hoveredGlowKeys.has(RIGHT_EDGE_KEY)) {
+      figures.push({
+        type: 'rect',
+        attrs: { x: rightX - BORDER_GLOW_HALF, y: anchor.y, width: BORDER_GLOW_HALF * 2, height: totalHeight },
+        styles: { style: 'fill', color: 'rgba(33, 150, 243, 0.25)', borderSize: 0 },
+        ignoreEvent: true
+      })
+    }
+    drawOuterLine(rightX, anchor.y, rightX, bottomY)
+    slops.push({
+      key: RIGHT_EDGE_KEY,
+      type: 'rect',
+      attrs: { x: rightX - BORDER_HIT_SLOP, y: anchor.y, width: BORDER_HIT_SLOP * 2, height: totalHeight },
+      styles: { style: 'fill', color: 'rgba(0,0,0,0)', borderSize: 0 },
+      noTranslate: true,
+      cursor: 'col-resize'
+    })
+    // Bottom edge — same pattern.
+    if (hoveredGlowKeys.has(BOTTOM_EDGE_KEY)) {
+      figures.push({
+        type: 'rect',
+        attrs: { x: anchor.x, y: bottomY - BORDER_GLOW_HALF, width: totalWidth, height: BORDER_GLOW_HALF * 2 },
+        styles: { style: 'fill', color: 'rgba(33, 150, 243, 0.25)', borderSize: 0 },
+        ignoreEvent: true
+      })
+    }
+    drawOuterLine(anchor.x, bottomY, rightX, bottomY)
+    slops.push({
+      key: BOTTOM_EDGE_KEY,
+      type: 'rect',
+      attrs: { x: anchor.x, y: bottomY - BORDER_HIT_SLOP, width: totalWidth, height: BORDER_HIT_SLOP * 2 },
+      styles: { style: 'fill', color: 'rgba(0,0,0,0)', borderSize: 0 },
+      noTranslate: true,
+      cursor: 'row-resize'
     })
 
     // 2. Interior column borders — one line between every adjacent
     //    column pair. Each gets a noTranslate-flagged hit-slop rect
-    //    on top so the user can grab it.
+    //    on top so the user can grab it. When the same border is
+    //    hovered, a translucent blue rect renders behind it as a
+    //    "grabbable" affordance (matches TV).
     for (let c = 1; c < data.cols; c++) {
       const x = colXs[c]
+      const key = colBorderKey(c - 1)
+      if (hoveredGlowKeys.has(key)) {
+        figures.push({
+          type: 'rect',
+          attrs: {
+            x: x - BORDER_GLOW_HALF,
+            y: anchor.y,
+            width: BORDER_GLOW_HALF * 2,
+            height: totalHeight
+          },
+          styles: { style: 'fill', color: 'rgba(33, 150, 243, 0.25)', borderSize: 0 },
+          ignoreEvent: true
+        })
+      }
       figures.push({
         type: 'line',
         attrs: { coordinates: [{ x, y: anchor.y }, { x, y: anchor.y + totalHeight }] },
@@ -226,9 +360,10 @@ const table: OverlayTemplate = {
         ignoreEvent: true
       })
       // Invisible hit-slop rect (4 px to either side of the line)
-      // — receives the press, doesn't move any point.
-      figures.push({
-        key: colBorderKey(c - 1),
+      // — receives the press, doesn't move any point. Lives in
+      // the `slops` array so it's pushed AFTER cells.
+      slops.push({
+        key,
         type: 'rect',
         attrs: {
           x: x - BORDER_HIT_SLOP,
@@ -237,21 +372,36 @@ const table: OverlayTemplate = {
           height: totalHeight
         },
         styles: { style: 'fill', color: 'rgba(0,0,0,0)', borderSize: 0 },
-        noTranslate: true
+        noTranslate: true,
+        cursor: 'col-resize'
       })
     }
 
     // 3. Interior row borders — same pattern as columns.
     for (let r = 1; r < data.rows; r++) {
       const y = rowYs[r]
+      const key = rowBorderKey(r - 1)
+      if (hoveredGlowKeys.has(key)) {
+        figures.push({
+          type: 'rect',
+          attrs: {
+            x: anchor.x,
+            y: y - BORDER_GLOW_HALF,
+            width: totalWidth,
+            height: BORDER_GLOW_HALF * 2
+          },
+          styles: { style: 'fill', color: 'rgba(33, 150, 243, 0.25)', borderSize: 0 },
+          ignoreEvent: true
+        })
+      }
       figures.push({
         type: 'line',
         attrs: { coordinates: [{ x: anchor.x, y }, { x: anchor.x + totalWidth, y }] },
         styles: { color: borderColor, size: 1, style: 'solid' },
         ignoreEvent: true
       })
-      figures.push({
-        key: rowBorderKey(r - 1),
+      slops.push({
+        key,
         type: 'rect',
         attrs: {
           x: anchor.x,
@@ -260,8 +410,34 @@ const table: OverlayTemplate = {
           height: BORDER_HIT_SLOP * 2
         },
         styles: { style: 'fill', color: 'rgba(0,0,0,0)', borderSize: 0 },
-        noTranslate: true
+        noTranslate: true,
+        cursor: 'row-resize'
       })
+    }
+
+    // 3b. Interior border intersections — a small square slop at
+    //     every spot where a column border crosses a row border.
+    //     Drag updates BOTH colWidths[colBorder] and
+    //     rowHeights[rowBorder] simultaneously. Hover highlights
+    //     both crossing borders (via the `hoveredGlowKeys` set
+    //     populated above). Cursor stays as the default 'pointer'
+    //     — direction is read from the drag motion itself, not
+    //     from the cursor glyph.
+    for (let r = 1; r < data.rows; r++) {
+      for (let c = 1; c < data.cols; c++) {
+        slops.push({
+          key: intersectionKey(r - 1, c - 1),
+          type: 'rect',
+          attrs: {
+            x: colXs[c] - BORDER_HIT_SLOP,
+            y: rowYs[r] - BORDER_HIT_SLOP,
+            width: BORDER_HIT_SLOP * 2,
+            height: BORDER_HIT_SLOP * 2
+          },
+          styles: { style: 'fill', color: 'rgba(0,0,0,0)', borderSize: 0 },
+          noTranslate: true
+        })
+      }
     }
 
     // 4. Cell editable text figures. Each cell pins its width /
@@ -276,7 +452,10 @@ const table: OverlayTemplate = {
         const cellH = rowYs[r + 1] - cellY
         const cellText = data.cells[r]?.[c] ?? ''
         const lineCount = lineCounts[r][c]
-        const textBlockHeight = lineCount * fontSize
+        // `textBlockHeight` mirrors the engine's `size * lineHeight`
+        // line step so the wrapped block's measured height matches
+        // exactly what the canvas (and textarea) draw.
+        const textBlockHeight = lineCount * fontSize * LINE_HEIGHT_FACTOR
         // Symmetric vertical padding so the text block sits at the
         // row's vertical centre. Floor at CELL_PADDING_V so a row
         // dragged shorter than its content still has minimum
@@ -311,7 +490,12 @@ const table: OverlayTemplate = {
             // Cells already have a real-size hit area via
             // width/height; the engine's default '+ Add text'
             // placeholder would tile every empty cell with noise.
-            placeholder: null
+            placeholder: null,
+            // Soft-wrap long un-broken text at the cell width so
+            // it spills onto multiple lines instead of overflowing
+            // horizontally. Same call used above to compute row
+            // height, so canvas + row math stay aligned.
+            wrap: true
           },
           styles: {
             size: fontSize,
@@ -321,43 +505,70 @@ const table: OverlayTemplate = {
             paddingLeft: CELL_PADDING_H,
             paddingRight: CELL_PADDING_H,
             paddingTop: vPad,
-            paddingBottom: vPad
+            paddingBottom: vPad,
+            // Canvas + textarea both step at `size * lineHeight`.
+            lineHeight: LINE_HEIGHT_FACTOR
           }
         })
       }
     }
 
-    // 5. Corner handles — 4 default-point-style circles at every
-    //    corner. Visible ONLY while the overlay is hovered or
-    //    selected (matches the engine's default-point-figure
-    //    behaviour). Tagged with pointIndex 0 so pressing one
-    //    translates the whole table by the anchor delta — same as
-    //    pressing the body — instead of independently translating
-    //    a corner.
+    // 5. Corner handles — visible only while the overlay is
+    //    hovered or selected. The bottom-right corner is special:
+    //    dragging it scales every column / row proportionally so
+    //    the table grows or shrinks as a whole (anchor stays put).
+    //    The other three corners keep the existing
+    //    pointIndex-0 behaviour (drag = translate the table) —
+    //    making them true resize handles would require remapping
+    //    the anchor through chart coordinates, which we defer.
     const chartStore = chart.getChartStore()
     const isActive = chartStore.getHoverOverlayInfo().overlay?.id === overlay.id ||
       chartStore.getClickOverlayInfo().overlay?.id === overlay.id
     if (isActive) {
-      const corners = [
-        [anchor.x, anchor.y],
-        [anchor.x + totalWidth, anchor.y],
-        [anchor.x, anchor.y + totalHeight],
-        [anchor.x + totalWidth, anchor.y + totalHeight]
-      ] as const
-      for (const [x, y] of corners) {
+      const corners: Array<{ x: number, y: number, cursor: string, key: string }> = [
+        { x: anchor.x, y: anchor.y, cursor: 'nwse-resize', key: CORNER_TL_KEY },
+        { x: anchor.x + totalWidth, y: anchor.y, cursor: 'nesw-resize', key: CORNER_TR_KEY },
+        { x: anchor.x, y: anchor.y + totalHeight, cursor: 'nesw-resize', key: CORNER_BL_KEY },
+        { x: anchor.x + totalWidth, y: anchor.y + totalHeight, cursor: 'nwse-resize', key: CORNER_BR_KEY }
+      ]
+      for (const corner of corners) {
+        // Visible ring — events are forwarded by the slop below;
+        // this figure exists only for the blue circle rendering.
         figures.push({
           type: 'circle',
-          attrs: { x, y, r: 4 },
+          attrs: { x: corner.x, y: corner.y, r: 4 },
           styles: {
-            style: 'stroke_fill',
-            color: '#FFFFFF',
+            style: 'stroke',
             borderColor: '#2196f3',
             borderSize: 1.5
           },
-          pointIndex: 0
+          ignoreEvent: true
+        })
+        // Larger transparent hit-target on top — captures press +
+        // hover for the diagonal-resize cursor. All four corners
+        // opt out of the engine's default translation: drag
+        // semantics are owned by `onPressedMoving`, which scales
+        // every column / row proportionally and (for non-BR
+        // corners) also shifts the anchor in chart coordinates so
+        // the opposite corner stays pinned.
+        slops.push({
+          key: corner.key,
+          type: 'circle',
+          attrs: { x: corner.x, y: corner.y, r: 8 },
+          styles: { style: 'fill', color: 'rgba(0,0,0,0)', borderSize: 0 },
+          cursor: corner.cursor,
+          noTranslate: true
         })
       }
     }
+
+    // Append all hit-slops LAST so they're at the highest index
+    // in the View's child list, which means reverse-order event
+    // dispatch checks them BEFORE cells / corners and any other
+    // visible figure. Without this, cells (the last visible
+    // figures in the array) would consume mouse events anywhere
+    // inside the table — including over border slops.
+    figures.push(...slops)
 
     return figures
   },
@@ -375,45 +586,179 @@ const table: OverlayTemplate = {
     overlay.extendData = { ...data, cells: nextCells }
   },
 
-  // Border-drag handler. When a press lands on a column / row
-  // border, we update the relevant cell-size entry in extendData
-  // instead of translating the table. The engine skips its default
-  // point-translation because the figure carries `noTranslate`.
-  onPressedMoving: ({ overlay, figure, ...event }) => {
+  // Press-start hook — stashes the press coordinates AT MOUSEDOWN
+  // so the very first mousemove (`onPressedMoving`) has a stable
+  // baseline. Previously the stash captured the first
+  // mousemove's pageX/pageY, which is already offset from the
+  // actual press position (the cursor moves a few px between
+  // mousedown and the first mousemove). That offset shows up as a
+  // visible "jump" on the first drag tick.
+  onPressedMoveStart: (params) => {
+    const { chart, overlay, figure, ...event } = params as typeof params & { chart: ChartImp }
     const key = figure?.key
     if (key === undefined || key === '') return
-    const target = parseBorderKey(key)
-    if (target === null) return
     const data = parseExtendData(overlay.extendData)
-    // Engine's MouseTouchEvent ships per-frame `pageX` / `pageY`.
-    // We compare against the start of the press via a stash on
-    // the overlay. First frame stashes; subsequent frames read +
-    // diff. (Stash lives on the overlay's extendData scratch
-    // slot — the cleanest spot we have without engine plumbing.)
     const ev = event as { pageX?: number, pageY?: number }
-    const stash = (overlay as unknown as { _tableDragStash?: { px: number, py: number, baseW: number[], baseH: number[] } })._tableDragStash
-    if (stash === undefined) {
-      ;(overlay as unknown as { _tableDragStash?: { px: number, py: number, baseW: number[], baseH: number[] } })._tableDragStash = {
+    const baseW = data.colWidths.slice()
+    const baseH = data.rowHeights.slice()
+    if (key in CORNER_SIGNS) {
+      // Snapshot the anchor's pixel position so the resize handler
+      // can compute a new chart-coord anchor at every frame —
+      // needed for TL / TR / BL where the anchor moves to keep
+      // the opposite corner pinned. BR doesn't shift the anchor
+      // but uses the same stash shape so the resize branch can
+      // treat all four corners uniformly.
+      const xAxis = chart.getXAxisPane().getAxisComponent()
+      const pane = chart.getDrawPaneById(overlay.paneId)
+      const yAxis = pane?.getAxisComponent()
+      const point = overlay.points[0]
+      const baseAnchorPxX = typeof point.dataIndex === 'number' ? xAxis.convertToPixel(point.dataIndex) : 0
+      const baseAnchorPxY = yAxis !== undefined && typeof point.value === 'number' ? yAxis.convertToPixel(point.value) : 0
+      interface CornerStash {
+        px: number, py: number
+        baseW: number[], baseH: number[]
+        baseTotalW: number, baseTotalH: number
+        baseAnchorPxX: number, baseAnchorPxY: number
+      }
+      ;(overlay as unknown as { _tableCornerStash?: CornerStash })._tableCornerStash = {
         px: ev.pageX ?? 0,
         py: ev.pageY ?? 0,
-        baseW: data.colWidths.slice(),
-        baseH: data.rowHeights.slice()
+        baseW,
+        baseH,
+        baseTotalW: baseW.reduce((a, b) => a + b, 0),
+        baseTotalH: baseH.reduce((a, b) => a + b, 0),
+        baseAnchorPxX,
+        baseAnchorPxY
       }
       return
     }
+    if (
+      parseBorderKey(key) !== null ||
+      parseIntersectionKey(key) !== null ||
+      key === RIGHT_EDGE_KEY ||
+      key === BOTTOM_EDGE_KEY
+    ) {
+      ;(overlay as unknown as { _tableDragStash?: { px: number, py: number, baseW: number[], baseH: number[] } })._tableDragStash = {
+        px: ev.pageX ?? 0,
+        py: ev.pageY ?? 0,
+        baseW,
+        baseH
+      }
+    }
+  },
+
+  // Border-drag handler. When a press lands on a column / row
+  // border (or outer right / bottom edge, or BR corner), we update
+  // extendData instead of translating the table. The stash is
+  // populated by `onPressedMoveStart` above; this callback only
+  // reads from it.
+  onPressedMoving: (params) => {
+    const { chart, overlay, figure, ...event } = params as typeof params & { chart: ChartImp }
+    const key = figure?.key
+    if (key === undefined || key === '') return
+    const data = parseExtendData(overlay.extendData)
+    const ev = event as { pageX?: number, pageY?: number }
+
+    // Corner resize — applies to all 4 corners. Each corner's
+    // sign vector tells us (a) which axes the anchor moves on and
+    // (b) whether the dimension grows or shrinks with the drag.
+    // The opposite corner stays pinned in screen space.
+    const sign = key in CORNER_SIGNS ? CORNER_SIGNS[key] : null
+    if (sign !== null) {
+      interface CornerStash {
+        px: number, py: number
+        baseW: number[], baseH: number[]
+        baseTotalW: number, baseTotalH: number
+        baseAnchorPxX: number, baseAnchorPxY: number
+      }
+      const cornerStash = (overlay as unknown as { _tableCornerStash?: CornerStash })._tableCornerStash
+      if (cornerStash === undefined) return
+      const dx = (ev.pageX ?? 0) - cornerStash.px
+      const dy = (ev.pageY ?? 0) - cornerStash.py
+      // Effective signed delta on each dimension: dx flipped for
+      // left-grabbing corners, dy flipped for top-grabbing.
+      const dxSigned = sign.sx * dx
+      const dySigned = sign.sy * dy
+      // Min scale prevents any column / row from shrinking past
+      // its lower bound; max safe scale derived from the smallest
+      // baseline width / height.
+      const minScaleX = MIN_COL_WIDTH / Math.max(...cornerStash.baseW)
+      const minScaleY = MIN_ROW_HEIGHT / Math.max(...cornerStash.baseH)
+      const sx = Math.max(minScaleX, (cornerStash.baseTotalW + dxSigned) / cornerStash.baseTotalW)
+      const sy = Math.max(minScaleY, (cornerStash.baseTotalH + dySigned) / cornerStash.baseTotalH)
+      const nextWidths = cornerStash.baseW.map(w => Math.max(MIN_COL_WIDTH, w * sx))
+      const nextHeights = cornerStash.baseH.map(h => Math.max(MIN_ROW_HEIGHT, h * sy))
+      const nextExtendData = { ...data, colWidths: nextWidths, rowHeights: nextHeights }
+      // Anchor follows the cursor on axes where the corner is
+      // grabbing the leading edge. We convert the new anchor's
+      // pixel position back into chart coordinates so the engine's
+      // hit-tests and the persistence layer both see a real
+      // (timestamp, value) point.
+      if (sign.ax === 1 || sign.ay === 1) {
+        const xAxis = chart.getXAxisPane().getAxisComponent()
+        const pane = chart.getDrawPaneById(overlay.paneId)
+        const yAxis = pane?.getAxisComponent()
+        const newAnchorPxX = cornerStash.baseAnchorPxX + sign.ax * dx
+        const newAnchorPxY = cornerStash.baseAnchorPxY + sign.ay * dy
+        const chartStore = chart.getChartStore()
+        const newDataIndex = xAxis.convertFromPixel(newAnchorPxX)
+        const newTimestamp = chartStore.dataIndexToTimestamp(newDataIndex) ?? undefined
+        const newValue = yAxis !== undefined ? yAxis.convertFromPixel(newAnchorPxY) : overlay.points[0]?.value
+        overlay.points[0] = { ...overlay.points[0], dataIndex: newDataIndex, timestamp: newTimestamp, value: newValue }
+      }
+      overlay.extendData = nextExtendData
+      return
+    }
+
+    // Inner border intersection — drag updates BOTH the row
+    // border and the column border at once. Same per-axis math
+    // as a single-border drag, applied in parallel.
+    const inter = parseIntersectionKey(key)
+    if (inter !== null) {
+      const stash = (overlay as unknown as { _tableDragStash?: { px: number, py: number, baseW: number[], baseH: number[] } })._tableDragStash
+      if (stash === undefined) return
+      const dx = (ev.pageX ?? 0) - stash.px
+      const dy = (ev.pageY ?? 0) - stash.py
+      const nextWidths = stash.baseW.slice()
+      const nextHeights = stash.baseH.slice()
+      nextWidths[inter.colBorder] = Math.max(MIN_COL_WIDTH, stash.baseW[inter.colBorder] + dx)
+      nextHeights[inter.rowBorder] = Math.max(MIN_ROW_HEIGHT, stash.baseH[inter.rowBorder] + dy)
+      overlay.extendData = { ...data, colWidths: nextWidths, rowHeights: nextHeights }
+      return
+    }
+
+    // Interior border? Parse the (kind, index). Otherwise check if
+    // it's the right / bottom outer edge, which resizes the
+    // trailing column / row.
+    let target = parseBorderKey(key)
+    if (target === null) {
+      if (key === RIGHT_EDGE_KEY) target = { kind: 'col', index: -1 }
+      else if (key === BOTTOM_EDGE_KEY) target = { kind: 'row', index: -1 }
+      else return
+    }
+    // Resolve sentinel -1 → trailing column / row.
+    const idx = target.index === -1
+      ? (target.kind === 'col' ? data.cols - 1 : data.rows - 1)
+      : target.index
+    const resolved = { kind: target.kind, index: idx }
+    const stash = (overlay as unknown as { _tableDragStash?: { px: number, py: number, baseW: number[], baseH: number[] } })._tableDragStash
+    if (stash === undefined) return
     const dx = (ev.pageX ?? 0) - stash.px
     const dy = (ev.pageY ?? 0) - stash.py
-    if (target.kind === 'col') {
+    if (resolved.kind === 'col') {
       // Grow the column LEFT of the border; shrink isn't expressed
       // here because TV's table only resizes the leading column —
       // moving the divider right widens col-N, leaves col-(N+1)
-      // alone. (User can drag the next divider to balance.)
+      // alone. (User can drag the next divider to balance.) For
+      // the outer right edge the resolved index is the trailing
+      // column, so this same code path grows the table's right
+      // side.
       const nextWidths = stash.baseW.slice()
-      nextWidths[target.index] = Math.max(MIN_COL_WIDTH, stash.baseW[target.index] + dx)
+      nextWidths[resolved.index] = Math.max(MIN_COL_WIDTH, stash.baseW[resolved.index] + dx)
       overlay.extendData = { ...data, colWidths: nextWidths }
     } else {
       const nextHeights = stash.baseH.slice()
-      nextHeights[target.index] = Math.max(MIN_ROW_HEIGHT, stash.baseH[target.index] + dy)
+      nextHeights[resolved.index] = Math.max(MIN_ROW_HEIGHT, stash.baseH[resolved.index] + dy)
       overlay.extendData = { ...data, rowHeights: nextHeights }
     }
   },
@@ -422,6 +767,7 @@ const table: OverlayTemplate = {
   // starts fresh.
   onPressedMoveEnd: ({ overlay }) => {
     delete (overlay as unknown as { _tableDragStash?: unknown })._tableDragStash
+    delete (overlay as unknown as { _tableCornerStash?: unknown })._tableCornerStash
   }
 }
 
