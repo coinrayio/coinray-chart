@@ -37,6 +37,7 @@
 import type { OverlayTemplate, OverlayFigure } from '../../component/Overlay'
 import type ChartImp from '../../Chart'
 import { calcTextWidth } from '../../common/utils/canvas'
+import { glyphFigure, ICON_SOURCE_VIEWBOX, ICON_VALUE_PREFIX } from './emojiGlyph'
 import { isNumber } from '../../common/utils/typeChecks'
 
 interface SignpostOverlayData {
@@ -82,28 +83,13 @@ const EMOJI_FONT_SIZE = 14
 // the ring doesn't crash into the label or the candle.
 const EMOJI_HALF_SPACE = EMOJI_RING_RADIUS + 2
 
-// Convention shared with the host's EmojiPicker: when the picked
-// glyph rides as `svg:<d>`, the user picked an Icon (Tabler-style
-// SVG path) rather than an Emoji (unicode codepoint). The pin then
-// renders a `path` figure scaled to fit inside the ring rather
-// than a `text` figure.
-const ICON_VALUE_PREFIX = 'svg:'
-// Source icons use a 24×24 viewBox; we shrink uniformly so the icon
-// reads roughly the same visual weight as a 14-px emoji inside the
-// ring. 0.75 * 24 = 18 = ring inner-diameter-ish.
-const ICON_SCALE = 0.75
-const ICON_SOURCE_VIEWBOX = 24
-const ICON_RENDER_SIZE = ICON_SOURCE_VIEWBOX * ICON_SCALE
-
-/**
- * Multiply every number in an SVG path `d` attribute by `scale`.
- * Used to shrink Tabler 24×24 paths to fit Signpost's pin ring
- * without engine-side transform support. Coordinates with leading
- * dots (`-.5`) and decimals are handled by the regex.
- */
-function scalePath (d: string, scale: number): string {
-  return d.replace(/-?\d*\.?\d+/g, (n) => String(parseFloat(n) * scale))
-}
+// Render size for the icon-mode pin glyph. ICON_SOURCE_VIEWBOX is
+// the source 24×24 grid every Tabler icon uses; shrinking to 75%
+// (~18 px) reads roughly the same visual weight as a 14-px emoji
+// inside the ring. The shared `glyphFigure` helper handles the
+// actual path scaling + figure construction so we keep one
+// implementation across overlays.
+const ICON_RENDER_SIZE = ICON_SOURCE_VIEWBOX * 0.75
 
 function parseExtendData (extendData: unknown): SignpostOverlayData {
   if (extendData !== null && typeof extendData === 'object') {
@@ -270,48 +256,20 @@ const signpost: OverlayTemplate = {
             borderSize: EMOJI_RING_BORDER_WIDTH
           }
         })
-        if (emojiGlyph.startsWith(ICON_VALUE_PREFIX)) {
-          // Icon pin — scale the source 24×24 Tabler path uniformly
-          // so it fits inside the ring, then centre via the path's
-          // offset (the engine adds attrs.x/y to every coord, so
-          // halving the rendered width gives a centred icon).
-          const scaledD = scalePath(emojiGlyph.slice(ICON_VALUE_PREFIX.length), ICON_SCALE)
-          figures.push({
-            type: 'path',
-            attrs: {
-              x: lineMidpoint.x - ICON_RENDER_SIZE / 2,
-              y: lineMidpoint.y - ICON_RENDER_SIZE / 2,
-              width: ICON_RENDER_SIZE,
-              height: ICON_RENDER_SIZE,
-              path: scaledD
-            },
-            styles: {
-              style: 'stroke',
-              color: emojiRingColor,
-              lineWidth: 2
-            }
-          })
-        } else {
-          // Emoji pin — render the unicode glyph via the text figure.
-          figures.push({
-            type: 'text',
-            attrs: {
-              x: lineMidpoint.x,
-              y: lineMidpoint.y,
-              text: emojiGlyph,
-              align: 'center',
-              baseline: 'middle'
-            },
-            styles: {
-              size: EMOJI_FONT_SIZE,
-              family: DEFAULT_FONT_FAMILY,
-              weight: 'normal',
-              backgroundColor: 'transparent',
-              borderColor: 'transparent',
-              borderSize: 0
-            }
-          })
-        }
+        // Glyph itself — text figure for unicode emoji, scaled
+        // path figure for `svg:` icon. The shared `glyphFigure`
+        // helper owns the prefix branch + path scaling; icon
+        // mode renders at `ICON_RENDER_SIZE` (~18 px) so it
+        // matches the ring's inner diameter, emoji renders at
+        // the configured font size.
+        figures.push(glyphFigure({
+          x: lineMidpoint.x,
+          y: lineMidpoint.y,
+          value: emojiGlyph,
+          size: emojiGlyph.startsWith(ICON_VALUE_PREFIX) ? ICON_RENDER_SIZE : EMOJI_FONT_SIZE,
+          color: emojiRingColor,
+          fontFamily: DEFAULT_FONT_FAMILY
+        }))
       } else {
         figures.push({
           type: 'line',
