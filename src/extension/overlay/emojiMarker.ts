@@ -61,15 +61,19 @@ const defaultStyle: Required<EmojiMarkerProperties> = {
 }
 
 const emojiMarker = (): ProOverlayTemplate => {
-  let properties: DeepPartial<EmojiMarkerProperties> = {}
+  // Properties are keyed by overlay id — the factory closure used
+  // to hold ONE shared object, which meant changing the font size
+  // or text colour on one marker overwrote every other marker on
+  // the chart. Each instance gets its own slot now.
+  const propertiesById = new Map<string, DeepPartial<EmojiMarkerProperties>>()
 
-  const _extRef: { data: DeepPartial<EmojiMarkerProperties> | null } = { data: null }
-
-  const prop = <K extends keyof EmojiMarkerProperties>(key: K): EmojiMarkerProperties[K] => {
-    const ext = _extRef.data as Record<string, unknown> | null
-    const props = properties as Record<string, unknown>
-    const defaults = defaultStyle as Record<string, unknown>
-    return (ext?.[key] ?? props[key] ?? defaults[key]) as EmojiMarkerProperties[K]
+  const getProps = (id: string): DeepPartial<EmojiMarkerProperties> => {
+    let props = propertiesById.get(id)
+    if (props === undefined) {
+      props = {}
+      propertiesById.set(id, props)
+    }
+    return props
   }
 
   return {
@@ -82,11 +86,21 @@ const emojiMarker = (): ProOverlayTemplate => {
     createPointFigures: ({ coordinates, overlay }) => {
       if (coordinates.length === 0) return []
 
-      _extRef.data = (overlay.extendData != null && typeof overlay.extendData === 'object')
-        ? overlay.extendData as DeepPartial<EmojiMarkerProperties>
-        : typeof overlay.extendData === 'string'
-          ? { text: overlay.extendData }
-          : null
+      // Each render resolves properties for THIS overlay's id —
+      // extendData wins over stored properties wins over defaults.
+      const ext: DeepPartial<EmojiMarkerProperties> | null =
+        (overlay.extendData != null && typeof overlay.extendData === 'object')
+          ? overlay.extendData as DeepPartial<EmojiMarkerProperties>
+          : typeof overlay.extendData === 'string'
+            ? { text: overlay.extendData }
+            : null
+      const props = getProps(overlay.id)
+      const prop = <K extends keyof EmojiMarkerProperties>(key: K): EmojiMarkerProperties[K] => {
+        const e = ext as Record<string, unknown> | null
+        const p = props as Record<string, unknown>
+        const d = defaultStyle as Record<string, unknown>
+        return (e?.[key] ?? p[key] ?? d[key]) as EmojiMarkerProperties[K]
+      }
 
       const value = prop('text') ?? defaultStyle.text
       const fontSize = prop('textFontSize') ?? defaultStyle.textFontSize
@@ -114,13 +128,21 @@ const emojiMarker = (): ProOverlayTemplate => {
       return false
     },
 
-    setProperties: (_properties: DeepPartial<EmojiMarkerProperties>, _id: string) => {
-      const newProps = clone(properties) as Record<string, unknown>
-      merge(newProps, _properties)
-      properties = newProps as DeepPartial<EmojiMarkerProperties>
+    onRemoved: ({ overlay }) => {
+      // Free the per-instance slot when the overlay is deleted so
+      // the map doesn't grow forever over a long session.
+      propertiesById.delete(overlay.id)
+      return false
     },
 
-    getProperties: (_id: string): DeepPartial<EmojiMarkerProperties> => properties
+    setProperties: (_properties: DeepPartial<EmojiMarkerProperties>, id: string) => {
+      const current = getProps(id)
+      const next = clone(current) as Record<string, unknown>
+      merge(next, _properties)
+      propertiesById.set(id, next as DeepPartial<EmojiMarkerProperties>)
+    },
+
+    getProperties: (id: string): DeepPartial<EmojiMarkerProperties> => getProps(id)
   }
 }
 
