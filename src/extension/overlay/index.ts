@@ -46,6 +46,7 @@ import flagMark from './flagMark'
 import pin from './pin'
 import table from './table'
 import image from './image'
+import emojiMarker from './emojiMarker'
 
 // Basic shape overlays (Pro overlays with factory pattern)
 import arrow from './arrow'
@@ -108,7 +109,8 @@ const proExtensions = [
   timeLine,
   priceLevelLine,
   styledSegment,
-  box
+  box,
+  emojiMarker
 ]
 
 // Register standard overlays (direct templates)
