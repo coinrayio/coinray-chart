@@ -123,7 +123,11 @@ export interface Store {
   getBarSpaceLimit: () => BarSpaceLimit
   getVisibleRange: () => VisibleRange
   setDataLoader: (dataLoader: DataLoader) => void
-  overrideIndicator: (override: IndicatorCreate) => boolean
+  // `IndicatorOverride` is a Partial — `name` becomes optional so
+  // callers can broadcast-override (e.g. `{ visible }` to hide
+  // every indicator at once). The implementation has always
+  // accepted Partial; this aligns the public type with that.
+  overrideIndicator: (override: IndicatorOverride) => boolean
   removeIndicator: (filter?: IndicatorFilter) => boolean
   overrideOverlay: (override: Partial<OverlayCreate>) => boolean
   removeOverlay: (filter?: OverlayFilter) => boolean
