@@ -14,12 +14,14 @@
 
 import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
-import { merge, clone } from '../../common/utils/typeChecks'
+import { isNumber, merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 import { getLinearSlopeIntercept, getLinearYFromCoordinates } from '../figure/line'
 import { computeTextPosition } from './textUtils'
 import { getRotateCoordinate } from './utils'
+import { formatPrecision } from '../../common/utils/format'
+import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 
 /** End-cap kind for either anchor of a segment. */
 type EndCap = 'normal' | 'arrow'
@@ -126,18 +128,20 @@ const segment = (): ProOverlayTemplate => {
 
       const id = overlay.id
       // `extendData` carries the trend-line variant flags (extend
-      // toggles + end-cap kinds). All are optional; absent means
-      // the legacy finite-segment behaviour.
+      // toggles + end-cap kinds + Style-tab booleans). All are
+      // optional; absent means the legacy finite-segment behaviour.
       const ext = overlay.extendData as {
         extendLeft?: boolean
         extendRight?: boolean
         endCapLeft?: EndCap
         endCapRight?: EndCap
+        showMidPoint?: boolean
       } | undefined
       const extendLeft = ext?.extendLeft === true
       const extendRight = ext?.extendRight === true
       const endCapLeft: EndCap = ext?.endCapLeft ?? 'normal'
       const endCapRight: EndCap = ext?.endCapRight ?? 'normal'
+      const showMidPoint = ext?.showMidPoint === true
 
       // `lineCoordinates` is always sorted so [0] is the visually
       // left (or top, for vertical) end and [1] is the right
@@ -206,6 +210,29 @@ const segment = (): ProOverlayTemplate => {
       const text = props.text ?? ''
       const midX = (lineCoordinates[0].x + lineCoordinates[1].x) / 2
       const midY = (lineCoordinates[0].y + lineCoordinates[1].y) / 2
+
+      // Middle-point marker — a stroke-mode ring matching the
+      // visual language of the default anchor point figures
+      // (`OverlayPointStyle.mode: 'stroke'`, line-colour border,
+      // bg-coloured fill), just at ~⅔ the radius so the user
+      // reads it as a derived/midpoint marker rather than a
+      // draggable anchor. Stays painted whether the overlay is
+      // selected or not so the user sees the midpoint at a
+      // glance from the rest of the chart's overlays.
+      if (showMidPoint) {
+        const midColor = props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+        figures.push({
+          type: 'circle',
+          attrs: { x: midX, y: midY, r: 4 },
+          styles: {
+            style: 'stroke',
+            color: midColor,
+            borderColor: midColor,
+            borderSize: 1.5
+          }
+        })
+      }
+
       figures.push({
         type: 'editableText',
         attrs: { ...computeTextPosition(midX, midY, props, bounding.width, 'center', 'top'), text },
@@ -213,6 +240,56 @@ const segment = (): ProOverlayTemplate => {
       })
 
       return figures
+    },
+    // Per-endpoint price labels on the Y-axis. Only rendered when
+    // the Style-tab Price Labels checkbox is on — the engine's
+    // built-in `needDefaultYAxisFigure` handles the selected-state
+    // label automatically, so this hook covers the "always-on,
+    // even when deselected" case the spec asks for. Two labels:
+    // one per anchor, each using the underlying overlay.point's
+    // value (which round-trips through `setVisibleRange`).
+    createYAxisFigures: ({ chart, overlay, coordinates, bounding, yAxis }) => {
+      const ext = overlay.extendData as { showPriceLabels?: boolean } | undefined
+      if (ext?.showPriceLabels !== true) return []
+      if (coordinates.length !== 2) return []
+
+      const isFromZero = yAxis?.isFromZero() ?? false
+      const textAlign: CanvasTextAlign = isFromZero ? 'left' : 'right'
+      const x = isFromZero ? 0 : bounding.width
+
+      const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
+      // Match the built-in selected-state label's full format
+      // chain — `formatPrecision` → thousands separator → decimal
+      // fold (`OverlayYAxisView` uses the same three layers).
+      // Without the latter two, the numbers render without commas
+      // and without the chart-wide decimal-fold setting, which is
+      // visibly different from every other y-axis label.
+      const decimalFold = chart.getDecimalFold()
+      const thousandsSeparator = chart.getThousandsSeparator()
+
+      // Plain text figures with no explicit style — the Y-axis
+      // pane's theme paints them at the same size / weight /
+      // padding as the built-in selected-state label (and the
+      // crosshair label), so all three labels read as one
+      // family. Anything explicit here would shrink-mismatch
+      // against the default label and the user noticed.
+      return overlay.points.map((point, i) => {
+        const value = point.value
+        const labelText = isNumber(value)
+          ? decimalFold.format(thousandsSeparator.format(formatPrecision(value, precision)))
+          : ''
+        return {
+          type: 'text',
+          attrs: {
+            x,
+            y: coordinates[i].y,
+            text: labelText,
+            align: textAlign,
+            baseline: 'middle' as CanvasTextBaseline
+          },
+          ignoreEvent: true
+        }
+      })
     },
     setProperties,
     getProperties
