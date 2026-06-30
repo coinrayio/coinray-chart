@@ -97,6 +97,10 @@ const segment = (): ProOverlayTemplate => {
       color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
       weight: props.textFontWeight ?? DEFAULT_OVERLAY_PROPERTIES.textFontWeight,
+      // Italic flows through `fontStyle`. The shared textStyle
+      // builder previously dropped this, so toggling Italic in
+      // the Style tab had no visible effect.
+      fontStyle: props.textFontStyle ?? DEFAULT_OVERLAY_PROPERTIES.textFontStyle,
       family: props.textFont ?? DEFAULT_OVERLAY_PROPERTIES.textFont,
       paddingLeft: props.textPaddingLeft ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingLeft,
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
@@ -233,11 +237,66 @@ const segment = (): ProOverlayTemplate => {
         })
       }
 
-      figures.push({
-        type: 'editableText',
-        attrs: { ...computeTextPosition(midX, midY, props, bounding.width, 'center', 'top'), text },
-        styles: textStyle(id)
-      })
+      // Text orientation — rotate the label so it reads along
+      // the line, then offset perpendicular to the line based on
+      // textAlignVertical so "top" stays above the line and
+      // "bottom" stays below regardless of rotation. The
+      // horizontal align value moves the anchor along the line
+      // itself (left = near anchor 0, right = near anchor 1,
+      // center = midpoint).
+      //
+      // Vertical lines fall back to the previous axis-aligned
+      // logic via `computeTextPosition` — "above the line" has
+      // no useful meaning when the line points straight up.
+      const dx = lineCoordinates[1].x - lineCoordinates[0].x
+      const dy = lineCoordinates[1].y - lineCoordinates[0].y
+      const isVertical = Math.abs(dx) < 0.5
+      const hAlign = props.textAlignHorizontal ?? 'center'
+      const vAlign = props.textAlignVertical ?? 'top'
+
+      if (isVertical) {
+        figures.push({
+          type: 'editableText',
+          attrs: { ...computeTextPosition(midX, midY, props, bounding.width, 'center', 'top'), text },
+          styles: textStyle(id)
+        })
+      } else {
+        const angle = Math.atan2(dy, dx)
+        // Position along the line. Pull in ~10% from each end
+        // so left/right text sits inside the segment rather than
+        // right at the anchor handle.
+        const t = hAlign === 'left' ? 0.1 : hAlign === 'right' ? 0.9 : 0.5
+        let ax = lineCoordinates[0].x + dx * t
+        let ay = lineCoordinates[0].y + dy * t
+
+        // Perpendicular offset for vAlign. Since lineCoordinates
+        // is sorted left→right (dx >= 0), the CW perpendicular
+        // (sin θ, -cos θ) = (dy/|d|, -dx/|d|) always points to
+        // the "top" side in screen terms; CCW to "bottom".
+        if (vAlign !== 'middle') {
+          const len = Math.hypot(dx, dy)
+          if (len > 0) {
+            const fontSize = props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize
+            const offsetMag = fontSize * 0.6 + 6
+            const sign = vAlign === 'top' ? 1 : -1
+            ax += sign * (dy / len) * offsetMag
+            ay += sign * (-dx / len) * offsetMag
+          }
+        }
+
+        figures.push({
+          type: 'editableText',
+          attrs: {
+            x: ax,
+            y: ay,
+            text,
+            align: 'center',
+            baseline: 'middle',
+            angle
+          },
+          styles: textStyle(id)
+        })
+      }
 
       return figures
     },
