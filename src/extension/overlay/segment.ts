@@ -26,6 +26,46 @@ import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 /** End-cap kind for either anchor of a segment. */
 type EndCap = 'normal' | 'arrow'
 
+/** Where the stats label sits along the segment. `auto` mirrors
+ *  TradingView: pick the side least likely to overlap the price
+ *  action (the anchor with the smaller y — i.e. the higher price
+ *  on screen). Falls back to center if the two anchors' y match. */
+type StatsPos = 'left' | 'center' | 'right' | 'auto'
+
+/** Stat keys the Style-tab Stats multi-select surfaces. The order
+ *  here is the row order the spec asks for — index 0..2 sit on
+ *  row 1, 3..5 on row 2, 6+ on row 3. Callers pick a subset in
+ *  any order; the renderer preserves this canonical row layout
+ *  so two overlays with the same subset produce identical labels. */
+// row 1: priceRange / percentRange / pipsChange
+// row 2: barsRange / timeRange / distance
+// row 3: angle
+const STAT_KEYS = [
+  'priceRange',
+  'percentRange',
+  'pipsChange',
+  'barsRange',
+  'timeRange',
+  'distance',
+  'angle'
+] as const
+type StatKey = typeof STAT_KEYS[number]
+
+/** Duration string like "3d 4h 12m". Zero-slots collapse so short
+ *  ranges don't render as "0d 0h 3m". Anchors on ms — pass a
+ *  positive difference; the renderer wraps this with `|Δt|`. */
+const formatDuration = (ms: number): string => {
+  const abs = Math.abs(ms)
+  const days = Math.floor(abs / 86400000)
+  const hours = Math.floor((abs % 86400000) / 3600000)
+  const minutes = Math.floor((abs % 3600000) / 60000)
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`)
+  return parts.join(' ')
+}
+
 /**
  * Build the three points that make up an arrowhead polygon anchored at
  * `anchor`, pointing away from `away`. The 30° spread (`arrowAngle`)
@@ -125,7 +165,7 @@ const segment = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, bounding, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay, chart }) => {
       if (coordinates.length !== 2) {
         return []
       }
@@ -140,12 +180,16 @@ const segment = (): ProOverlayTemplate => {
         endCapLeft?: EndCap
         endCapRight?: EndCap
         showMidPoint?: boolean
+        stats?: StatKey[]
+        statsPosition?: StatsPos
       } | undefined
       const extendLeft = ext?.extendLeft === true
       const extendRight = ext?.extendRight === true
       const endCapLeft: EndCap = ext?.endCapLeft ?? 'normal'
       const endCapRight: EndCap = ext?.endCapRight ?? 'normal'
       const showMidPoint = ext?.showMidPoint === true
+      const statsSelected: StatKey[] = Array.isArray(ext?.stats) ? ext.stats : []
+      const statsPosition: StatsPos = ext?.statsPosition ?? 'auto'
 
       // `lineCoordinates` is always sorted so [0] is the visually
       // left (or top, for vertical) end and [1] is the right
@@ -296,6 +340,158 @@ const segment = (): ProOverlayTemplate => {
           },
           styles: textStyle(id)
         })
+      }
+
+      // Stats label. Each selected key contributes one snippet;
+      // snippets are grouped into three rows per spec (row 1:
+      // price / percent / pips, row 2: bars / time / distance,
+      // row 3: angle). Rows separated by `\n` — the `text` figure
+      // splits on newlines and stacks the lines.
+      if (statsSelected.length > 0 && overlay.points.length === 2) {
+        const p0 = overlay.points[0]
+        const p1 = overlay.points[1]
+        const v0 = p0.value
+        const v1 = p1.value
+        const priceDiff = (isNumber(v0) && isNumber(v1)) ? (v1 - v0) : null
+        const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
+
+        // Pip conversion — TV convention: 1 pip = the last-but-one
+        // decimal for FX-like symbols. Falls back to the smallest
+        // representable unit at the current precision when the
+        // symbol doesn't expose a distinct pip.
+        const pipMultiplier = Math.pow(10, Math.max(0, precision - 1))
+
+        const snippetFor = (key: StatKey): string | null => {
+          switch (key) {
+            case 'priceRange':
+              return priceDiff !== null ? formatPrecision(Math.abs(priceDiff), precision) : null
+            case 'percentRange':
+              if (priceDiff === null || v0 === 0 || !isNumber(v0)) return null
+              return `${((priceDiff / v0) * 100).toFixed(2)}%`
+            case 'pipsChange':
+              return priceDiff !== null ? `${Math.round(priceDiff * pipMultiplier)} pips` : null
+            case 'barsRange': {
+              const i0 = p0.dataIndex
+              const i1 = p1.dataIndex
+              if (!isNumber(i0) || !isNumber(i1)) return null
+              return `${Math.abs(i1 - i0)} bars`
+            }
+            case 'timeRange': {
+              const t0 = p0.timestamp
+              const t1 = p1.timestamp
+              if (!isNumber(t0) || !isNumber(t1)) return null
+              return formatDuration(t1 - t0)
+            }
+            case 'distance':
+              // Screen-pixel Euclidean distance between the two
+              // rendered anchors. Not a chart-domain metric — but
+              // TV surfaces the same and it's what users expect
+              // "distance" to mean visually.
+              return `${Math.round(Math.hypot(dx, dy))}px`
+            case 'angle': {
+              // Chart-domain angle: dy is inverted because canvas
+              // y grows downward. Report degrees so the user gets
+              // a familiar number.
+              const deg = Math.atan2(-dy, dx) * 180 / Math.PI
+              return `${deg.toFixed(1)}°`
+            }
+          }
+        }
+
+        const row1: string[] = []
+        const row2: string[] = []
+        const row3: string[] = []
+        for (const key of STAT_KEYS) {
+          if (!statsSelected.includes(key)) continue
+          const snippet = snippetFor(key)
+          if (snippet === null) continue
+          const idx = STAT_KEYS.indexOf(key)
+          if (idx < 3) row1.push(snippet)
+          else if (idx < 6) row2.push(snippet)
+          else row3.push(snippet)
+        }
+        const rows = [row1, row2, row3].filter(r => r.length > 0).map(r => r.join(' | '))
+        if (rows.length > 0) {
+          // Anchor along the line. Auto puts the label at the
+          // higher-price side of the segment (anchor with smaller
+          // y in screen terms) to stay clear of price action;
+          // ties fall back to center.
+          let posT = 0.5
+          if (statsPosition === 'left') {
+            posT = 0.1
+          } else if (statsPosition === 'right') {
+            posT = 0.9
+          } else if (statsPosition === 'auto') {
+            if (lineCoordinates[0].y < lineCoordinates[1].y) {
+              posT = 0.1
+            } else if (lineCoordinates[0].y > lineCoordinates[1].y) {
+              posT = 0.9
+            } else {
+              posT = 0.5
+            }
+          }
+          const sx = lineCoordinates[0].x + dx * posT
+          const sy = lineCoordinates[0].y + dy * posT
+
+          // Offset perpendicular to the line so the chip doesn't
+          // sit on top of the line. Reuse the same CW-perpendicular
+          // math as the text label (top side); the stats label is
+          // always above so it's consistent with TV.
+          //
+          // We used to scale the offset with the chip's half-width
+          // to keep it clear at tilt (because `align: 'center'`
+          // means both left and right edges project onto the
+          // line's perpendicular by W·|sin θ|). That worked but
+          // pushed the chip far from the line at intermediate
+          // angles.
+          //
+          // Simpler fix: pick `align` dynamically so the chip
+          // extends *away* from the line horizontally. Then only
+          // the vertical extension matters, and a small constant
+          // perpendicular offset (~10 px) hugs the line at every
+          // angle without overlap.
+          //
+          //   * Line going up-right (dy < 0, perp is up-left):
+          //     use `align: 'right'` — chip anchor is its right
+          //     edge, chip extends left.
+          //   * Line going down-right (dy > 0, perp is up-right):
+          //     use `align: 'left'` — chip anchor is its left
+          //     edge, chip extends right.
+          //   * Near-horizontal: `align: 'center'` — either side
+          //     works so the chip stays centred on the anchor.
+          const lenRaw = Math.hypot(dx, dy)
+          const len = lenRaw === 0 ? 1 : lenRaw
+          const offsetMag = 10
+          const labelX = sx + (dy / len) * offsetMag
+          const labelY = sy + (-dx / len) * offsetMag
+          const flatnessThreshold = 0.15
+          const statsAlign: CanvasTextAlign = Math.abs(dy) / len < flatnessThreshold
+            ? 'center'
+            : dy < 0 ? 'right' : 'left'
+
+          const statsColor = props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+          figures.push({
+            type: 'text',
+            attrs: {
+              x: labelX,
+              y: labelY,
+              text: rows.join('\n'),
+              align: statsAlign,
+              baseline: 'bottom'
+            },
+            styles: {
+              color: '#FFFFFF',
+              size: 11,
+              paddingLeft: 10,
+              paddingRight: 10,
+              paddingTop: 7,
+              paddingBottom: 7,
+              backgroundColor: statsColor,
+              borderColor: statsColor,
+              borderRadius: 3
+            }
+          })
+        }
       }
 
       return figures
