@@ -107,7 +107,10 @@ const fibonacciLine = (): ProOverlayTemplate => {
               key: `${levelKey}_text`,
               x: startX,
               y,
-              text: `${value} (${(percent * 100).toFixed(1)}%)`,
+              // ALTD-1894 — percent plain, price in brackets so
+              // the fib ratio is the primary readout and the
+              // level's derived price is the secondary detail.
+              text: `${(percent * 100).toFixed(1)}% (${value})`,
               baseline: 'bottom'
             })
           })
