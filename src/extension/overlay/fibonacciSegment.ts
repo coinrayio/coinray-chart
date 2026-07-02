@@ -95,7 +95,8 @@ const fibonacciSegment = (): ProOverlayTemplate => {
             key: `${levelKey}_text`,
             x: textX,
             y,
-            text: `${price} (${(percent * 100).toFixed(1)}%)`,
+            // ALTD-1894 — percent plain, price in brackets.
+            text: `${(percent * 100).toFixed(1)}% (${price})`,
             baseline: 'bottom'
           })
         })
