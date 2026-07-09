@@ -348,7 +348,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     if (commit && isFunction(overlay.onTextChange)) {
       const text = input.value
       const figureKey = figure.key
-      overlay.onTextChange({ chart, overlay, figure, figureKey, text })
+      overlay.onTextChange({ chart, overlay, figure, figureKey, text, committed: true })
     }
     cleanup()
     this._activeTextEditor = null
@@ -517,7 +517,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const onInput = (): void => {
       const currentText = input.value
       if (isFunction(overlay.onTextChange)) {
-        overlay.onTextChange({ chart, overlay, figure, figureKey: figureKeyForInput, text: currentText })
+        overlay.onTextChange({ chart, overlay, figure, figureKey: figureKeyForInput, text: currentText, committed: false })
       }
       chart.updatePane(UpdateLevel.Overlay)
     }
