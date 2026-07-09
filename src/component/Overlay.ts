@@ -135,6 +135,12 @@ export interface OverlayTextChangeEvent<E> {
   overlay: Overlay<E>
   chart: Chart
   text: string
+  /**
+   * `true` only when the edit is finalised (blur / Escape commit), `false`
+   * on the per-keystroke live-update path. Consumers persist on the
+   * committed event only, so an autosave doesn't fire on every character.
+   */
+  committed: boolean
 }
 
 export type OverlayEventCallback<E> = (event: OverlayEvent<E>) => void
