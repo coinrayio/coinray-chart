@@ -133,7 +133,11 @@ const arrow = (): ProOverlayTemplate => {
         }
       ]
 
-      const text = props.text ?? ''
+      // Text lives in extendData (like text.ts) so inline edits are
+      // captured by onTextChange and persisted; fall back to the
+      // Map-based property for any legacy settings-panel value.
+      const ed = (overlay.extendData ?? {}) as { text?: string }
+      const text = ed.text ?? props.text ?? ''
       figures.push({
         type: 'editableText',
         attrs: { ...computeTextPosition((start.x + end.x) / 2, (start.y + end.y) / 2, props, bounding.width, 'center', 'top'), text },
@@ -141,6 +145,15 @@ const arrow = (): ProOverlayTemplate => {
       })
 
       return figures
+    },
+    // Persist inline-edited text into extendData so it survives
+    // re-renders + StorageAdapter round-trips. The closure `properties`
+    // Map isn't read by syncOverlay, so text stored there would be lost.
+    onTextChange: ({ overlay, text }) => {
+      const current = (typeof overlay.extendData === 'object' && overlay.extendData !== null)
+        ? overlay.extendData as Record<string, unknown>
+        : {}
+      overlay.extendData = { ...current, text }
     },
     setProperties,
     getProperties
