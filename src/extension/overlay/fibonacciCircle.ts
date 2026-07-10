@@ -13,15 +13,20 @@
  */
 
 import type DeepPartial from '../../common/DeepPartial'
-import type { PolygonStyle, TextStyle } from '../../common/Styles'
+import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 
 import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 
-import type { CircleAttrs } from '../figure/circle'
+import type { PolygonAttrs } from '../figure/polygon'
 import type { TextAttrs } from '../figure/text'
 
-import { getDistance } from './utils'
+import { buildDiagonal, formatFibRatio, resolveFibSettings } from './fibonacciShared'
+
+/** Number of vertices per sampled ellipse. 96 gives a visibly
+ *  smooth curve at typical chart sizes without exploding the
+ *  vertex count when a user has 6-11 levels enabled. */
+const ELLIPSE_SAMPLES = 96
 
 export const FIBONACCI_CIRCLE_LEVELS: FigureLevel[] = [
   { value: 0.236, enabled: true },
@@ -43,11 +48,12 @@ const fibonacciCircle = (): ProOverlayTemplate => {
     borderStyle: props.borderStyle ?? props.lineStyle
   })
 
-  const textStyle = (props: DeepPartial<OverlayProperties>): Partial<TextStyle> => ({
+  const textStyleFn = (props: DeepPartial<OverlayProperties>): Partial<TextStyle> => ({
     color: props.textColor,
     family: props.textFont,
     size: props.textFontSize,
     weight: props.textFontWeight,
+    fontStyle: props.textFontStyle,
     backgroundColor: props.textBackgroundColor,
     paddingLeft: props.textPaddingLeft,
     paddingRight: props.textPaddingRight,
@@ -63,43 +69,95 @@ const fibonacciCircle = (): ProOverlayTemplate => {
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, overlay }) => {
       const props = properties.get(overlay.id) ?? {}
-      if (coordinates.length > 1) {
-        const radius = getDistance(coordinates[0], coordinates[1])
-        const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_CIRCLE_LEVELS)
-          .filter(l => l.enabled === true)
-        const circles: CircleAttrs[] = []
-        const texts: TextAttrs[] = []
-        levels.forEach(level => {
-          const percent = level.value ?? 0
-          const r = radius * percent
-          const levelKey = `circle_${percent}`
-          circles.push({
-            key: levelKey,
-            ...coordinates[0],
-            r
+      if (coordinates.length <= 1) return []
+
+      const settings = resolveFibSettings(overlay.extendData)
+      const centre = coordinates[0]
+      const rim = coordinates[1]
+      const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_CIRCLE_LEVELS)
+        .filter(l => l.enabled === true)
+
+      // TV renders "circles" as ELLIPSES with independent
+      // horizontal and vertical radii derived from the pixel
+      // deltas of the anchor pair. When the user zooms the
+      // time axis, |ΔX| in pixels stretches while |ΔY| stays
+      // roughly constant (or vice versa), so the ellipse
+      // distorts with the chart. Level 1 exactly passes
+      // through the rim anchor because (rxBase, ryBase) map
+      // to (rim.x - centre.x, rim.y - centre.y). Absolute
+      // values ensure a drag in any quadrant produces the same
+      // ellipse — the level radius doesn't flip sign with
+      // direction.
+      const rxBase = Math.abs(rim.x - centre.x)
+      const ryBase = Math.abs(rim.y - centre.y)
+
+      const polygons: PolygonAttrs[] = []
+      const texts: TextAttrs[] = []
+      levels.forEach(level => {
+        const percent = level.value ?? 0
+        const rx = rxBase * percent
+        const ry = ryBase * percent
+        const levelKey = `circle_${percent}`
+        // Sample the ellipse as a closed polygon. Vertices
+        // sit at (centre.x + rx·cos θ, centre.y + ry·sin θ)
+        // for θ evenly spaced around 2π. The polygon figure
+        // closes the last→first edge automatically.
+        const verts: Array<{ x: number, y: number }> = []
+        for (let i = 0; i < ELLIPSE_SAMPLES; i++) {
+          const theta = (2 * Math.PI * i) / ELLIPSE_SAMPLES
+          verts.push({
+            x: centre.x + rx * Math.cos(theta),
+            y: centre.y + ry * Math.sin(theta)
           })
+        }
+        polygons.push({ key: levelKey, coordinates: verts })
+        // Labels — only when the master `showText` is on AND
+        // `showLevels`. `levelFormat` picks decimal (0.500)
+        // vs percent (50.0 %). `textAlignVertical` picks
+        // whether the label sits below the ellipse (default,
+        // 'top' or unset) or above ('bottom'). The vertical
+        // offset uses ry (not r) so the label sits on the
+        // actual top/bottom pole of the ellipse.
+        if (settings.showText && settings.showLevels) {
+          const label = formatFibRatio(percent, settings.levelFormat)
+          const vAlign = props.textAlignVertical ?? 'top'
+          const y = vAlign === 'bottom' ? centre.y - ry - 6 : centre.y + ry + 6
           texts.push({
             key: `${levelKey}_text`,
-            x: coordinates[0].x,
-            y: coordinates[0].y + r + 6,
-            text: `${(percent * 100).toFixed(1)}%`
+            x: centre.x,
+            y,
+            text: label
           })
+        }
+      })
+
+      const figures: Array<{ type: string, key?: string, ignoreEvent?: boolean, isCheckEvent?: boolean, attrs: unknown, styles?: Partial<PolygonStyle> | Partial<LineStyle> | Partial<TextStyle> }> = [
+        {
+          type: 'polygon',
+          attrs: polygons,
+          styles: circleStyle(props)
+        },
+        {
+          type: 'text',
+          isCheckEvent: false,
+          attrs: texts,
+          styles: textStyleFn(props)
+        }
+      ]
+
+      // Diagonal — the centre → rim radius. Trend Line row
+      // styles it independently of the level circles.
+      const diagonal = buildDiagonal(centre, rim, settings)
+      if (diagonal !== null) {
+        figures.push({
+          type: diagonal.type,
+          key: diagonal.key,
+          attrs: diagonal.attrs,
+          styles: diagonal.styles as Partial<LineStyle> | undefined
         })
-        return [
-          {
-            type: 'circle',
-            attrs: circles,
-            styles: circleStyle(props)
-          },
-          {
-            type: 'text',
-            isCheckEvent: false,
-            attrs: texts,
-            styles: textStyle(props)
-          }
-        ]
       }
-      return []
+
+      return figures
     },
     setProperties: (_properties: DeepPartial<OverlayProperties>, id: string) => {
       const current = properties.get(id) ?? {}
