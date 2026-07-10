@@ -76,7 +76,7 @@ import { registerLocale, getSupportedLocales } from './extension/i18n/index'
 import {
   registerOverlay, getOverlayClass, getSupportedOverlays,
   createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
-  FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS
+  FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS
 } from './extension/overlay/index'
 import type {
   OverlayProperties, ProOverlayTemplate, OverlayPropertiesStore,
@@ -195,7 +195,7 @@ export {
   // Pro overlay utilities
   createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
   // Default fibonacci levels
-  FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
+  FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
   // Replay engine type — exported for consumer type annotations (sc.replay: ReplayEngine | null)
   type ReplayEngine,
   isSetVisibleRangeError, type SetVisibleRangeError, type SetVisibleRangeErrorCode,
