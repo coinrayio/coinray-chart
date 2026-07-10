@@ -13,14 +13,19 @@
  */
 
 import type DeepPartial from '../../common/DeepPartial'
-import type { LineStyle, TextStyle } from '../../common/Styles'
+import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 
 import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
-
-import type { LineAttrs } from '../figure/line'
-import type { TextAttrs } from '../figure/text'
+import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import {
+  buildBackgroundBands,
+  buildEnrichedLevels,
+  buildLevelLabels,
+  buildLevelLines,
+  resolveFibSettings
+} from './fibonacciShared'
 
 export const FIBONACCI_EXTENSION_LEVELS: FigureLevel[] = [
   { value: 0, enabled: true },
@@ -39,13 +44,6 @@ export const FIBONACCI_EXTENSION_LEVELS: FigureLevel[] = [
 const fibonacciExtension = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
-  const diagLineStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
-    style: 'dashed',
-    size: props.lineWidth,
-    color: props.lineColor ?? props.borderColor,
-    dashedValue: props.lineDashedValue
-  })
-
   const fbLinesStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
     style: props.lineStyle ?? 'solid',
     size: props.lineWidth,
@@ -53,11 +51,14 @@ const fibonacciExtension = (): ProOverlayTemplate => {
     dashedValue: props.lineDashedValue
   })
 
-  const textStyle = (props: DeepPartial<OverlayProperties>): Partial<TextStyle> => ({
+  const textStyleFn = (props: DeepPartial<OverlayProperties>): Partial<TextStyle> => ({
     color: props.textColor,
     family: props.textFont,
     size: props.textFontSize,
     weight: props.textFontWeight,
+    // ALTD-1894 — pass fontStyle through so Italic actually
+    // takes effect (matches other fib templates).
+    fontStyle: props.textFontStyle,
     backgroundColor: props.textBackgroundColor,
     paddingLeft: props.textPaddingLeft,
     paddingRight: props.textPaddingRight,
@@ -73,72 +74,97 @@ const fibonacciExtension = (): ProOverlayTemplate => {
     needDefaultYAxisFigure: true,
     createPointFigures: ({ chart, yAxis, coordinates, bounding, overlay }) => {
       const props = properties.get(overlay.id) ?? {}
-      const fbLines: LineAttrs[] = []
-      const texts: TextAttrs[] = []
-      if (coordinates.length > 2) {
-        let precision = 0
-        const symbol = chart.getSymbol()
-        if ((yAxis?.isInCandle() ?? true) && symbol != null) {
-          precision = symbol.pricePrecision
-        } else {
-          precision = SymbolDefaultPrecisionConstants.PRICE
-          const indicators = chart.getIndicators({ paneId: overlay.paneId })
-          indicators.forEach(indicator => {
-            precision = Math.max(precision, indicator.precision)
-          })
-        }
+      const points = overlay.points
 
-        const ext = overlay.extendData as { extendLeft?: boolean; extendRight?: boolean } | undefined
-        const leftX = ext?.extendLeft === true ? 0 : Math.min(coordinates[1].x, coordinates[2].x)
-        const rightX = ext?.extendRight === true ? bounding.width : Math.max(coordinates[1].x, coordinates[2].x)
+      const figures: Array<{
+        type: string
+        key?: string
+        ignoreEvent?: boolean
+        isCheckEvent?: boolean
+        attrs: unknown
+        styles?: Partial<LineStyle> | Partial<TextStyle> | Partial<PolygonStyle>
+      }> = []
 
-        const points = overlay.points
-        const valueDif = (points[1]?.value ?? 0) - (points[0]?.value ?? 0)
-        const yDif = coordinates[1].y - coordinates[0].y
-        const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_EXTENSION_LEVELS)
-          .filter(l => l.enabled === true)
-        const textX = leftX
-        const decimalFold = chart.getDecimalFold()
-        const thousandsSeparator = chart.getThousandsSeparator()
-        levels.forEach(level => {
-          const percent = level.value ?? 0
-          const y = coordinates[2].y + yDif * percent
-          const rawPrice = ((points[2]?.value ?? 0) + valueDif * percent).toFixed(precision)
-          const price = decimalFold.format(thousandsSeparator.format(rawPrice))
-          const levelKey = `level_${percent}`
-          fbLines.push({
-            key: levelKey,
-            coordinates: [{ x: leftX, y }, { x: rightX, y }]
-          })
-          texts.push({
-            key: `${levelKey}_text`,
-            x: textX,
-            y,
-            // ALTD-1894 — percent plain, price in brackets.
-            text: `${(percent * 100).toFixed(1)}% (${price})`,
-            baseline: 'bottom'
-          })
-        })
-      }
-      return [
-        {
+      if (coordinates.length === 0) return figures
+
+      const settings = resolveFibSettings(overlay.extendData)
+
+      // Diagonal renders as a poly-line through EVERY placed
+      // coordinate so drawing behaves the way it used to: click
+      // 1 shows the first anchor with a rubber-band trend leg
+      // to the cursor, click 2 concretes it and starts the
+      // retracement leg to the cursor, click 3 concretes both.
+      // Uses the same isolated diagonal stroke every other fib
+      // overlay's Trend Line row drives.
+      if (settings.showDiagonal && coordinates.length >= 2) {
+        const dColor = settings.diagonalColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+        const dWidth = settings.diagonalWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth
+        const dStyle = (settings.diagonalStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle) as LineStyle['style']
+        const dDashed = settings.diagonalDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
+        figures.push({
           type: 'line',
           key: 'diagonal',
-          attrs: { coordinates },
-          styles: diagLineStyle(props)
-        },
-        {
-          type: 'line',
-          attrs: fbLines,
-          styles: fbLinesStyle(props)
-        },
-        {
-          type: 'text',
-          isCheckEvent: false,
-          attrs: texts,
-          styles: textStyle(props)
-        }
-      ]
+          attrs: { coordinates: [...coordinates] },
+          styles: { style: dStyle, size: dWidth, color: dColor, dashedValue: dDashed }
+        })
+      }
+
+      // The rest of the render (levels + bands + labels) only
+      // makes sense once the extension anchor `coordinates[2]`
+      // exists.
+      if (coordinates.length < 3) return figures
+
+      let precision = 0
+      const symbol = chart.getSymbol()
+      if ((yAxis?.isInCandle() ?? true) && symbol != null) {
+        precision = symbol.pricePrecision
+      } else {
+        precision = SymbolDefaultPrecisionConstants.PRICE
+        const indicators = chart.getIndicators({ paneId: overlay.paneId })
+        indicators.forEach(indicator => {
+          precision = Math.max(precision, indicator.precision)
+        })
+      }
+
+      const leftX = settings.extendLeft ? 0 : Math.min(coordinates[1].x, coordinates[2].x)
+      const rightX = settings.extendRight ? bounding.width : Math.max(coordinates[1].x, coordinates[2].x)
+
+      // Extension geometry — level 0 sits at coordinates[2]
+      // (the "C" point where the retracement of the trend
+      // ended); level 1 lands one full trend-leg away in the
+      // same direction as coordinates[0]→coordinates[1]. Feed
+      // the helper a virtual "near" point whose y / value
+      // deltas match that trend leg — the helper computes
+      // yDif = near.y - far.y internally, so any anchor pair
+      // with the right delta produces the right levels.
+      const yDif = coordinates[1].y - coordinates[0].y
+      const valueDif = (points[1]?.value ?? 0) - (points[0]?.value ?? 0)
+      const virtualNear = { x: coordinates[2].x, y: coordinates[2].y + yDif }
+      const virtualNearValue = (points[2]?.value ?? 0) + valueDif
+
+      const enriched = buildEnrichedLevels({
+        levels: (((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_EXTENSION_LEVELS) as FigureLevel[])
+          .filter(l => l.enabled),
+        anchorFar: coordinates[2],
+        anchorNear: virtualNear,
+        valueFar: points[2]?.value ?? 0,
+        valueNear: virtualNearValue,
+        precision,
+        chart,
+        lineColour: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
+        reverse: settings.reverse
+      })
+
+      if (settings.showBackground) {
+        figures.push(...buildBackgroundBands(enriched, leftX, rightX, settings.backgroundOpacity))
+      }
+
+      figures.push(buildLevelLines(enriched, leftX, rightX, fbLinesStyle(props)))
+
+      const labels = buildLevelLabels(enriched, leftX, rightX, settings, props, textStyleFn(props))
+      if (labels !== null) figures.push(labels)
+
+      return figures
     },
     setProperties: (_properties: DeepPartial<OverlayProperties>, id: string) => {
       const current = properties.get(id) ?? {}

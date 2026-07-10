@@ -154,7 +154,7 @@ export type { OverlayProperties, ProOverlayTemplate, OverlayPropertiesStore, Fig
 export { DEFAULT_OVERLAY_PROPERTIES, isProOverlayTemplate, createPropertiesStore } from './types'
 
 // Export default levels for fibonacci overlays
-export { FIBONACCI_RETRACEMENT_LEVELS } from './fibonacciLine'
+export { FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS } from './fibonacciLine'
 export { FIBONACCI_EXTENSION_LEVELS } from './fibonacciExtension'
 export { FIBONACCI_CIRCLE_LEVELS } from './fibonacciCircle'
 export { FIBONACCI_FAN_LEVELS } from './fibonacciSpeedResistanceFan'
