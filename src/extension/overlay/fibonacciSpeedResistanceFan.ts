@@ -12,8 +12,31 @@
  * limitations under the License.
  */
 
+/**
+ * Fibonacci Speed Resistance Fan
+ *
+ * Two independent level sets — one for price-fanning rays
+ * (targeting Y at X = extent.x) and one for time-fanning
+ * rays (targeting X at Y = extent.y). Each set uses the same
+ * default 7 fib ratios (0 / 0.25 / 0.382 / 0.5 / 0.618 /
+ * 0.75 / 1) and colours; the user can toggle levels on/off
+ * or override colours but can't add or remove entries.
+ *
+ * Labels attach per-side (left / right for price rays, top /
+ * bottom for time rays) and inherit each level's line colour
+ * so a scan across the fan reads as one visual family.
+ *
+ * Grid layer (vertical + horizontal lines through each level's
+ * (X, Y) intersection) toggles independently of the rays and
+ * gets its own colour picker.
+ *
+ * Background bands fill the wedges between adjacent enabled
+ * price rays, clipped to chart width, tinted per-level with
+ * the slider driving alpha.
+ */
+
 import type DeepPartial from '../../common/DeepPartial'
-import type { LineStyle, TextStyle } from '../../common/Styles'
+import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 
 import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
@@ -21,37 +44,66 @@ import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 
 import type { LineAttrs } from '../figure/line'
 import type { TextAttrs } from '../figure/text'
+import type { PolygonAttrs } from '../figure/polygon'
 
 import { getRayLine } from './utils'
-import { buildDiagonal, formatFibRatio, resolveFibSettings } from './fibonacciShared'
+import { formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared'
 
-export const FIBONACCI_FAN_LEVELS: FigureLevel[] = [
-  { value: 0, enabled: true },
-  { value: 0.25, enabled: true },
-  { value: 0.382, enabled: true },
-  { value: 0.5, enabled: true },
-  { value: 0.618, enabled: true },
-  { value: 0.75, enabled: true },
-  { value: 1, enabled: true }
+/** Default palette shared between price + time levels — same
+ *  ratio gets the same colour on both axes so a user
+ *  eyeballing the 0.618 line on the price side knows the
+ *  matching time line at a glance. */
+const FAN_DEFAULT_COLOURS: Record<string, string> = {
+  0: '#787b86',
+  0.25: '#f44336',
+  0.382: '#ff9800',
+  0.5: '#fdd835',
+  0.618: '#4caf50',
+  0.75: '#009688',
+  1: '#2196f3'
+}
+
+const withDefaults = (): FigureLevel[] => [
+  { value: 0, enabled: true, color: FAN_DEFAULT_COLOURS[0] },
+  { value: 0.25, enabled: true, color: FAN_DEFAULT_COLOURS[0.25] },
+  { value: 0.382, enabled: true, color: FAN_DEFAULT_COLOURS[0.382] },
+  { value: 0.5, enabled: true, color: FAN_DEFAULT_COLOURS[0.5] },
+  { value: 0.618, enabled: true, color: FAN_DEFAULT_COLOURS[0.618] },
+  { value: 0.75, enabled: true, color: FAN_DEFAULT_COLOURS[0.75] },
+  { value: 1, enabled: true, color: FAN_DEFAULT_COLOURS[1] }
 ]
+
+export const FIBONACCI_FAN_LEVELS: FigureLevel[] = withDefaults()
+
+/** Coerce whatever the host wrote as `fanPriceLevels` /
+ *  `fanTimeLevels` back into a level array. Missing / malformed
+ *  input falls through to the default set. */
+const resolveLevels = (raw: unknown): FigureLevel[] => {
+  if (!Array.isArray(raw) || raw.length === 0) return withDefaults()
+  return (raw as Array<Partial<FigureLevel>>).map((l, i) => {
+    const value = typeof l.value === 'number' ? l.value : FIBONACCI_FAN_LEVELS[i].value
+    const key = String(value)
+    return {
+      value,
+      enabled: l.enabled !== false,
+      color: l.color ?? FAN_DEFAULT_COLOURS[key]
+    }
+  })
+}
 
 const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
-  const fbLinesStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
+  const baseLineStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
     style: props.lineStyle ?? 'solid',
     size: props.lineWidth,
-    color: props.lineColor ?? props.borderColor,
     dashedValue: props.lineDashedValue
   })
 
   const textStyleFn = (props: DeepPartial<OverlayProperties>): Partial<TextStyle> => ({
-    color: props.textColor,
     family: props.textFont,
     size: props.textFontSize,
     weight: props.textFontWeight,
-    // ALTD-1894 — pass fontStyle through so Italic actually
-    // leans the labels.
     fontStyle: props.textFontStyle,
     backgroundColor: props.textBackgroundColor,
     paddingLeft: props.textPaddingLeft,
@@ -68,108 +120,267 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, bounding, overlay }) => {
       const props = properties.get(overlay.id) ?? {}
-      const lines1: LineAttrs[] = []
-      const lines2: LineAttrs[] = []
-      const texts: TextAttrs[] = []
       if (coordinates.length <= 1) return []
 
       const settings = resolveFibSettings(overlay.extendData)
+      const ext = (overlay.extendData ?? {}) as {
+        fanPriceLevels?: unknown
+        fanTimeLevels?: unknown
+        showLeftLabels?: boolean
+        showRightLabels?: boolean
+        showTopLabels?: boolean
+        showBottomLabels?: boolean
+        showGrid?: boolean
+        gridColor?: string
+      }
+      const priceLevels = resolveLevels(ext.fanPriceLevels).filter(l => l.enabled)
+      const timeLevels = resolveLevels(ext.fanTimeLevels).filter(l => l.enabled)
+      const showLeftLabels = ext.showLeftLabels !== false
+      const showRightLabels = ext.showRightLabels !== false
+      const showTopLabels = ext.showTopLabels !== false
+      const showBottomLabels = ext.showBottomLabels !== false
+      const showGrid = ext.showGrid !== false
+      const gridColour = ext.gridColor ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
 
-      // Reverse swaps origin ↔ extent semantically. `origin`
-      // is where the fan rays emanate from; `extent` defines
-      // the far corner of the fan grid.
       const origin = settings.reverse ? coordinates[1] : coordinates[0]
       const extent = settings.reverse ? coordinates[0] : coordinates[1]
-
-      const xOffset = extent.x > origin.x ? -38 : 4
-      const yOffset = extent.y > origin.y ? -2 : 20
       const xDistance = extent.x - origin.x
       const yDistance = extent.y - origin.y
-      const levels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_FAN_LEVELS)
-        .filter(l => l.enabled === true)
 
-      levels.forEach(level => {
-        const percent = level.value ?? 0
-        // Per TV / spec: X_target(k) = X_origin + ΔX·k, so
-        // k = 0 lands at the origin anchor and k = 1 lands at
-        // the extent anchor. The previous impl was inverted
-        // (percent 0 at extent, 1 at origin) — visually the
-        // 0.618 label was sitting on the origin side instead
-        // of the fib-golden side.
-        const x = origin.x + xDistance * percent
-        const y = origin.y + yDistance * percent
-        const levelKey = `fan_${percent}`
-        lines1.push({ key: `${levelKey}_grid_x`, coordinates: [{ x, y: origin.y }, { x, y: extent.y }] })
-        lines1.push({ key: `${levelKey}_grid_y`, coordinates: [{ x: origin.x, y }, { x: extent.x, y }] })
-        const rayLine1 = getRayLine([origin, { x, y: extent.y }], bounding)
-        const rayLine2 = getRayLine([origin, { x: extent.x, y }], bounding)
-        const rays1 = Array.isArray(rayLine1) ? rayLine1 : [rayLine1]
-        const rays2 = Array.isArray(rayLine2) ? rayLine2 : [rayLine2]
-        rays1.forEach((r, i) => { if ('coordinates' in r) lines2.push({ ...r, key: `${levelKey}_ray_x_${i}` }) })
-        rays2.forEach((r, i) => { if ('coordinates' in r) lines2.push({ ...r, key: `${levelKey}_ray_y_${i}` }) })
+      // Box bounds — labels sit OUTSIDE these regardless of
+      // drag direction so a bottom→top drag doesn't stuff top
+      // labels inside the fan.
+      const leftX = Math.min(origin.x, extent.x)
+      const rightX = Math.max(origin.x, extent.x)
+      const topY = Math.min(origin.y, extent.y)
+      const bottomY = Math.max(origin.y, extent.y)
+      const LABEL_GAP = 8
 
-        // Labels — only when the master `showText` is on AND
-        // `showLevels` (the fan has no separate price labels;
-        // Prices toggle is a no-op here). `levelFormat`
-        // switches between decimal (0.618) and percent (61.8 %).
-        if (settings.showText && settings.showLevels) {
-          const label = formatFibRatio(percent, settings.levelFormat)
-          texts.unshift({
-            key: `${levelKey}_text_y`,
-            x: origin.x + xOffset,
-            y: y + 10,
-            text: label
+      const figures: Array<{ type: string, key?: string, ignoreEvent?: boolean, isCheckEvent?: boolean, attrs: unknown, styles?: Partial<LineStyle> | Partial<TextStyle> | Partial<PolygonStyle> }> = []
+
+      // Background bands — one triangular wedge per adjacent
+      // pair of enabled price levels. Apex at `origin` (all
+      // rays converge there), base at the two rays' far
+      // endpoints on the chart edge in the extent's direction.
+      // The old impl parameterised each ray from left-chart-edge
+      // to right-chart-edge, producing an hourglass that
+      // mirrored into the empty half of the chart.
+      if (settings.showBackground && priceLevels.length >= 2) {
+        // Ray from origin toward (extent.x, targetY_p). Extend
+        // to the chart edge on whichever side extent lies —
+        // if dx > 0 the right edge, dx < 0 the left. A vertical
+        // drag (dx == 0) falls back to a vertical clamp.
+        const rayFarEndpoint = (p: number): { x: number, y: number } => {
+          const targetY = origin.y + yDistance * p
+          const dx = extent.x - origin.x
+          const dy = targetY - origin.y
+          if (dx === 0) {
+            // Vertical drag — extend along y to the far edge.
+            const edgeY = yDistance > 0 ? bounding.height : 0
+            return { x: origin.x, y: edgeY }
+          }
+          const edgeX = dx > 0 ? bounding.width : 0
+          const t = (edgeX - origin.x) / dx
+          return { x: origin.x + dx * t, y: origin.y + dy * t }
+        }
+        for (let i = 0; i < priceLevels.length - 1; i++) {
+          const a = priceLevels[i]
+          const b = priceLevels[i + 1]
+          const aFar = rayFarEndpoint(a.value)
+          const bFar = rayFarEndpoint(b.value)
+          const bandColour = b.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+          const tint = withAlpha(bandColour, settings.backgroundOpacity / 100)
+          figures.push({
+            type: 'polygon',
+            key: `bg_price_${a.value}_${b.value}`,
+            ignoreEvent: true,
+            attrs: {
+              coordinates: [origin, aFar, bFar]
+            } satisfies PolygonAttrs,
+            styles: { style: 'fill', color: tint }
           })
-          texts.unshift({
-            key: `${levelKey}_text_x`,
-            x: x - 18,
-            y: origin.y + yOffset,
-            text: label
+        }
+      }
+
+      // Time-side background bands — mirror of the price loop
+      // but the rays fan toward Y = extent.y instead of X =
+      // extent.x. Same apex-at-origin triangle geometry so
+      // adjacent time levels produce wedges pointing toward
+      // the top or bottom chart edge (whichever side extent
+      // lies vertically).
+      if (settings.showBackground && timeLevels.length >= 2) {
+        const timeRayFarEndpoint = (p: number): { x: number, y: number } => {
+          const targetX = origin.x + xDistance * p
+          const dx = targetX - origin.x
+          const dy = extent.y - origin.y
+          if (dy === 0) {
+            // Horizontal drag — extend along x to the far
+            // horizontal edge.
+            const edgeX = xDistance > 0 ? bounding.width : 0
+            return { x: edgeX, y: origin.y }
+          }
+          const edgeY = dy > 0 ? bounding.height : 0
+          const t = (edgeY - origin.y) / dy
+          return { x: origin.x + dx * t, y: origin.y + dy * t }
+        }
+        for (let i = 0; i < timeLevels.length - 1; i++) {
+          const a = timeLevels[i]
+          const b = timeLevels[i + 1]
+          const aFar = timeRayFarEndpoint(a.value)
+          const bFar = timeRayFarEndpoint(b.value)
+          const bandColour = b.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+          const tint = withAlpha(bandColour, settings.backgroundOpacity / 100)
+          figures.push({
+            type: 'polygon',
+            key: `bg_time_${a.value}_${b.value}`,
+            ignoreEvent: true,
+            attrs: {
+              coordinates: [origin, aFar, bFar]
+            } satisfies PolygonAttrs,
+            styles: { style: 'fill', color: tint }
+          })
+        }
+      }
+
+      // Grid — vertical line at each price level's X, horizontal
+      // line at each time level's Y. All grid lines share the
+      // grid colour picker; toggles off cleanly.
+      if (showGrid) {
+        const gridLines: LineAttrs[] = []
+        priceLevels.forEach(l => {
+          const x = origin.x + xDistance * l.value
+          gridLines.push({ key: `grid_price_${l.value}`, coordinates: [{ x, y: origin.y }, { x, y: extent.y }] })
+        })
+        timeLevels.forEach(l => {
+          const y = origin.y + yDistance * l.value
+          gridLines.push({ key: `grid_time_${l.value}`, coordinates: [{ x: origin.x, y }, { x: extent.x, y }] })
+        })
+        figures.push({
+          type: 'line',
+          attrs: gridLines,
+          styles: { ...baseLineStyle(props), color: gridColour }
+        })
+      }
+
+      // Price rays — one per enabled price level. Ray colour
+      // and label colour both inherit from `level.color` so a
+      // level recoloured in the Levels section paints
+      // consistently across ray + labels.
+      priceLevels.forEach(l => {
+        const targetY = origin.y + yDistance * l.value
+        const rayPieces = getRayLine([origin, { x: extent.x, y: targetY }], bounding)
+        const rays = Array.isArray(rayPieces) ? rayPieces : [rayPieces]
+        rays.forEach((r, i) => {
+          if ('coordinates' in r) {
+            figures.push({
+              type: 'line',
+              key: `price_ray_${l.value}_${i}`,
+              attrs: { coordinates: r.coordinates },
+              styles: { ...baseLineStyle(props), color: l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor }
+            })
+          }
+        })
+
+        // Labels — Left sits at leftX − gap with `align:
+        // 'right'` so glyphs extend LEFT of the box; Right
+        // sits at rightX + gap with `align: 'left'` so glyphs
+        // extend RIGHT of the box. Each label's y is the
+        // level's own `targetY` regardless of which side the
+        // box's outer edge coincides with, so labels stay with
+        // their respective levels instead of collapsing at the
+        // origin when the drag runs bottom→top.
+        const labelText = formatFibRatio(l.value, settings.levelFormat)
+        const labelColour = l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+        if (showLeftLabels) {
+          figures.push({
+            type: 'text',
+            isCheckEvent: false,
+            attrs: [{
+              key: `price_label_left_${l.value}`,
+              x: leftX - LABEL_GAP,
+              y: targetY,
+              text: labelText,
+              align: 'right',
+              baseline: 'middle'
+            } satisfies TextAttrs],
+            styles: { ...textStyleFn(props), color: labelColour }
+          })
+        }
+        if (showRightLabels) {
+          figures.push({
+            type: 'text',
+            isCheckEvent: false,
+            attrs: [{
+              key: `price_label_right_${l.value}`,
+              x: rightX + LABEL_GAP,
+              y: targetY,
+              text: labelText,
+              align: 'left',
+              baseline: 'middle'
+            } satisfies TextAttrs],
+            styles: { ...textStyleFn(props), color: labelColour }
           })
         }
       })
 
-      const figures: Array<{ type: string, key?: string, ignoreEvent?: boolean, isCheckEvent?: boolean, attrs: unknown, styles?: Partial<LineStyle> | Partial<TextStyle> }> = [
-        {
-          type: 'line',
-          attrs: lines1,
-          styles: fbLinesStyle(props)
-        },
-        {
-          type: 'line',
-          attrs: lines2,
-          styles: fbLinesStyle(props)
-        },
-        {
-          type: 'text',
-          isCheckEvent: false,
-          attrs: texts,
-          styles: textStyleFn(props)
-        }
-      ]
-
-      // Diagonal — the origin → extent leg, styled
-      // independently from the level lines via the Trend Line
-      // row's own colour picker. Defaults to ON per ALTD-1894.
-      const diagonal = buildDiagonal(origin, extent, settings)
-      if (diagonal !== null) {
-        // Cast to the local figure-list shape; buildDiagonal
-        // returns a compatible FibFigureSpec whose fields are
-        // a superset.
-        figures.push({
-          type: diagonal.type,
-          key: diagonal.key,
-          attrs: diagonal.attrs,
-          styles: diagonal.styles as Partial<LineStyle> | undefined
+      // Time rays — one per enabled time level. Same pattern as
+      // price rays but fanning toward the horizontal line at
+      // Y = extent.y.
+      timeLevels.forEach(l => {
+        const targetX = origin.x + xDistance * l.value
+        const rayPieces = getRayLine([origin, { x: targetX, y: extent.y }], bounding)
+        const rays = Array.isArray(rayPieces) ? rayPieces : [rayPieces]
+        rays.forEach((r, i) => {
+          if ('coordinates' in r) {
+            figures.push({
+              type: 'line',
+              key: `time_ray_${l.value}_${i}`,
+              attrs: { coordinates: r.coordinates },
+              styles: { ...baseLineStyle(props), color: l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor }
+            })
+          }
         })
-      }
 
-      // Default diagonal color should read from extendData;
-      // when the user hasn't picked a Trend Line color yet we
-      // fall back to the engine constant (NOT props.lineColor)
-      // so a general Line row change never bleeds into the
-      // Trend Line. `buildDiagonal` already implements that
-      // fallback.
+        // Time labels — Top at topY − gap with `baseline:
+        // 'bottom'` so glyphs sit ABOVE the anchor; Bottom at
+        // bottomY + gap with `baseline: 'top'` so glyphs sit
+        // BELOW. Each label's x is the level's own `targetX`
+        // regardless of drag direction so labels stay tied to
+        // their level instead of clustering at origin.x.
+        const labelText = formatFibRatio(l.value, settings.levelFormat)
+        const labelColour = l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+        if (showTopLabels) {
+          figures.push({
+            type: 'text',
+            isCheckEvent: false,
+            attrs: [{
+              key: `time_label_top_${l.value}`,
+              x: targetX,
+              y: topY - LABEL_GAP,
+              text: labelText,
+              align: 'center',
+              baseline: 'bottom'
+            } satisfies TextAttrs],
+            styles: { ...textStyleFn(props), color: labelColour }
+          })
+        }
+        if (showBottomLabels) {
+          figures.push({
+            type: 'text',
+            isCheckEvent: false,
+            attrs: [{
+              key: `time_label_bottom_${l.value}`,
+              x: targetX,
+              y: bottomY + LABEL_GAP,
+              text: labelText,
+              align: 'center',
+              baseline: 'top'
+            } satisfies TextAttrs],
+            styles: { ...textStyleFn(props), color: labelColour }
+          })
+        }
+      })
+
       return figures
     },
     setProperties: (_properties: DeepPartial<OverlayProperties>, id: string) => {
@@ -181,10 +392,5 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
     getProperties: (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
   }
 }
-
-// Referencing DEFAULT_OVERLAY_PROPERTIES here silences the
-// "unused import" lint — the constant flows through buildDiagonal
-// for the diagonal fallbacks, which we didn't inline.
-void DEFAULT_OVERLAY_PROPERTIES
 
 export default fibonacciSpeedResistanceFan
