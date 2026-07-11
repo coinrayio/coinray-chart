@@ -133,18 +133,42 @@ export function formatThousands (value: string | number, sign: string): string {
   return vl.replace(/(\d)(?=(\d{3})+$)/g, $1 => `${$1}${sign}`)
 }
 
+/** ALTD-1896 — compact form for small decimals with `threshold`+
+ *  leading zeros between the decimal point and the first
+ *  non-zero digit. Two behaviours worth calling out:
+ *
+ *  1. Notation absorbs the literal `0` into the count. Value
+ *     `0.0001200` renders as `0.{4}12`, not `0.0{3}1200`. The
+ *     old form put a literal `0` before the `{n}` and was read
+ *     as "0.0 plus annotation" — visually ambiguous by an
+ *     off-by-one. `0.{n}significand` reads as "0. followed by
+ *     n zeros, then the significand" with one unambiguous
+ *     subscript.
+ *
+ *  2. Trailing zeros in the significand are trimmed. A price
+ *     of 0.00012 coming through `.toFixed(pricePrecision)` at
+ *     precision 7 arrives here as `"0.0001200"`; users saw the
+ *     three trailing zeros as if they were meaningful digits.
+ *     After the trim it renders `0.{4}12`.
+ *
+ *  `threshold` still counts the minimum leading zeros in the
+ *  fractional part required to trigger the fold. Values below
+ *  the threshold pass through unchanged with their `.toFixed`
+ *  padding intact — same as the old behaviour there. */
 export function formatFoldDecimal (value: string | number, threshold: number): string {
   const vl = `${value}`
   const reg = new RegExp('\\.0{' + threshold + ',}[1-9][0-9]*$')
   if (reg.test(vl)) {
-    const result = vl.split('.')
-    const lastIndex = result.length - 1
-    const v = result[lastIndex]
-    const match = /0*/.exec(v)
+    const [integer, fraction] = vl.split('.')
+    const match = /^0*/.exec(fraction)
     if (isValid(match)) {
-      const count = match[0].length
-      result[lastIndex] = v.replace(/0*/, `0{${count}}`)
-      return result.join('.')
+      const zeroCount = match[0].length
+      // Trim trailing zeros — they're `.toFixed()` padding, not
+      // meaningful digits. The regex above guarantees the
+      // significand starts with a non-zero digit, so an empty
+      // string can't come out of this.
+      const significand = fraction.slice(zeroCount).replace(/0+$/, '')
+      return `${integer}.{${zeroCount}}${significand}`
     }
   }
   return vl
