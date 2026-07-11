@@ -131,8 +131,11 @@ const fibonacciSegment = (): ProOverlayTemplate => {
       // WITH the diagonal now; if that surprises anyone, the
       // Style-tab checkbox turns it back off.
       const showDiagonal = ext.showDiagonal !== false
-      const showBackground = ext.showBackground === true
-      const backgroundOpacity = typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 20
+      // Background defaults ON at 10 % — parity with the
+      // circle family and the shared `resolveFibSettings`
+      // defaults. Explicit `false` in extendData opts out.
+      const showBackground = ext.showBackground !== false
+      const backgroundOpacity = typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 10
       const showPrices = ext.showPrices !== false
       const showLevels = ext.showLevels !== false
       const levelFormat = ext.levelFormat === 'values' ? 'values' : 'percent'
@@ -226,17 +229,23 @@ const fibonacciSegment = (): ProOverlayTemplate => {
         }
       }
 
-      // Level lines — one line per enriched level, keyed for
-      // per-level colour overrides via the host's figureStyles
-      // map (host's LevelsSection writes `level_${percent}`).
-      const lines: LineAttrs[] = enrichedLevels.map(l => ({
-        key: `level_${l.percent}`,
-        coordinates: [{ x: leftX, y: l.y }, { x: rightX, y: l.y }]
-      }))
-      figures.push({
-        type: 'line',
-        attrs: lines,
-        styles: fbLinesStyle(props)
+      // Level lines — one FIGURE per level so each carries its
+      // own stroke colour. Canvas line figures read
+      // `styles.color` once per figure and apply it to every
+      // coordinate in `attrs`, so batching all levels into one
+      // figure would collapse them to a single colour; fanning
+      // out is the only per-level-colour path without an engine
+      // change. Width / style / dash still come from the shared
+      // `fbLinesStyle` bag so a Style-tab thickness change
+      // moves every level together.
+      const baseLineStyle = fbLinesStyle(props)
+      enrichedLevels.forEach(l => {
+        figures.push({
+          type: 'line',
+          key: `level_${l.percent}`,
+          attrs: { coordinates: [{ x: leftX, y: l.y }, { x: rightX, y: l.y }] } satisfies { coordinates: LineAttrs['coordinates'] },
+          styles: { ...baseLineStyle, color: l.color }
+        })
       })
 
       // Level labels — only emitted when the master `showText`
@@ -244,10 +253,19 @@ const fibonacciSegment = (): ProOverlayTemplate => {
       // on (empty labels would be noise). Ratio format follows
       // `levelFormat`; horizontal / vertical alignment follow
       // `textAlignHorizontal` / `textAlignVertical`.
+      //
+      // hAlign 'left' / 'right' render the text OUTSIDE the fib
+      // (past the left / right anchor), not inside. Anchor x
+      // stays at the endpoint; the CANVAS text-align flips so
+      // the glyphs run AWAY from the fib. `center` keeps the
+      // natural centred behaviour inside the fib width.
       if (showText && (showLevels || showPrices)) {
         const hAlign = props.textAlignHorizontal ?? 'left'
         const vAlign = props.textAlignVertical ?? 'top'
         const textX = hAlign === 'right' ? rightX : hAlign === 'center' ? (leftX + rightX) / 2 : leftX
+        let canvasAlign: CanvasTextAlign = 'center'
+        if (hAlign === 'left') canvasAlign = 'right'
+        else if (hAlign === 'right') canvasAlign = 'left'
         const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'bottom' ? 'top' : 'bottom'
 
         const texts: TextAttrs[] = enrichedLevels.map(l => {
@@ -265,7 +283,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
             x: textX,
             y: l.y,
             text: content,
-            align: hAlign,
+            align: canvasAlign,
             baseline
           }
         })

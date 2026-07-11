@@ -24,21 +24,22 @@ import {
   buildEnrichedLevels,
   buildLevelLabels,
   buildLevelLines,
+  fibLevelDefaultColour,
   resolveFibSettings
 } from './fibonacciShared'
 
 export const FIBONACCI_EXTENSION_LEVELS: FigureLevel[] = [
-  { value: 0, enabled: true },
-  { value: 0.236, enabled: true },
-  { value: 0.382, enabled: true },
-  { value: 0.5, enabled: true },
-  { value: 0.618, enabled: true },
-  { value: 0.786, enabled: true },
-  { value: 1, enabled: true },
-  { value: 1.618, enabled: true },
-  { value: 2.618, enabled: true },
-  { value: 3.618, enabled: true },
-  { value: 4.236, enabled: true }
+  { value: 0, enabled: true, color: fibLevelDefaultColour(0) },
+  { value: 0.236, enabled: true, color: fibLevelDefaultColour(0.236) },
+  { value: 0.382, enabled: true, color: fibLevelDefaultColour(0.382) },
+  { value: 0.5, enabled: true, color: fibLevelDefaultColour(0.5) },
+  { value: 0.618, enabled: true, color: fibLevelDefaultColour(0.618) },
+  { value: 0.786, enabled: true, color: fibLevelDefaultColour(0.786) },
+  { value: 1, enabled: true, color: fibLevelDefaultColour(1) },
+  { value: 1.618, enabled: true, color: fibLevelDefaultColour(1.618) },
+  { value: 2.618, enabled: true, color: fibLevelDefaultColour(2.618) },
+  { value: 3.618, enabled: true, color: fibLevelDefaultColour(3.618) },
+  { value: 4.236, enabled: true, color: fibLevelDefaultColour(4.236) }
 ]
 
 const fibonacciExtension = (): ProOverlayTemplate => {
@@ -159,7 +160,7 @@ const fibonacciExtension = (): ProOverlayTemplate => {
         figures.push(...buildBackgroundBands(enriched, leftX, rightX, settings.backgroundOpacity))
       }
 
-      figures.push(buildLevelLines(enriched, leftX, rightX, fbLinesStyle(props)))
+      figures.push(...buildLevelLines(enriched, leftX, rightX, fbLinesStyle(props)))
 
       const labels = buildLevelLabels(enriched, leftX, rightX, settings, props, textStyleFn(props))
       if (labels !== null) figures.push(labels)

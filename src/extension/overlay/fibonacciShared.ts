@@ -27,6 +27,46 @@ import type DeepPartial from '../../common/DeepPartial'
 import type { FigureLevel, OverlayProperties } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 
+/** Grey used as the default colour for the "anchor" ratios
+ *  (0 and 1) across every fib family. These ratios ARE the
+ *  anchor points, so they read as boundary markers rather than
+ *  levels of their own — grey keeps them unobtrusive against
+ *  the coloured intermediates. Same value the circle + fan use
+ *  for level-1 / anchor-0, so families feel consistent when
+ *  more than one is drawn on the same chart. */
+export const FIB_ANCHOR_GREY = '#787b86'
+
+/** Default colour per fib ratio, shared by every line-based fib
+ *  family (retracement / channel / segment / extension). Same
+ *  ratio → same colour across families so a user reading a
+ *  0.618 retracement and a 0.618 extension on the same chart
+ *  sees the same yellow, matching how the circle family paints
+ *  its 0.618 ring. Unlisted ratios (user-added or non-default)
+ *  fall back to `props.lineColor`. */
+export const FIB_LEVEL_COLOURS: Record<string, string> = {
+  0: FIB_ANCHOR_GREY,
+  0.236: '#f44336',
+  0.382: '#ff9800',
+  0.5: '#ffc107',
+  0.618: '#fdd835',
+  0.786: '#cddc39',
+  1: FIB_ANCHOR_GREY,
+  1.618: '#4caf50',
+  2.618: '#00bcd4',
+  3.618: '#2196f3',
+  4.236: '#5c6bc0',
+  4.618: '#9c27b0'
+}
+
+/** Lookup a default fib-level colour by ratio. Extracted so
+ *  the various family `LEVELS` constants can build with a
+ *  one-liner per row instead of stringifying the numeric key
+ *  each time. Returns undefined when the ratio isn't in the
+ *  palette so callers can fall through to `props.lineColor`
+ *  at render time. */
+export const fibLevelDefaultColour = (ratio: number): string | undefined =>
+  FIB_LEVEL_COLOURS[ratio]
+
 /** All extendData fields the fib Style tab exposes (ALTD-1894). */
 export interface FibExtendData {
   extendLeft?: boolean
@@ -75,8 +115,12 @@ export const resolveFibSettings = (extendData: unknown): ResolvedFibSettings => 
     // template makes so all three fib overlays render their
     // trend line without a settings visit.
     showDiagonal: ext.showDiagonal !== false,
-    showBackground: ext.showBackground === true,
-    backgroundOpacity: typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 20,
+    // Background defaults ON at a faint 10 % tint — matches the
+    // circle family's out-of-box look and gives users the level
+    // grouping right after drop. Same opt-out pattern as
+    // showDiagonal so an explicit `false` in extendData wins.
+    showBackground: ext.showBackground !== false,
+    backgroundOpacity: typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 10,
     reverse: ext.reverse === true,
     showPrices: ext.showPrices !== false,
     showLevels: ext.showLevels !== false,
@@ -214,24 +258,27 @@ export const buildBackgroundBands = (
   return figures
 }
 
-/** Level lines — one horizontal per enriched level. Emits a
- *  single figure spec whose `attrs` is the array of line
- *  segments so the engine renders them in one canvas pass with
- *  shared styles; per-level colour overrides still work
- *  because each segment carries its own `key`. */
+/** Level lines — one line FIGURE per enriched level so each
+ *  can carry its own stroke colour. The canvas line figure
+ *  reads `styles.color` once per figure and applies it to every
+ *  segment in `attrs`, so batching multiple levels into a
+ *  single figure would force all of them to share one colour;
+ *  fanning out is the only way per-level colour reaches the
+ *  canvas without an engine change. Width / style / dash still
+ *  come from the shared `styles` bag so a Style-tab thickness
+ *  change moves every ring together. */
 export const buildLevelLines = (
   enriched: EnrichedFibLevel[],
   leftX: number,
   rightX: number,
   styles: Partial<LineStyle>
-): FibFigureSpec => ({
-  type: 'line',
-  attrs: enriched.map(l => ({
+): FibFigureSpec[] =>
+  enriched.map(l => ({
+    type: 'line',
     key: `level_${l.percent}`,
-    coordinates: [{ x: leftX, y: l.y }, { x: rightX, y: l.y }]
-  })),
-  styles
-})
+    attrs: { coordinates: [{ x: leftX, y: l.y }, { x: rightX, y: l.y }] },
+    styles: { ...styles, color: l.color }
+  }))
 
 /** Ratio text — percent or decimal, per `levelFormat`. Extracted
  *  so the label-composer stays declarative. */
@@ -257,6 +304,13 @@ export const buildLevelLabels = (
   const hAlign = props.textAlignHorizontal ?? 'left'
   const vAlign = props.textAlignVertical ?? 'top'
   const textX = hAlign === 'right' ? rightX : hAlign === 'center' ? (leftX + rightX) / 2 : leftX
+  // 'left' / 'right' put the text OUTSIDE the fib width (past
+  // the left / right anchor). The anchor stays at the endpoint;
+  // canvas text-align flips so glyphs run AWAY from the fib.
+  // 'center' keeps the natural centred behaviour inside.
+  let canvasAlign: CanvasTextAlign = 'center'
+  if (hAlign === 'left') canvasAlign = 'right'
+  else if (hAlign === 'right') canvasAlign = 'left'
   const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'bottom' ? 'top' : 'bottom'
   const texts = enriched.map(l => {
     let content = ''
@@ -267,7 +321,7 @@ export const buildLevelLabels = (
       x: textX,
       y: l.y,
       text: content,
-      align: hAlign,
+      align: canvasAlign,
       baseline
     }
   })
