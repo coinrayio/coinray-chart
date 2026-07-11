@@ -314,7 +314,14 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   needDefaultXAxisFigure = false
   needDefaultYAxisFigure = false
   mode: OverlayMode = 'normal'
-  modeSensitivity = 8
+  // Pixel radius around each OHLC point that weak-magnet mode
+  // treats as "in range" — cursor within `modeSensitivity` px
+  // of open/high/low/close snaps to that point, further away
+  // returns the raw cursor value. 60 px matches TV's weak-
+  // magnet feel dialled in against side-by-side testing;
+  // tighter radii read as "barely snaps" even after the
+  // algorithm fix because TV's halo is unusually wide.
+  modeSensitivity = 60
   points: Array<Partial<Point>> = []
   extendData: E
   styles: Nullable<DeepPartial<OverlayStyle>> = null

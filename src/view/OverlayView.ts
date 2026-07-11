@@ -815,47 +815,38 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       if (o.mode !== 'normal' && paneId === PaneIdConstants.CANDLE && isNumber(point.dataIndex)) {
         const kLineData = chartStore.getDataByDataIndex(point.dataIndex)
         if (kLineData !== null) {
-          const modeSensitivity = o.modeSensitivity
-          if (value > kLineData.high) {
-            if (o.mode === 'weak_magnet') {
-              const highY = yAxis.convertToPixel(kLineData.high)
-              const buffValue = yAxis.convertFromPixel(highY - modeSensitivity)
-              if (value < buffValue) {
-                value = kLineData.high
-              }
-            } else {
-              value = kLineData.high
+          // ALTD-1898 — both magnet modes now share one code
+          // path: find the closest of {open, high, low, close}
+          // by pixel distance from the cursor. Strong mode
+          // always snaps to that point; weak mode only snaps
+          // when the pixel distance is within `modeSensitivity`
+          // px, otherwise the raw cursor value passes through.
+          //
+          // The old asymmetric implementation was strong-inside
+          // / weak-outside: cursor between low and high always
+          // snapped hard regardless of mode, and the weak halo
+          // only existed above/below the wick. That mismatch is
+          // why weak "barely snapped" — most cursor positions
+          // that felt near an OHLC were inside the range where
+          // the mode gate did nothing.
+          const cursorY = coordinate.y
+          const candidates: Array<{ value: number, pixel: number }> = [
+            { value: kLineData.open, pixel: yAxis.convertToPixel(kLineData.open) },
+            { value: kLineData.high, pixel: yAxis.convertToPixel(kLineData.high) },
+            { value: kLineData.low, pixel: yAxis.convertToPixel(kLineData.low) },
+            { value: kLineData.close, pixel: yAxis.convertToPixel(kLineData.close) }
+          ]
+          let nearest = candidates[0]
+          let nearestDist = Math.abs(cursorY - nearest.pixel)
+          for (let i = 1; i < candidates.length; i++) {
+            const dist = Math.abs(cursorY - candidates[i].pixel)
+            if (dist < nearestDist) {
+              nearest = candidates[i]
+              nearestDist = dist
             }
-          } else if (value < kLineData.low) {
-            if (o.mode === 'weak_magnet') {
-              const lowY = yAxis.convertToPixel(kLineData.low)
-              const buffValue = yAxis.convertFromPixel(lowY - modeSensitivity)
-              if (value > buffValue) {
-                value = kLineData.low
-              }
-            } else {
-              value = kLineData.low
-            }
-          } else {
-            const max = Math.max(kLineData.open, kLineData.close)
-            const min = Math.min(kLineData.open, kLineData.close)
-            if (value > max) {
-              if (value - max < kLineData.high - value) {
-                value = max
-              } else {
-                value = kLineData.high
-              }
-            } else if (value < min) {
-              if (value - kLineData.low < min - value) {
-                value = kLineData.low
-              } else {
-                value = min
-              }
-            } else if (max - value < value - min) {
-              value = max
-            } else {
-              value = min
-            }
+          }
+          if (o.mode === 'strong_magnet' || nearestDist <= o.modeSensitivity) {
+            value = nearest.value
           }
         }
       }
