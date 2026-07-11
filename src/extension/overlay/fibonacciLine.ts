@@ -44,25 +44,29 @@ import { merge, clone } from '../../common/utils/typeChecks'
 
 import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared'
+import { fibLevelDefaultColour, formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared'
 
 /** Retracement level set — same defaults the retracement
  *  template uses, exported so other fib templates can share.
- *  Extension levels are marked disabled by default; the user
- *  can toggle them on from the Levels section for extension
- *  behaviour. */
+ *  1.618 / 2.618 / 3.618 are enabled by default so the classic
+ *  extension trio shows past the 100 % line without a settings
+ *  visit; 4.236 stays opt-in for chart-space reasons (it's far
+ *  enough out that most drops don't want it in-frame). Colours
+ *  come from the shared fib palette so a 0.618 retracement
+ *  matches a 0.618 extension / circle at a glance; anchor
+ *  ratios (0 and 1) stay grey. */
 export const FIBONACCI_RETRACEMENT_LEVELS: FigureLevel[] = [
-  { value: 0, enabled: true },
-  { value: 0.236, enabled: true },
-  { value: 0.382, enabled: true },
-  { value: 0.5, enabled: true },
-  { value: 0.618, enabled: true },
-  { value: 0.786, enabled: true },
-  { value: 1, enabled: true },
-  { value: 1.618, enabled: false },
-  { value: 2.618, enabled: false },
-  { value: 3.618, enabled: false },
-  { value: 4.236, enabled: false }
+  { value: 0, enabled: true, color: fibLevelDefaultColour(0) },
+  { value: 0.236, enabled: true, color: fibLevelDefaultColour(0.236) },
+  { value: 0.382, enabled: true, color: fibLevelDefaultColour(0.382) },
+  { value: 0.5, enabled: true, color: fibLevelDefaultColour(0.5) },
+  { value: 0.618, enabled: true, color: fibLevelDefaultColour(0.618) },
+  { value: 0.786, enabled: true, color: fibLevelDefaultColour(0.786) },
+  { value: 1, enabled: true, color: fibLevelDefaultColour(1) },
+  { value: 1.618, enabled: true, color: fibLevelDefaultColour(1.618) },
+  { value: 2.618, enabled: true, color: fibLevelDefaultColour(2.618) },
+  { value: 3.618, enabled: true, color: fibLevelDefaultColour(3.618) },
+  { value: 4.236, enabled: false, color: fibLevelDefaultColour(4.236) }
 ]
 
 /** Channel-specific default level set — same list as
@@ -71,19 +75,21 @@ export const FIBONACCI_RETRACEMENT_LEVELS: FigureLevel[] = [
  *  levels feels naked; users almost always expect at least
  *  1.618 / 2.618 / 3.618 to render past the far wall so the
  *  extension side is visible on drop. Users can still toggle
- *  any of them off from the Levels section afterwards. */
+ *  any of them off from the Levels section afterwards.
+ *  Palette follows the shared fib colours for cross-family
+ *  parity. */
 export const FIBONACCI_CHANNEL_LEVELS: FigureLevel[] = [
-  { value: 0, enabled: true },
-  { value: 0.236, enabled: true },
-  { value: 0.382, enabled: true },
-  { value: 0.5, enabled: true },
-  { value: 0.618, enabled: true },
-  { value: 0.786, enabled: true },
-  { value: 1, enabled: true },
-  { value: 1.618, enabled: true },
-  { value: 2.618, enabled: true },
-  { value: 3.618, enabled: true },
-  { value: 4.236, enabled: false }
+  { value: 0, enabled: true, color: fibLevelDefaultColour(0) },
+  { value: 0.236, enabled: true, color: fibLevelDefaultColour(0.236) },
+  { value: 0.382, enabled: true, color: fibLevelDefaultColour(0.382) },
+  { value: 0.5, enabled: true, color: fibLevelDefaultColour(0.5) },
+  { value: 0.618, enabled: true, color: fibLevelDefaultColour(0.618) },
+  { value: 0.786, enabled: true, color: fibLevelDefaultColour(0.786) },
+  { value: 1, enabled: true, color: fibLevelDefaultColour(1) },
+  { value: 1.618, enabled: true, color: fibLevelDefaultColour(1.618) },
+  { value: 2.618, enabled: true, color: fibLevelDefaultColour(2.618) },
+  { value: 3.618, enabled: true, color: fibLevelDefaultColour(3.618) },
+  { value: 4.236, enabled: false, color: fibLevelDefaultColour(4.236) }
 ]
 
 interface Coord { x: number; y: number }
@@ -276,17 +282,23 @@ const fibonacciLine = (): ProOverlayTemplate => {
         }
       }
 
-      // Level lines — one figure with every level as an entry
-      // in the attrs array so the engine renders them in a
-      // single canvas pass. Per-level colour overrides still
-      // work because each entry carries a keyed identifier.
-      figures.push({
-        type: 'line',
-        attrs: enrichedLevels.map(l => ({
+      // Level lines — one FIGURE per level so each carries its
+      // own stroke colour. Canvas line figures read
+      // `styles.color` once per figure and apply it to every
+      // coordinate in `attrs`, so batching all levels into one
+      // figure would collapse them to a single colour; fanning
+      // out is the only per-level-colour path without an engine
+      // change. Width / style / dash still come from the shared
+      // `fbLinesStyle` bag so a Style-tab thickness change
+      // moves every parallel together.
+      const baseLineStyle = fbLinesStyle(props)
+      enrichedLevels.forEach(l => {
+        figures.push({
+          type: 'line',
           key: `level_${l.percent}`,
-          coordinates: [l.start, l.end]
-        })),
-        styles: fbLinesStyle(props)
+          attrs: { coordinates: [l.start, l.end] },
+          styles: { ...baseLineStyle, color: l.color }
+        })
       })
 
       // Labels — only ratio, no price. See file-level comment.
