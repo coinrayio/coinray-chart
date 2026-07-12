@@ -413,7 +413,16 @@ export default class ChartImp implements Chart {
       let top = 0
       this._drawPanes.forEach(pane => {
         const separatorPane = this._separatorPanes.get(pane)
-        if (isValid(separatorPane)) {
+        // Only advance the top cursor by separator height when
+        // the separator is actually visible (ALTD-1904). Hidden
+        // panes' separators are `display: none` so they take no
+        // DOM space; if we still added `separatorSize` here the
+        // engine-tracked `pane.bounding.top` would drift past
+        // where the DOM places the visible pane, and mouse-to-
+        // value math on the maximised pane would render the
+        // crosshair one pixel per hidden separator above the
+        // actual cursor.
+        if (isValid(separatorPane) && separatorPane.getVisible()) {
           separatorPane.setBounding({ height: separatorSize, top })
           top += separatorSize
         }
@@ -942,7 +951,32 @@ export default class ChartImp implements Chart {
                   currentPane.setBounding({ height: totalHeight - this._xAxisPane.getBounding().height })
                   this._drawPanes.forEach(pane => {
                     if (pane.getId() !== PaneIdConstants.X_AXIS && pane.getId() !== currentPaneId) {
-                      pane.setBounding({ height: pane.getOriginalBounding().height })
+                      // ALTD-1904 — snapshot each sibling's live
+                      // bounding into its originalBounding before
+                      // hiding, so restore knows where to put it
+                      // back. Panes never resized via setPaneOptions
+                      // start with originalBounding.height = 0
+                      // (default), and separator-drag doesn't
+                      // update it either — the previous code read
+                      // the stale 0 here and restore then padded
+                      // the sibling out from 0, redistributing
+                      // freed space instead of preserving the
+                      // user's layout.
+                      //
+                      // Zero the sibling's live bounding AFTER
+                      // the snapshot so the layout's top-loop
+                      // (which advances `top` by pane.height
+                      // regardless of visibility) doesn't push
+                      // the maximised pane's `bounding.top` past
+                      // where the DOM actually places it. Hidden
+                      // panes are `display: none` so they take 0
+                      // DOM space — the engine-tracked top must
+                      // agree, otherwise the mouse-to-value math
+                      // is off by the total height of the hidden
+                      // in-between panes and the crosshair floats
+                      // above the cursor.
+                      pane.setOriginalBounding({ height: pane.getBounding().height })
+                      pane.setBounding({ height: 0 })
                       pane.setVisible(false)
                       this._separatorPanes.get(pane)?.setVisible(false)
                     }
@@ -979,7 +1013,22 @@ export default class ChartImp implements Chart {
               }
               default: {
                 const height = currentPane.getOriginalBounding().height
-                if (
+                if (currentPaneId === PaneIdConstants.CANDLE) {
+                  // ALTD-1904 — candle is the leftover pane in
+                  // the layout's measureHeight phase, so
+                  // restoring it just needs a clean state flip.
+                  // `_recalculatePaneHeight`'s else branch would
+                  // add candle's shrinkage-back-to-normal (the
+                  // ~800→670 delta) to the sibling indicators,
+                  // bloating them; layout would then hand candle
+                  // an even smaller leftover — the pane visibly
+                  // shrank every restore cycle. Restoring each
+                  // sibling's bounding to its snapshotted
+                  // originalBounding below lets layout give
+                  // candle exactly what it had.
+                  currentPane.setBounding({ height })
+                  currentPane.setOptions({ state })
+                } else if (
                   this._recalculatePaneHeight(
                     currentPane,
                     height,
@@ -990,6 +1039,20 @@ export default class ChartImp implements Chart {
                 }
                 this._drawPanes.forEach(pane => {
                   if (pane.getId() !== PaneIdConstants.X_AXIS) {
+                    if (pane.getId() !== currentPaneId) {
+                      // Restore each sibling to the height it had
+                      // right before the maximize (snapshotted
+                      // into its originalBounding at maximize
+                      // time). Without this the sibling keeps
+                      // whatever height maximize left it at
+                      // (the snapshot value in bounding, which
+                      // was correct — but `_recalculatePaneHeight`
+                      // above may have mutated it for the
+                      // indicator-currentPane branch, and re-
+                      // asserting the snapshot is the
+                      // idempotent restore.)
+                      pane.setBounding({ height: pane.getOriginalBounding().height })
+                    }
                     pane.setVisible(true)
                     this._separatorPanes.get(pane)?.setVisible(true)
                   }
