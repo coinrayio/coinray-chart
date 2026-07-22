@@ -526,8 +526,17 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   }
 
   eventPressedPointMove (point: Partial<Point>, pointIndex: number): void {
-    this.points[pointIndex].timestamp = point.timestamp
-    if (isNumber(point.value)) {
+    // ALTD-1915.12 — per-point drag respects the Coordinates
+    // tab's `lockPrice` / `lockTime` flags on `extendData`.
+    // Both live on the overlay's own `extendData` so consumers
+    // can also toggle them via `chart.overrideOverlay`.
+    const ext = this.extendData as { lockPrice?: boolean; lockTime?: boolean } | null | undefined
+    const lockPrice = ext?.lockPrice === true
+    const lockTime = ext?.lockTime === true
+    if (!lockTime) {
+      this.points[pointIndex].timestamp = point.timestamp
+    }
+    if (!lockPrice && isNumber(point.value)) {
       this.points[pointIndex].value = point.value
     }
     this.performEventPressedMove?.({
@@ -546,12 +555,19 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
 
   eventPressedOtherMove (point: Partial<Point>, chartStore: ChartStore): void {
     if (this._prevPressedPoint !== null) {
+      // ALTD-1915.12 — whole-overlay drag respects the same
+      // Coordinates-tab flags as per-point drag. Zero out the
+      // deltas the flag suppresses so each mapped point keeps
+      // its previous coordinate on the locked axis.
+      const ext = this.extendData as { lockPrice?: boolean; lockTime?: boolean } | null | undefined
+      const lockPrice = ext?.lockPrice === true
+      const lockTime = ext?.lockTime === true
       let difDataIndex: Nullable<number> = null
-      if (isNumber(point.dataIndex) && isNumber(this._prevPressedPoint.dataIndex)) {
+      if (!lockTime && isNumber(point.dataIndex) && isNumber(this._prevPressedPoint.dataIndex)) {
         difDataIndex = point.dataIndex - this._prevPressedPoint.dataIndex
       }
       let difValue: Nullable<number> = null
-      if (isNumber(point.value) && isNumber(this._prevPressedPoint.value)) {
+      if (!lockPrice && isNumber(point.value) && isNumber(this._prevPressedPoint.value)) {
         difValue = point.value - this._prevPressedPoint.value
       }
       this.points = this._prevPressedPoints.map(p => {
