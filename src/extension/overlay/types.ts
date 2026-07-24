@@ -125,7 +125,11 @@ export const DEFAULT_OVERLAY_PROPERTIES: OverlayProperties = {
   textFontStyle: 'normal',
   textAlignVertical: 'top',
   textAlignHorizontal: 'center',
-  textBackgroundColor: '#1677FF',
+  // Transparent by default: overlay text is drawn without a box (editableText
+  // forces a transparent canvas draw), so an opaque default only ever leaked
+  // into the inline text EDITOR — a blue rectangle behind "+ Add text". An
+  // overlay that wants a text bubble opts in via its own textBackgroundColor.
+  textBackgroundColor: 'transparent',
   textPaddingLeft: 4,
   textPaddingRight: 4,
   textPaddingTop: 4,
