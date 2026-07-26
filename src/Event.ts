@@ -106,7 +106,8 @@ export default class Event implements EventHandler {
     this._chart = chart
     this._event = new EventHandlerImp(container, this, {
       treatVertDragAsPageScroll: () => false,
-      treatHorzDragAsPageScroll: () => false
+      treatHorzDragAsPageScroll: () => false,
+      isOverlayDrawing: () => chart.getChartStore().isOverlayDrawing()
     })
     container.addEventListener('keydown', this._boundKeyBoardDownEvent)
   }
@@ -639,7 +640,7 @@ export default class Event implements EventHandler {
       const yAxis = widget.getPane().getAxisComponent()
       if (this._prevYAxisRange !== null && !yAxis.getAutoCalcTickFlag() && yAxis.scrollZoomEnabled) {
         event.preventDefault?.()
-        const { from, to, range } = this._prevYAxisRange
+        const { realFrom, realTo, realRange } = this._prevYAxisRange
         let distance = 0
         if (yAxis.reverse) {
           distance = this._startScrollCoordinate.y - event.y
@@ -648,11 +649,15 @@ export default class Event implements EventHandler {
         }
         const bounding = widget.getBounding()
         const scale = distance / bounding.height
-        const difRange = range * scale
-        const newFrom = from + difRange
-        const newTo = to + difRange
-        const newRealFrom = yAxis.valueToRealValue(newFrom, { range: this._prevYAxisRange })
-        const newRealTo = yAxis.valueToRealValue(newTo, { range: this._prevYAxisRange })
+        // Pan in *real* space — the space the pixel mapping (convertToPixel) is
+        // linear in — so a drag moves the view at a constant pixel speed on every
+        // axis type. Panning in value/price space overshoots on a logarithmic
+        // axis (increasingly so the wider the price range).
+        const difRealRange = realRange * scale
+        const newRealFrom = realFrom + difRealRange
+        const newRealTo = realTo + difRealRange
+        const newFrom = yAxis.realValueToValue(newRealFrom, { range: this._prevYAxisRange })
+        const newTo = yAxis.realValueToValue(newRealTo, { range: this._prevYAxisRange })
         const newDisplayFrom = yAxis.realValueToDisplayValue(newRealFrom, { range: this._prevYAxisRange })
         const newDisplayTo = yAxis.realValueToDisplayValue(newRealTo, { range: this._prevYAxisRange })
         yAxis.setRange({
