@@ -87,6 +87,20 @@ export default abstract class XAxisImp extends AxisImp implements XAxis {
     }
     const startDataIndex = Math.max(0, Math.floor(realFrom / tickBetweenBarCount) * tickBetweenBarCount)
 
+    // ALTD-1915.5 tail — when the user opts into "Show seconds",
+    // append `:ss` on the sub-hour periods (`minute` / `hour`).
+    // `second` already includes seconds; day+ have no HH:mm to
+    // extend.
+    // ALTD-1915.5 tail — when the user opts into "Show seconds",
+    // append `:ss` on the sub-hour periods (`minute` / `hour`).
+    // `second` already includes seconds; day+ have no HH:mm to
+    // extend.
+    const periodType = period?.type ?? 'day'
+    let format = PeriodTypeXAxisFormat[periodType]
+    if (chartStore.getShowSeconds() && (periodType === 'minute' || periodType === 'hour')) {
+      format = `${format}:ss`
+    }
+
     for (let i = startDataIndex; i < realTo; i += tickBetweenBarCount) {
       if (i >= from) {
         const timestamp = chartStore.dataIndexToTimestamp(i)
@@ -94,7 +108,7 @@ export default abstract class XAxisImp extends AxisImp implements XAxis {
           ticks.push({
             coord: this.convertToPixel(i),
             value: timestamp,
-            text: formatDate(timestamp, PeriodTypeXAxisFormat[period?.type ?? 'day'], 'xAxis')
+            text: formatDate(timestamp, format, 'xAxis')
           })
         }
       }

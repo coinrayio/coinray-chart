@@ -668,6 +668,23 @@ export default class ChartImp implements Chart {
     return this._chartStore.getMagnetMode()
   }
 
+  /**
+   * ALTD-1915.5 tail — extend x-axis tick labels with seconds on
+   * minute / hour periods. `second` already includes seconds;
+   * day+ periods have no time component to extend. Runs through
+   * `_setOptions` so the tick cache is invalidated and rebuilt
+   * with the new format on the next paint.
+   */
+  setShowSeconds (show: boolean): void {
+    this._setOptions(() => {
+      this._chartStore.setShowSeconds(show)
+    })
+  }
+
+  getShowSeconds (): boolean {
+    return this._chartStore.getShowSeconds()
+  }
+
   private _setOptions (fuc: () => void): void {
     fuc()
     this.layout({

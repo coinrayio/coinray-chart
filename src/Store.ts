@@ -145,6 +145,13 @@ export interface Store {
   // nearest OHLC on the candle pane. `normal` disables snap.
   setMagnetMode: (mode: 'normal' | 'weak' | 'strong') => void
   getMagnetMode: () => 'normal' | 'weak' | 'strong'
+
+  // ALTD-1915.5 tail — include seconds in the x-axis tick label
+  // formatter when the current period is minute or hour. The
+  // `second` period already includes seconds; larger periods
+  // (day+) have no time component to extend.
+  setShowSeconds: (show: boolean) => void
+  getShowSeconds: () => boolean
 }
 
 export default class StoreImp implements Store {
@@ -361,6 +368,13 @@ export default class StoreImp implements Store {
    * `normal` disables snap. Read by `setCrosshair`.
    */
   private _magnetMode: 'normal' | 'weak' | 'strong' = 'normal'
+
+  /**
+   * ALTD-1915.5 tail — extend the x-axis tick label with seconds
+   * on sub-hour periods. Read by `XAxis.createTicksImp` when
+   * building the tick text.
+   */
+  private _showSeconds = false
 
   /**
    * Actions
@@ -1602,6 +1616,20 @@ export default class StoreImp implements Store {
 
   getMagnetMode (): 'normal' | 'weak' | 'strong' {
     return this._magnetMode
+  }
+
+  /**
+   * ALTD-1915.5 tail — toggle the seconds-in-x-axis format. Pure
+   * state mutation; the caller (Chart.setShowSeconds) is expected
+   * to run the `_setOptions` layout pass so the x-axis tick cache
+   * gets invalidated and the new format string is picked up.
+   */
+  setShowSeconds (show: boolean): void {
+    this._showSeconds = show
+  }
+
+  getShowSeconds (): boolean {
+    return this._showSeconds
   }
 
   executeAction (type: ActionType, data?: unknown): void {
