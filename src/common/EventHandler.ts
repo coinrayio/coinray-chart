@@ -77,6 +77,13 @@ export type EventName = keyof EventHandler
 export interface EventOptions {
   treatVertDragAsPageScroll: () => boolean
   treatHorzDragAsPageScroll: () => boolean
+  /**
+   * Whether an overlay is currently being drawn. While drawing, a click must
+   * place its point even if the cursor was moving when it fired — otherwise the
+   * click is cancelled as a drag and the user has to stop moving first (which is
+   * not how TradingView and other charts behave).
+   */
+  isOverlayDrawing: () => boolean
 }
 
 // we can use `const name = 500;` but with `const enum` this values will be inlined into code
@@ -556,15 +563,29 @@ export default class EventHandlerImp {
     this._processEvent(compatEvent, this._handler.mouseUpEvent)
     ++this._clickCount
 
+    // While an overlay is being drawn, a click must register even if the cursor
+    // was moving when it fired — otherwise `_cancelClick` (set once the pointer
+    // travels past the drag threshold between down and up) swallows it and the
+    // user has to pause before every point. Read *after* `mouseUpEvent` above,
+    // so a continuous-draw that completes on mouse-up already reads as done.
+    const allowClickWhileDrawing = this._options.isOverlayDrawing()
+
     if (this._clickTimeoutId !== null && this._clickCount > 1) {
       // check that both clicks are near enough
       const { manhattanDistance } = this._mouseTouchMoveWithDownInfo(this._getCoordinate(mouseUpEvent), this._clickCoordinate)
       if (manhattanDistance < ManhattanDistance.DoubleClick && !this._cancelClick) {
         this._processEvent(compatEvent, this._handler.mouseDoubleClickEvent)
+      } else if (!this._cancelClick || allowClickWhileDrawing) {
+        // A fast second click that landed too far away to be a double-click
+        // (e.g. placing the second point of a trend line in quick succession).
+        // Without this branch the click would be dropped entirely — it's
+        // neither a double-click nor a fresh single click — so the second
+        // draw point never registers. Treat it as a normal click.
+        this._processEvent(compatEvent, this._handler.mouseClickEvent)
       }
       this._resetClickTimeout()
     } else {
-      if (!this._cancelClick) {
+      if (!this._cancelClick || allowClickWhileDrawing) {
         this._processEvent(compatEvent, this._handler.mouseClickEvent)
       }
     }
