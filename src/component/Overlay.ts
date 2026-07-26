@@ -550,24 +550,160 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
       ext?.lockAspectRatio === true &&
       isNumber(ext.aspectRatio) &&
       ext.aspectRatio > 0 &&
-      this.points.length === 2 &&
+      this.points.length >= 2 &&
       !lockPrice &&
       !lockTime &&
-      isNumber(point.dataIndex)
+      isNumber(point.dataIndex) &&
+      isNumber(point.value)
     ) {
-      const otherIdx = pointIndex === 0 ? 1 : 0
-      const other = this.points[otherIdx]
-      if (isNumber(other.dataIndex) && isNumber(other.value)) {
+      const rawMode = (ext as { aspectRatioMode?: unknown }).aspectRatioMode
+      const mode: string = typeof rawMode === 'string' ? rawMode : 'boundingBox'
+
+      // ── Similar-shape: rotate + scale every point around the
+      // captured centroid so the shape stays similar. All
+      // points move; the dragged vertex tracks the cursor
+      // exactly, the rest re-position via the transform.
+      if (
+        mode === 'similar' &&
+        Array.isArray((ext as { aspectRatioOffsets?: unknown }).aspectRatioOffsets) &&
+        (ext as { aspectRatioCentroid?: { x?: number; y?: number } }).aspectRatioCentroid != null
+      ) {
+        const centroid = (ext as { aspectRatioCentroid: { x: number; y: number } }).aspectRatioCentroid
+        const offsets = (ext as { aspectRatioOffsets: Array<{ x: number; y: number }> }).aspectRatioOffsets
+        if (offsets.length === this.points.length) {
+          const origOffset = offsets[pointIndex]
+          const origMag = Math.hypot(origOffset.x, origOffset.y)
+          if (origMag > 0) {
+            const newVecX = point.dataIndex - centroid.x
+            const newVecY = point.value - centroid.y
+            const newMag = Math.hypot(newVecX, newVecY)
+            const scale = newMag / origMag
+            // Rotation φ = atan2(new) − atan2(orig). Applied to
+            // every offset then re-planted around the centroid.
+            const origAngle = Math.atan2(origOffset.y, origOffset.x)
+            const newAngle = Math.atan2(newVecY, newVecX)
+            const dPhi = newAngle - origAngle
+            const cos = Math.cos(dPhi)
+            const sin = Math.sin(dPhi)
+            for (let i = 0; i < this.points.length; i++) {
+              const off = offsets[i]
+              const rx = (off.x * cos - off.y * sin) * scale
+              const ry = (off.x * sin + off.y * cos) * scale
+              this.points[i].dataIndex = centroid.x + rx
+              this.points[i].value = centroid.y + ry
+              // Timestamps for non-dragged points aren't
+              // adjusted — the render path derives x from
+              // dataIndex when timestamp isn't authoritative.
+              if (i === pointIndex) {
+                this.points[i].timestamp = point.timestamp
+              }
+            }
+            this.performEventPressedMove?.({
+              currentStep: this.currentStep,
+              points: this.points,
+              mode: this.mode,
+              performPointIndex: pointIndex,
+              performPoint: this.points[pointIndex]
+            })
+            return
+          }
+        }
+      }
+
+      // ── Angle-at-vertex: dragged vertex must sit on the arc
+      // where segment (other two vertices) subtends the stored
+      // interior angle. Triangle-only. Projects the cursor
+      // position onto the arc's circle.
+      if (
+        mode === 'angleAtVertex' &&
+        this.points.length === 3 &&
+        Array.isArray((ext as { aspectRatioAngles?: unknown }).aspectRatioAngles)
+      ) {
+        const angles = (ext as { aspectRatioAngles: number[] }).aspectRatioAngles
+        const theta = angles[pointIndex]
+        const idxA = (pointIndex + 1) % 3
+        const idxB = (pointIndex + 2) % 3
+        const A = this.points[idxA]
+        const B = this.points[idxB]
+        if (
+          isNumber(theta) &&
+          theta > 0 &&
+          theta < Math.PI &&
+          isNumber(A.dataIndex) && isNumber(A.value) &&
+          isNumber(B.dataIndex) && isNumber(B.value)
+        ) {
+          // Inscribed-angle theorem: the locus of P where ∠APB = θ
+          // is a circular arc. Radius r = |AB| / (2 sinθ). Centre
+          // sits on the perpendicular bisector of AB at distance
+          // |AB| / (2 tanθ) from AB's midpoint, on the side where
+          // the dragged vertex currently is.
+          const abx = B.dataIndex - A.dataIndex
+          const aby = B.value - A.value
+          const abLen = Math.hypot(abx, aby)
+          if (abLen > 0) {
+            const r = abLen / (2 * Math.sin(theta))
+            const d = abLen / (2 * Math.tan(theta))
+            const midx = (A.dataIndex + B.dataIndex) / 2
+            const midy = (A.value + B.value) / 2
+            // Unit perpendicular to AB (rotate by 90°).
+            const nx = -aby / abLen
+            const ny = abx / abLen
+            // Decide which side of AB the dragged vertex is on.
+            const cur = this.points[pointIndex]
+            let curSide = 1
+            if (isNumber(cur.dataIndex) && isNumber(cur.value)) {
+              const raw = Math.sign((cur.dataIndex - midx) * nx + (cur.value - midy) * ny)
+              curSide = raw === 0 ? 1 : raw
+            }
+            const cx = midx + curSide * d * nx
+            const cy = midy + curSide * d * ny
+            // Project the cursor onto the circle centred at (cx, cy) with radius |r|.
+            const vx = point.dataIndex - cx
+            const vy = point.value - cy
+            const vMag = Math.hypot(vx, vy)
+            if (vMag > 0) {
+              const px = cx + Math.abs(r) * vx / vMag
+              const py = cy + Math.abs(r) * vy / vMag
+              this.points[pointIndex].timestamp = point.timestamp
+              this.points[pointIndex].dataIndex = px
+              this.points[pointIndex].value = py
+              this.performEventPressedMove?.({
+                currentStep: this.currentStep,
+                points: this.points,
+                mode: this.mode,
+                performPointIndex: pointIndex,
+                performPoint: this.points[pointIndex]
+              })
+              return
+            }
+          }
+        }
+      }
+
+      // ── Bounding-box (default): existing centroid-anchor
+      // math. Only the dragged point moves; other vertices stay.
+      let sumX = 0
+      let sumY = 0
+      let count = 0
+      for (let i = 0; i < this.points.length; i++) {
+        if (i === pointIndex) continue
+        const p = this.points[i]
+        if (isNumber(p.dataIndex) && isNumber(p.value)) {
+          sumX += p.dataIndex
+          sumY += p.value
+          count++
+        }
+      }
+      if (count > 0) {
+        const anchorX = sumX / count
+        const anchorY = sumY / count
         const currentVal = this.points[pointIndex].value
-        const heightSign = isNumber(currentVal) && currentVal < other.value ? -1 : 1
-        const newWidth = point.dataIndex - other.dataIndex
-        // `aspectRatio` is |dx / dy| — flip to get |dy / dx|
-        // so we scale the width delta into a height delta that
-        // preserves the captured proportion.
+        const heightSign = isNumber(currentVal) && currentVal < anchorY ? -1 : 1
+        const newWidth = point.dataIndex - anchorX
         const newHeight = heightSign * Math.abs(newWidth) / ext.aspectRatio
         this.points[pointIndex].timestamp = point.timestamp
         this.points[pointIndex].dataIndex = point.dataIndex
-        this.points[pointIndex].value = other.value + newHeight
+        this.points[pointIndex].value = anchorY + newHeight
         this.performEventPressedMove?.({
           currentStep: this.currentStep,
           points: this.points,
