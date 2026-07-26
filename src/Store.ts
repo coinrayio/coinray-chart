@@ -139,6 +139,12 @@ export interface Store {
   isScrollEnabled: () => boolean
   resetData: () => void
   getReplayEngine: () => ReplayEngine
+
+  // ALTD-1915.13 tail — crosshair magnet mode. `weak` snaps X
+  // to the nearest bar centre; `strong` also snaps Y to the
+  // nearest OHLC on the candle pane. `normal` disables snap.
+  setMagnetMode: (mode: 'normal' | 'weak' | 'strong') => void
+  getMagnetMode: () => 'normal' | 'weak' | 'strong'
 }
 
 export default class StoreImp implements Store {
@@ -346,6 +352,15 @@ export default class StoreImp implements Store {
    * Crosshair info
    */
   private _crosshair: Crosshair = {}
+
+  /**
+   * ALTD-1915.13 tail — crosshair magnet mode. `weak` snaps the
+   * X coordinate to the nearest bar centre; `strong` adds an OHLC
+   * snap on the candle pane so the horizontal crosshair sits on
+   * open / high / low / close whichever is nearest to the cursor.
+   * `normal` disables snap. Read by `setCrosshair`.
+   */
+  private _magnetMode: 'normal' | 'weak' | 'strong' = 'normal'
 
   /**
    * Actions
@@ -1496,8 +1511,63 @@ export default class StoreImp implements Store {
     }
     const kLineData: Nullable<KLineData> = this._dataList[dataIndex]
     const realX = this.dataIndexToCoordinate(realDataIndex)
+
+    // ALTD-1915.13 tail — magnet snap. `weak` pulls X to the
+    // bar centre; `strong` also drags Y to the nearest OHLC on
+    // the candle pane. Applied before the crosshair snapshot so
+    // downstream views (line + tooltip) see the snapped
+    // coordinates.
+    let magnetX: Nullable<number> = null
+    let magnetY: Nullable<number> = null
+    if (this._magnetMode !== 'normal' && isNumber(cr.x)) {
+      magnetX = realX
+      if (
+        this._magnetMode === 'strong' &&
+        isNumber(cr.y) &&
+        isValid(kLineData) &&
+        cr.paneId === PaneIdConstants.CANDLE
+      ) {
+        // `getDrawPaneById` + `getAxisComponent` live on the
+        // ChartImp/DrawPane concrete classes; the Store only
+        // holds a `Chart` interface reference so the cast is
+        // needed. Chart lookups on missing panes return
+        // Nullable, so the optional-chain guards below cover
+        // the runtime miss.
+        interface DrawPaneLike { getAxisComponent: () => { convertToPixel: (value: number) => number } }
+        interface ChartLike { getDrawPaneById: (id: string) => DrawPaneLike | null }
+        const pane = (this._chart as unknown as ChartLike).getDrawPaneById(cr.paneId)
+        const axis = pane?.getAxisComponent()
+        if (axis != null) {
+          const prices = [kLineData.open, kLineData.high, kLineData.low, kLineData.close]
+          let nearest = cr.y
+          let minDist = Infinity
+          for (const p of prices) {
+            if (!isNumber(p)) continue
+            const py = axis.convertToPixel(p)
+            if (isNumber(py)) {
+              const d = Math.abs(py - cr.y)
+              if (d < minDist) {
+                minDist = d
+                nearest = py
+              }
+            }
+          }
+          magnetY = nearest
+        }
+      }
+    }
+
     const prevCrosshair = { x: this._crosshair.x, y: this._crosshair.y, paneId: this._crosshair.paneId }
-    this._crosshair = { ...cr, realX, kLineData, realDataIndex, dataIndex, timestamp: this.dataIndexToTimestamp(realDataIndex) ?? undefined }
+    this._crosshair = {
+      ...cr,
+      ...(magnetX != null ? { x: magnetX } : {}),
+      ...(magnetY != null ? { y: magnetY } : {}),
+      realX,
+      kLineData,
+      realDataIndex,
+      dataIndex,
+      timestamp: this.dataIndexToTimestamp(realDataIndex) ?? undefined
+    }
     if (
       prevCrosshair.x !== cr.x ||
       prevCrosshair.y !== cr.y ||
@@ -1515,6 +1585,23 @@ export default class StoreImp implements Store {
 
   getCrosshair (): Crosshair {
     return this._crosshair
+  }
+
+  /**
+   * ALTD-1915.13 tail — magnet mode setter. `weak` snaps the
+   * crosshair X to the nearest bar centre; `strong` also snaps
+   * Y to the nearest OHLC on the candle pane. Re-invokes
+   * `setCrosshair` so the current cursor position picks up the
+   * new snap without waiting for the next mouse event.
+   */
+  setMagnetMode (mode: 'normal' | 'weak' | 'strong'): void {
+    if (this._magnetMode === mode) return
+    this._magnetMode = mode
+    this.setCrosshair(this._crosshair, { forceInvalidate: true })
+  }
+
+  getMagnetMode (): 'normal' | 'weak' | 'strong' {
+    return this._magnetMode
   }
 
   executeAction (type: ActionType, data?: unknown): void {
