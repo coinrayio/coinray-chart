@@ -526,8 +526,63 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   }
 
   eventPressedPointMove (point: Partial<Point>, pointIndex: number): void {
-    this.points[pointIndex].timestamp = point.timestamp
-    if (isNumber(point.value)) {
+    // ALTD-1915.12 — per-point drag respects the Coordinates
+    // tab's `lockPrice` / `lockTime` flags on `extendData`.
+    // Both live on the overlay's own `extendData` so consumers
+    // can also toggle them via `chart.overrideOverlay`.
+    const ext = this.extendData as {
+      lockPrice?: boolean
+      lockTime?: boolean
+      lockAspectRatio?: boolean
+      aspectRatio?: number
+    } | null | undefined
+    const lockPrice = ext?.lockPrice === true
+    const lockTime = ext?.lockTime === true
+
+    // ALTD-1915.12.1 — lock-aspect-ratio proportional drag.
+    // Superchart's Coordinates tab captures the initial ratio
+    // on flag-flip for rect (and only rect) and stashes it in
+    // `extendData.aspectRatio`. Missing `aspectRatio` → engine
+    // skips the constraint (safe default for shapes where the
+    // math doesn't apply, e.g. circle where the concept is
+    // meaningless).
+    if (
+      ext?.lockAspectRatio === true &&
+      isNumber(ext.aspectRatio) &&
+      ext.aspectRatio > 0 &&
+      this.points.length === 2 &&
+      !lockPrice &&
+      !lockTime &&
+      isNumber(point.dataIndex)
+    ) {
+      const otherIdx = pointIndex === 0 ? 1 : 0
+      const other = this.points[otherIdx]
+      if (isNumber(other.dataIndex) && isNumber(other.value)) {
+        const currentVal = this.points[pointIndex].value
+        const heightSign = isNumber(currentVal) && currentVal < other.value ? -1 : 1
+        const newWidth = point.dataIndex - other.dataIndex
+        // `aspectRatio` is |dx / dy| — flip to get |dy / dx|
+        // so we scale the width delta into a height delta that
+        // preserves the captured proportion.
+        const newHeight = heightSign * Math.abs(newWidth) / ext.aspectRatio
+        this.points[pointIndex].timestamp = point.timestamp
+        this.points[pointIndex].dataIndex = point.dataIndex
+        this.points[pointIndex].value = other.value + newHeight
+        this.performEventPressedMove?.({
+          currentStep: this.currentStep,
+          points: this.points,
+          mode: this.mode,
+          performPointIndex: pointIndex,
+          performPoint: this.points[pointIndex]
+        })
+        return
+      }
+    }
+
+    if (!lockTime) {
+      this.points[pointIndex].timestamp = point.timestamp
+    }
+    if (!lockPrice && isNumber(point.value)) {
       this.points[pointIndex].value = point.value
     }
     this.performEventPressedMove?.({
@@ -546,12 +601,19 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
 
   eventPressedOtherMove (point: Partial<Point>, chartStore: ChartStore): void {
     if (this._prevPressedPoint !== null) {
+      // ALTD-1915.12 — whole-overlay drag respects the same
+      // Coordinates-tab flags as per-point drag. Zero out the
+      // deltas the flag suppresses so each mapped point keeps
+      // its previous coordinate on the locked axis.
+      const ext = this.extendData as { lockPrice?: boolean; lockTime?: boolean } | null | undefined
+      const lockPrice = ext?.lockPrice === true
+      const lockTime = ext?.lockTime === true
       let difDataIndex: Nullable<number> = null
-      if (isNumber(point.dataIndex) && isNumber(this._prevPressedPoint.dataIndex)) {
+      if (!lockTime && isNumber(point.dataIndex) && isNumber(this._prevPressedPoint.dataIndex)) {
         difDataIndex = point.dataIndex - this._prevPressedPoint.dataIndex
       }
       let difValue: Nullable<number> = null
-      if (isNumber(point.value) && isNumber(this._prevPressedPoint.value)) {
+      if (!lockPrice && isNumber(point.value) && isNumber(this._prevPressedPoint.value)) {
         difValue = point.value - this._prevPressedPoint.value
       }
       this.points = this._prevPressedPoints.map(p => {
