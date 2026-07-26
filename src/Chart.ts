@@ -655,6 +655,19 @@ export default class ChartImp implements Chart {
 
   getDecimalFold (): DecimalFold { return this._chartStore.getDecimalFold() }
 
+  /**
+   * ALTD-1915.13 tail — crosshair magnet mode. `weak` snaps X
+   * to the nearest bar centre; `strong` also snaps Y to the
+   * nearest OHLC on the candle pane. `normal` disables snap.
+   */
+  setMagnetMode (mode: 'normal' | 'weak' | 'strong'): void {
+    this._chartStore.setMagnetMode(mode)
+  }
+
+  getMagnetMode (): 'normal' | 'weak' | 'strong' {
+    return this._chartStore.getMagnetMode()
+  }
+
   private _setOptions (fuc: () => void): void {
     fuc()
     this.layout({
