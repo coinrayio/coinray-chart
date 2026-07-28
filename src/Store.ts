@@ -767,6 +767,15 @@ export default class StoreImp implements Store {
         adjustFlag = true
       }
     }
+    // An engine-driven init load in playback mode must not paint yet: the data
+    // ends in the raw candle straddling the replay cursor, and painting it
+    // reveals the rest of that candle's price action — exactly the future
+    // replay hides. ReplayEngine repaints once it has swapped in the partial.
+    // Gated on isAwaitingInit so an init from elsewhere (setDataLoader, say)
+    // still paints itself.
+    if (success && adjustFlag && type === 'init' && this._replayEngine.isAwaitingInit()) {
+      return
+    }
     if (success && adjustFlag) {
       this._adjustVisibleRange()
       this.setCrosshair(this._crosshair, { notInvalidate: true })

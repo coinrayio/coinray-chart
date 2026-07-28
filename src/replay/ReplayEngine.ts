@@ -163,6 +163,14 @@ export class ReplayEngine {
   // Init complete notification — called by Store._processDataLoad
   // ---------------------------------------------------------------------------
 
+  /**
+   * True while the engine is driving an init load and will post-process the
+   * result. Store uses this to know the repaint is the engine's to make.
+   */
+  isAwaitingInit (): boolean {
+    return this._onInitComplete !== null
+  }
+
   notifyInitComplete (): void {
     if (this._onInitComplete !== null) {
       const cb = this._onInitComplete
@@ -242,6 +250,8 @@ export class ReplayEngine {
             this._drawnFromBuffer = savedDrawn
             // Re-fetch at previous period, then restore ready state
             this._onInitComplete = () => {
+              // Still in playback, so this init load didn't paint itself.
+              this._triggerDeferredLayout()
               this._updateStatus('ready')
             }
             this._s.resetData(() => { this._s._period = savedPeriod })
@@ -257,9 +267,10 @@ export class ReplayEngine {
           // Phase: populate drawn history
           // Order matters: _postProcessDataBoundary may push the partial to _drawnFromBuffer,
           // and _trackExtraCandlesBeyondStart reads it to avoid duplicate tracking.
-          await this._fetchReplayBuffer()
-          if (this._generation !== gen) return
+          // Boundary before buffer — see the note in setCurrentTime.
           await this._postProcessDataBoundary(gen)
+          if (this._generation !== gen) return
+          await this._fetchReplayBuffer()
           if (this._generation !== gen) return
           this._trackExtraCandlesBeyondStart()
           this._replayCurrentTime = cursorLimit
@@ -273,6 +284,8 @@ export class ReplayEngine {
           this._replayBuffer = savedBuffer
           this._drawnFromBuffer = savedDrawn
           this._onInitComplete = () => {
+            // Still in playback, so this init load didn't paint itself.
+            this._triggerDeferredLayout()
             this._updateStatus('ready')
           }
           this._s.resetData(() => { this._s._period = savedPeriod })
@@ -363,9 +376,14 @@ export class ReplayEngine {
       // and _trackExtraCandlesBeyondStart reads it to avoid duplicate tracking.
       this._clearDrawnHistory()
 
-      await this._fetchReplayBuffer()
-      if (this._generation !== gen) return
+      // Boundary before buffer: the boundary needs a handful of sub-resolution
+      // candles and produces what the user actually sees, while the buffer
+      // spans cursor→end and can page through thousands of bars. Fetching the
+      // buffer first left the raw candle straddling the cursor on screen —
+      // revealing the rest of its price action — for as long as that took.
       await this._postProcessDataBoundary(gen)
+      if (this._generation !== gen) return
+      await this._fetchReplayBuffer()
       if (this._generation !== gen) return
       // Check if the init fetch returned any data. Empty dataList after all processing
       // likely means the resolution is unsupported (e.g., 1W/1M).
@@ -782,6 +800,13 @@ export class ReplayEngine {
     const currentTimeLimit = this._currentTimeLimit
     // _replayEndTime is always set at setCurrentTime entry (or handlePeriodChange re-fetch uses existing value)
     const to = this._replayEndTime ?? Date.now()
+
+    // _postProcessDataBoundary runs first and queues the candle at the cursor
+    // boundary at the head of the buffer. Merge rather than assign, or that
+    // candle is lost: one that opens before the cursor wouldn't even survive
+    // the filter below, and step() could never complete the partial.
+    const queued = this._replayBuffer
+
     await new Promise<void>((resolve) => {
       void getRange({
         symbol,
@@ -789,7 +814,15 @@ export class ReplayEngine {
         from: currentTimeLimit,
         to,
         callback: (data) => {
-          this._replayBuffer = data.filter(d => d.timestamp >= currentTimeLimit)
+          const fetched = data.filter(d => d.timestamp >= currentTimeLimit)
+          if (queued.length === 0) {
+            this._replayBuffer = fetched
+          } else {
+            const queuedTimestamps = new Set(queued.map(c => c.timestamp))
+            this._replayBuffer = queued
+              .concat(fetched.filter(c => !queuedTimestamps.has(c.timestamp)))
+              .sort((a, b) => a.timestamp - b.timestamp)
+          }
           resolve()
         }
       })
@@ -861,6 +894,7 @@ export class ReplayEngine {
       }
       this._resetCrosshair()
       this._s._adjustVisibleRange()
+      this._recalcIndicators()
       this._triggerLayout(true)
       return
     }
@@ -870,6 +904,9 @@ export class ReplayEngine {
     if (gen !== undefined && this._generation !== gen) return
 
     if (partial === null) {
+      // No sub-resolution data; the raw candle stays. Still has to paint,
+      // since the init load didn't.
+      this._triggerDeferredLayout()
       return
     }
 
@@ -897,11 +934,14 @@ export class ReplayEngine {
   }
 
   /**
-   * Trigger the layout that was deferred during init in playback mode.
-   * Called after _postProcessDataBoundary finishes modifying data.
+   * Paint the init load that Store._addData deliberately skipped while in
+   * playback mode. Has to cover everything that block would have done —
+   * visible range, crosshair, indicators, layout — not just the layout.
    */
   private _triggerDeferredLayout (): void {
+    this._s._adjustVisibleRange()
     this._resetCrosshair()
+    this._recalcIndicators()
     this._triggerLayout(false)
   }
 
