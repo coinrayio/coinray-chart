@@ -33,6 +33,14 @@ export interface MouseTouchEvent extends Coordinate {
   pageX: number
   pageY: number
   isTouch?: boolean
+  /**
+   * Modifier keys as of this event. Drawing reads them live rather than
+   * tracking key state: Shift constrains the in-progress point to 45°
+   * steps, Meta/Ctrl inverts magnet for as long as it is held.
+   */
+  shiftKey?: boolean
+  metaKey?: boolean
+  ctrlKey?: boolean
   preventDefault?: () => void
 }
 
@@ -928,6 +936,10 @@ export default class EventHandlerImp {
       pageX: eventLike.pageX,
       pageY: eventLike.pageY,
       isTouch: !event.type.startsWith('mouse') && event.type !== 'contextmenu' && event.type !== 'click' && event.type !== 'wheel',
+
+      shiftKey: event.shiftKey,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
 
       preventDefault: () => {
         if (event.type !== 'touchstart') {
