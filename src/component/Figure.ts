@@ -17,7 +17,40 @@ import type Coordinate from '../common/Coordinate'
 import Eventful from '../common/Eventful'
 import type { MouseTouchEvent } from '../common/EventHandler'
 
-export const DEVIATION = 2
+/**
+ * Hit-test slop, in pixels, around a figure's stroke. A 1px trend line is
+ * effectively unclickable at its true width, so every `checkEventOn` grows the
+ * shape by this much before testing — the grab band a user actually aims at,
+ * rather than the pixels that got painted.
+ */
+export const DEVIATION = 6
+
+/**
+ * Debug aid: paint each figure's grab band (see `DEVIATION`) as a translucent
+ * halo so it can be seen rather than guessed at. Development only — nothing in
+ * the library turns this on by itself.
+ */
+let hitAreaDebug = false
+
+/**
+ * Grid lines, axis ticks, the crosshair and the candles themselves are all
+ * drawn with the same figures as overlays, and none of them are clickable — so
+ * the halo would be pure noise on them. `OverlayView` raises this for the span
+ * of its own drawing, and only figures painted inside that window get a halo.
+ */
+let drawingOverlay = false
+
+export function setHitAreaDebug (enabled: boolean): void {
+  hitAreaDebug = enabled
+}
+
+export function setDrawingOverlay (drawing: boolean): void {
+  drawingOverlay = drawing
+}
+
+export function isHitAreaDebug (): boolean {
+  return hitAreaDebug && drawingOverlay
+}
 
 export interface Figure<A = unknown, S = unknown> {
   name: string

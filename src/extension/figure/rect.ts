@@ -17,7 +17,7 @@ import type { RectStyle } from '../../common/Styles'
 import { isTransparent } from '../../common/utils/color'
 import { isString } from '../../common/utils/typeChecks'
 
-import { type FigureTemplate, DEVIATION } from '../../component/Figure'
+import { type FigureTemplate, DEVIATION, isHitAreaDebug } from '../../component/Figure'
 
 export function checkCoordinateOnRect (coordinate: Coordinate, attrs: RectAttrs | RectAttrs[]): boolean {
   let rects: RectAttrs[] = []
@@ -47,9 +47,35 @@ export function checkCoordinateOnRect (coordinate: Coordinate, attrs: RectAttrs 
   return false
 }
 
+/**
+ * Paints the area `checkCoordinateOnRect` accepts — the rect itself, widened to
+ * the minimum grab size on whichever axis is thinner than it. Debug only;
+ * `setHitAreaDebug` gates it.
+ */
+function drawRectHitArea (ctx: CanvasRenderingContext2D, rects: RectAttrs[]): void {
+  ctx.save()
+  ctx.fillStyle = 'rgba(21, 93, 252, 0.22)'
+  rects.forEach((rect) => {
+    let { x, y, width, height } = rect
+    if (width < DEVIATION * 2) {
+      x -= DEVIATION
+      width = DEVIATION * 2
+    }
+    if (height < DEVIATION * 2) {
+      y -= DEVIATION
+      height = DEVIATION * 2
+    }
+    ctx.fillRect(x, y, width, height)
+  })
+  ctx.restore()
+}
+
 export function drawRect (ctx: CanvasRenderingContext2D, attrs: RectAttrs | RectAttrs[], styles: Partial<RectStyle>): void {
   let rects: RectAttrs[] = []
   rects = rects.concat(attrs)
+  if (isHitAreaDebug()) {
+    drawRectHitArea(ctx, rects)
+  }
   const {
     style = 'fill',
     color = 'transparent',

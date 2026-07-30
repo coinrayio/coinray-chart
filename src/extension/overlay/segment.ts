@@ -14,6 +14,7 @@
 
 import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
+import type { Chart } from '../../Chart'
 import { isNumber, merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
@@ -131,8 +132,23 @@ const segment = (): ProOverlayTemplate => {
     }
   }
 
-  const textStyle = (id: string): Partial<TextStyle> => {
+  /**
+   * The chart's own background colour, read off the container. Used as the
+   * label's fill when the text sits ON the line, so it knocks a hole in the
+   * stroke instead of overprinting it (TradingView does the same).
+   */
+  const chartBackground = (chart: Chart): string => {
+    const dom = chart.getDom()
+    if (dom === null) return '#000000'
+    const computed = window.getComputedStyle(dom).backgroundColor
+    return (computed !== '' && computed !== 'transparent' && computed !== 'rgba(0, 0, 0, 0)')
+      ? computed
+      : '#000000'
+  }
+
+  const textStyle = (id: string, knockoutColor?: string, overrides?: Partial<TextStyle>): Partial<TextStyle> => {
     const props = properties.get(id) ?? {}
+    const background = props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor
     return {
       color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
@@ -146,7 +162,12 @@ const segment = (): ProOverlayTemplate => {
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
       paddingTop: props.textPaddingTop ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingTop,
       paddingBottom: props.textPaddingBottom ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingBottom,
-      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor
+      // A user-chosen background always wins; the knockout only fills in for
+      // the default transparent one.
+      backgroundColor: background === 'transparent' && knockoutColor !== undefined
+        ? knockoutColor
+        : background,
+      ...overrides
     }
   }
 
@@ -306,19 +327,30 @@ const segment = (): ProOverlayTemplate => {
         })
       } else {
         const angle = Math.atan2(dy, dx)
-        // Position along the line. Pull in ~10% from each end
-        // so left/right text sits inside the segment rather than
-        // right at the anchor handle.
-        const t = hAlign === 'left' ? 0.1 : hAlign === 'right' ? 0.9 : 0.5
+        const len = Math.hypot(dx, dy)
+        // Position along the line: left/right anchor the label to the
+        // endpoint itself, centre to the midpoint. `align` does the work —
+        // the label grows inward from the end it's anchored to.
+        const t = hAlign === 'left' ? 0 : hAlign === 'right' ? 1 : 0.5
         let ax = lineCoordinates[0].x + dx * t
         let ay = lineCoordinates[0].y + dy * t
+        const align = hAlign === 'left' ? 'start' : hAlign === 'right' ? 'end' : 'center'
+
+        // Along-line padding of the label box, which is also the shape of the
+        // hole it knocks in the stroke: none on the outward side, so the first
+        // glyph lands exactly on the endpoint, and a hair on the inward side
+        // so the line resumes just clear of the text rather than touching it.
+        const INWARD_GAP = 2
+        const boxPadding = {
+          paddingLeft: hAlign === 'left' ? 0 : INWARD_GAP,
+          paddingRight: hAlign === 'right' ? 0 : INWARD_GAP
+        }
 
         // Perpendicular offset for vAlign. Since lineCoordinates
         // is sorted left→right (dx >= 0), the CW perpendicular
         // (sin θ, -cos θ) = (dy/|d|, -dx/|d|) always points to
         // the "top" side in screen terms; CCW to "bottom".
         if (vAlign !== 'middle') {
-          const len = Math.hypot(dx, dy)
           if (len > 0) {
             const fontSize = props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize
             const offsetMag = fontSize * 0.6 + 6
@@ -334,11 +366,13 @@ const segment = (): ProOverlayTemplate => {
             x: ax,
             y: ay,
             text,
-            align: 'center',
+            align,
             baseline: 'middle',
             angle
           },
-          styles: textStyle(id)
+          // Sitting on the line, the label paints over the stroke — fill it
+          // with the chart background so the line breaks around the text.
+          styles: textStyle(id, vAlign === 'middle' ? chartBackground(chart) : undefined, boxPadding)
         })
       }
 

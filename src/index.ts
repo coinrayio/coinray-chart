@@ -52,6 +52,8 @@ import type { ActionType } from './common/Action'
 import type { Indicator, IndicatorCreate, IndicatorSeries, IndicatorTemplate } from './component/Indicator'
 import type { Overlay, OverlayCreate, OverlayEvent, OverlayTemplate, OverlayMode, OverlayDrawingMode, OverlayTextChangeEvent, OverlayTextChangeCallback } from './component/Overlay'
 import type { FigureTemplate } from './component/Figure'
+import { setHitAreaDebug } from './component/Figure'
+import { setOverlayDragDebug } from './component/Overlay'
 
 import type { FormatDateType, Options, BarSpaceLimit, ZoomAnchor } from './Options'
 import ChartImp, { type Chart, type DomPosition } from './Chart'
@@ -188,6 +190,10 @@ const utils = {
 export {
   version, init, dispose,
   registerFigure, getSupportedFigures, getFigureClass,
+  // Development aid: paint every figure's click tolerance.
+  setHitAreaDebug,
+  // Development aid: trace how a drag moves an overlay's anchors.
+  setOverlayDragDebug,
   registerIndicator, getSupportedIndicators, getIndicatorTemplate,
   registerOverlay, getSupportedOverlays, getOverlayClass,
   registerLocale, getSupportedLocales,
