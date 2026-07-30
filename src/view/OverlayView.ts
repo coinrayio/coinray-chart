@@ -26,6 +26,7 @@ import type { YAxis } from '../component/YAxis'
 import type { OverlayFigure, Overlay } from '../component/Overlay'
 import type OverlayImp from '../component/Overlay'
 import { checkOverlayFigureEvent, OVERLAY_FIGURE_KEY_PREFIX } from '../component/Overlay'
+import { setDrawingOverlay } from '../component/Figure'
 
 import type { EventOverlayInfoFigureType } from '../Store'
 
@@ -357,8 +358,12 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   private _startTextEdit (overlay: OverlayImp, figure: OverlayFigure, styles: Partial<TextStyle>): void {
-    // Stop any existing edit
-    this._stopTextEdit(false)
+    // Close any edit already in flight, committing it. Clicking straight from
+    // one text figure to another runs this before the outgoing editor's
+    // deferred blur, so dropping the commit here would lose that edit — the
+    // typed text is already on the overlay, only the host's persist hook
+    // would never fire.
+    this._stopTextEdit(true)
 
     const attrs = figure.attrs as TextAttrs & { placeholder?: string | null }
     // Use placeholder text for sizing when actual text is empty so
@@ -481,12 +486,15 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const onKeyDown = (e: KeyboardEvent): void => {
       e.stopPropagation()
       // Enter inserts a newline (native textarea behaviour) so the
-      // user can write multi-line annotations. Commit is on blur /
-      // Escape — neither of those reads the newline as a commit
-      // trigger any longer.
+      // user can write multi-line annotations — it is not a commit
+      // trigger. Commit happens on blur or Escape.
+      // Escape ends the edit and keeps what was typed. Every keystroke has
+      // already been written to the overlay by the live path below, so a
+      // "cancel" that skipped the commit wouldn't undo anything — it would
+      // just leave the text on screen and out of storage.
       if (e.key === 'Escape') {
         e.preventDefault()
-        this._stopTextEdit(false)
+        this._stopTextEdit(true)
       }
     }
 
@@ -872,15 +880,21 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   override drawImp (ctx: CanvasRenderingContext2D): void {
-    const overlays = this.getCompleteOverlays()
-    overlays.forEach(overlay => {
-      if (overlay.visible) {
-        this._drawOverlay(ctx, overlay)
+    // Scopes the hit-area debug halo to overlays — see `setDrawingOverlay`.
+    setDrawingOverlay(true)
+    try {
+      const overlays = this.getCompleteOverlays()
+      overlays.forEach(overlay => {
+        if (overlay.visible) {
+          this._drawOverlay(ctx, overlay)
+        }
+      })
+      const progressOverlay = this.getProgressOverlay()
+      if (isValid(progressOverlay) && progressOverlay.visible) {
+        this._drawOverlay(ctx, progressOverlay)
       }
-    })
-    const progressOverlay = this.getProgressOverlay()
-    if (isValid(progressOverlay) && progressOverlay.visible) {
-      this._drawOverlay(ctx, progressOverlay)
+    } finally {
+      setDrawingOverlay(false)
     }
   }
 

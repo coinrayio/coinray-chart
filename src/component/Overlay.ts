@@ -299,6 +299,25 @@ export const OVERLAY_ID_PREFIX = 'overlay_'
 
 export const OVERLAY_FIGURE_KEY_PREFIX = 'overlay_figure_'
 
+/**
+ * Debug aid: trace how a drag moves an overlay's points. Off by default —
+ * turn it on with `setOverlayDragDebug(true)` when a drawing's anchors end up
+ * somewhere other than where the drag should have put them. Every press logs
+ * the grabbed point and the starting anchors; every move logs the
+ * bar/value deltas being applied and the anchors that came out, so a point
+ * that shifts by a different amount than its neighbours is visible directly.
+ */
+let dragDebug = false
+
+export function setOverlayDragDebug (enabled: boolean): void {
+  dragDebug = enabled
+}
+
+function logDrag (stage: string, payload: Record<string, unknown>): void {
+  if (!dragDebug) return
+  console.log(`[overlay-drag] ${stage}`, payload)
+}
+
 export default class OverlayImp<E = unknown> implements Overlay<E> {
   id: string
   groupId = ''
@@ -717,10 +736,24 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
 
     if (!lockTime) {
       this.points[pointIndex].timestamp = point.timestamp
+      // `dataIndex` has to travel with the timestamp. It is the field the
+      // whole-overlay drag translates from (`eventPressedOtherMove`), and it
+      // is only re-derived from the timestamp when absent — so leaving the old
+      // one behind means the next body drag moves this anchor from where it
+      // used to be rather than from where the user just put it, and the
+      // drawing changes shape mid-drag.
+      if (isNumber(point.dataIndex)) {
+        this.points[pointIndex].dataIndex = point.dataIndex
+      }
     }
     if (!lockPrice && isNumber(point.value)) {
       this.points[pointIndex].value = point.value
     }
+    logDrag('point-move', {
+      pointIndex,
+      to: { dataIndex: point.dataIndex, timestamp: point.timestamp, value: point.value },
+      points: clone(this.points)
+    })
     this.performEventPressedMove?.({
       currentStep: this.currentStep,
       points: this.points,
@@ -733,6 +766,12 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   startPressedMove (point: Partial<Point>): void {
     this._prevPressedPoint = { ...point }
     this._prevPressedPoints = clone(this.points)
+    logDrag('press-start', {
+      id: this.id,
+      name: this.name,
+      grabbedAt: { ...point },
+      points: clone(this.points)
+    })
   }
 
   eventPressedOtherMove (point: Partial<Point>, chartStore: ChartStore): void {
@@ -772,6 +811,13 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
           newPoint.value = p.value + difValue
         }
         return newPoint
+      })
+      logDrag('translate', {
+        id: this.id,
+        difDataIndex,
+        difValue,
+        from: clone(this._prevPressedPoints),
+        to: clone(this.points)
       })
     }
   }

@@ -16,7 +16,7 @@ import type Nullable from '../../common/Nullable'
 import type Coordinate from '../../common/Coordinate'
 import type { SmoothLineStyle } from '../../common/Styles'
 
-import { type FigureTemplate, DEVIATION } from '../../component/Figure'
+import { type FigureTemplate, DEVIATION, isHitAreaDebug } from '../../component/Figure'
 import { isNumber } from '../../common/utils/typeChecks'
 
 export function checkCoordinateOnLine (coordinate: Coordinate, attrs: LineAttrs | LineAttrs[]): boolean {
@@ -138,10 +138,36 @@ export function lineTo (ctx: CanvasRenderingContext2D, coordinates: Coordinate[]
   }
 }
 
+/**
+ * Paints the grab band around each line — a flat translucent stroke as wide as
+ * the hit test is tolerant. Debug only; `setHitAreaDebug` gates it.
+ */
+function drawLineHitArea (ctx: CanvasRenderingContext2D, lines: LineAttrs[], smooth: SmoothLineStyle['smooth']): void {
+  ctx.save()
+  ctx.lineWidth = DEVIATION * 2
+  ctx.strokeStyle = 'rgba(21, 93, 252, 0.22)'
+  ctx.lineCap = 'butt'
+  ctx.lineJoin = 'round'
+  ctx.setLineDash([])
+  lines.forEach(({ coordinates }) => {
+    if (coordinates.length > 1) {
+      ctx.beginPath()
+      ctx.moveTo(coordinates[0].x, coordinates[0].y)
+      lineTo(ctx, coordinates, smooth)
+      ctx.stroke()
+      ctx.closePath()
+    }
+  })
+  ctx.restore()
+}
+
 export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | LineAttrs[], styles: Partial<SmoothLineStyle> & { lineCap?: CanvasLineCap, lineJoin?: CanvasLineJoin }): void {
   let lines: LineAttrs[] = []
   lines = lines.concat(attrs)
   const { style = 'solid', smooth = false, size = 1, color = 'currentColor', dashedValue = [2, 2], lineCap, lineJoin } = styles
+  if (isHitAreaDebug()) {
+    drawLineHitArea(ctx, lines, smooth)
+  }
   ctx.lineWidth = size
   ctx.strokeStyle = color
   // Use explicit lineCap/lineJoin if provided, otherwise default based on smooth
