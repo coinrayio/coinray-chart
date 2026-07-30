@@ -796,12 +796,63 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     }
   }
 
-  private _coordinateToPoint (o: Overlay, coordinate: Coordinate): Partial<Point> {
+  /**
+   * Constrain the in-progress point to 45° steps from the anchor already
+   * placed, in SCREEN space — the angles the user sees, not value-space ones,
+   * which would depend on the current scale. Held Shift only; the cursor's
+   * distance along the chosen direction is preserved, so the drawing follows
+   * the pointer as far as it reaches and only its angle is quantised.
+   *
+   * Returns the coordinate unchanged when there is nothing to anchor to (the
+   * first click of a drawing, or an anchor with no resolvable position).
+   */
+  private _constrainToAngle (o: Overlay, coordinate: Coordinate): Coordinate {
+    const overlayImp = o as OverlayImp
+    if (!overlayImp.isDrawing()) return coordinate
+    // `currentStep - 1` is the point tracking the cursor, so the one before
+    // it is the last anchor the user committed.
+    const anchor = o.points[o.currentStep - 2] as Partial<Point> | undefined
+    if (anchor === undefined) return coordinate
+
+    const pane = this.getWidget().getPane()
+    const chart = pane.getChart()
+    const chartStore = chart.getChartStore()
+    const dataIndex = isNumber(anchor.dataIndex)
+      ? anchor.dataIndex
+      : (isNumber(anchor.timestamp) ? chartStore.timestampToDataIndex(anchor.timestamp) : null)
+    if (dataIndex === null || !isNumber(anchor.value)) return coordinate
+
+    const anchorX = chart.getXAxisPane().getAxisComponent().convertToPixel(dataIndex)
+    const anchorY = pane.getAxisComponent().convertToPixel(anchor.value)
+    const dx = coordinate.x - anchorX
+    const dy = coordinate.y - anchorY
+    if (dx === 0 && dy === 0) return coordinate
+
+    const step = Math.PI / 4
+    const angle = Math.round(Math.atan2(dy, dx) / step) * step
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    // Project the cursor onto the snapped direction rather than keeping its
+    // raw distance: sliding sideways then shortens the line instead of
+    // swinging its far end out past the pointer.
+    const reach = dx * cos + dy * sin
+    return { x: anchorX + reach * cos, y: anchorY + reach * sin }
+  }
+
+  private _coordinateToPoint (o: Overlay, event: MouseTouchEvent): Partial<Point> {
     const point: Partial<Point> = {}
     const pane = this.getWidget().getPane()
     const chart = pane.getChart()
     const paneId = pane.getId()
     const chartStore = chart.getChartStore()
+    const coordinate = event.shiftKey === true ? this._constrainToAngle(o, event) : event
+    // Meta (Cmd) / Ctrl inverts magnet for as long as it is held: a tool drawn
+    // with magnet on goes free, and one drawn with magnet off snaps at the
+    // strength the user last picked.
+    const magnetInverted = event.metaKey === true || event.ctrlKey === true
+    const mode = magnetInverted
+      ? (o.mode === 'normal' ? chartStore.getPreferredMagnetMode() : 'normal')
+      : o.mode
     if (this.coordinateToPointTimestampDataIndexFlag()) {
       const overlayImp = o as OverlayImp
       if (overlayImp.isContinuousDrawing() && !overlayImp.isStart()) {
@@ -820,7 +871,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     if (this.coordinateToPointValueFlag()) {
       const yAxis = pane.getAxisComponent()
       let value = yAxis.convertFromPixel(coordinate.y)
-      if (o.mode !== 'normal' && paneId === PaneIdConstants.CANDLE && isNumber(point.dataIndex)) {
+      if (mode !== 'normal' && paneId === PaneIdConstants.CANDLE && isNumber(point.dataIndex)) {
         const kLineData = chartStore.getDataByDataIndex(point.dataIndex)
         if (kLineData !== null) {
           // ALTD-1898 — both magnet modes now share one code
@@ -853,7 +904,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
               nearestDist = dist
             }
           }
-          if (o.mode === 'strong_magnet' || nearestDist <= o.modeSensitivity) {
+          if (mode === 'strong_magnet' || nearestDist <= o.modeSensitivity) {
             value = nearest.value
           }
         }

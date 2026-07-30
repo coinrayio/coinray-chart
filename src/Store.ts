@@ -44,7 +44,7 @@ import type IndicatorImp from './component/Indicator'
 import { getIndicatorClass } from './extension/indicator/index'
 
 import type OverlayImp from './component/Overlay'
-import { type OverlayCreate, OVERLAY_ID_PREFIX, type OverlayFilter, type OverlayFigure, type OverlayOverride } from './component/Overlay'
+import { type OverlayCreate, OVERLAY_ID_PREFIX, type OverlayFilter, type OverlayFigure, type OverlayOverride, type OverlayMode } from './component/Overlay'
 import { getOverlayInnerClass } from './extension/overlay/index'
 
 import { getStyles as getExtensionStyles } from './extension/styles/index'
@@ -368,6 +368,13 @@ export default class StoreImp implements Store {
    * `normal` disables snap. Read by `setCrosshair`.
    */
   private _magnetMode: 'normal' | 'weak' | 'strong' = 'normal'
+
+  /**
+   * The magnet strength to switch ON when Meta/Ctrl inverts magnet during a
+   * draw and the tool's own mode is `normal` — i.e. the last magnet the user
+   * picked. Tracked in `overrideOverlay`, since that is how the host sets it.
+   */
+  private _preferredMagnetMode: Exclude<OverlayMode, 'normal'> = 'weak_magnet'
 
   /**
    * ALTD-1915.5 tail — extend the x-axis tick label with seconds
@@ -1627,6 +1634,10 @@ export default class StoreImp implements Store {
     return this._magnetMode
   }
 
+  getPreferredMagnetMode (): Exclude<OverlayMode, 'normal'> {
+    return this._preferredMagnetMode
+  }
+
   /**
    * ALTD-1915.5 tail — toggle the seconds-in-x-axis format. Pure
    * state mutation; the caller (Chart.setShowSeconds) is expected
@@ -2004,6 +2015,13 @@ export default class StoreImp implements Store {
   }
 
   overrideOverlay (override: OverlayOverride): boolean {
+    // Remember the magnet strength the user last chose, so the Meta/Ctrl
+    // invert knows which magnet to turn ON when the current mode is
+    // `normal`. The host toggles magnet through this same call, so there is
+    // nothing extra for it to wire up.
+    if (isValid(override.mode) && override.mode !== 'normal') {
+      this._preferredMagnetMode = override.mode
+    }
     let sortFlag = false
     const updatePaneIds: string[] = []
     const filterOverlays = this.getOverlaysByFilter(override)
