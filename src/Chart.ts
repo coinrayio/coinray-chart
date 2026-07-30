@@ -1115,11 +1115,28 @@ export default class ChartImp implements Chart {
   }
 
   getPaneOptions (id?: string): Nullable<PaneOptions> | PaneOptions[] {
+    // `options.height` only ever holds what was last passed to
+    // `setPaneOptions`, so it goes stale the moment a separator is dragged.
+    // Report the live height instead — and while a pane is maximised, the
+    // height worth reporting is the one snapshotted before it took over the
+    // widget, since that is what restoring it puts back. This is what makes
+    // the layout round-trip through a host's storage.
+    const withLiveHeight = (pane: DrawPane): PaneOptions => {
+      const options = pane.getOptions()
+      // A maximised pane's live bounding is the whole widget, and its hidden
+      // siblings' are zero — in both cases the height worth reporting is the
+      // one snapshotted before the maximise, which is what a restore puts back.
+      const useOriginal = options.state === 'maximize' || !pane.getVisible()
+      const height = useOriginal
+        ? pane.getOriginalBounding().height
+        : pane.getBounding().height
+      return { ...options, height }
+    }
     if (isValid(id)) {
       const pane = this.getDrawPaneById(id)
-      return pane?.getOptions() ?? null
+      return isValid(pane) ? withLiveHeight(pane) : null
     }
-    return this._drawPanes.map(pane => pane.getOptions())
+    return this._drawPanes.map(withLiveHeight)
   }
 
   setZoomEnabled (enabled: boolean): void {
