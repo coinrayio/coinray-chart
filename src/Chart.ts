@@ -83,6 +83,11 @@ export interface Chart extends Store {
   getIndicators: (filter?: IndicatorFilter) => Indicator[]
   createOverlay: (value: string | OverlayCreate | Array<string | OverlayCreate>) => Nullable<string> | Array<Nullable<string>>
   getOverlays: (filter?: OverlayFilter) => Overlay[]
+  /** Ids of every selected overlay — one after a plain click, more after
+   *  Cmd/Ctrl-clicks or a marquee drag. */
+  getSelectedOverlayIds: () => string[]
+  /** Replace the selection. `[]` clears it. */
+  setSelectedOverlayIds: (ids: string[]) => void
   setPaneOptions: (options: PaneOptions) => void
   getPaneOptions: (id?: string) => Nullable<PaneOptions> | PaneOptions[]
   scrollByDistance: (distance: number, animationDuration?: number) => void
@@ -933,6 +938,14 @@ export default class ChartImp implements Chart {
 
   getOverlays (filter?: OverlayFilter): Overlay[] {
     return this._chartStore.getOverlaysByFilter(filter ?? {})
+  }
+
+  getSelectedOverlayIds (): string[] {
+    return this._chartStore.getSelectedOverlayIds()
+  }
+
+  setSelectedOverlayIds (ids: string[]): void {
+    this._chartStore.setSelectedOverlayIds(ids)
   }
 
   overrideOverlay (override: OverlayOverride): boolean {

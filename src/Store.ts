@@ -81,6 +81,64 @@ export interface EventOverlayInfo {
 
 type ProcessOverlayEventCallback = (overlay: OverlayImp, figure: Nullable<OverlayFigure>) => boolean
 
+/**
+ * A marquee drag in progress. `x1/y1` is where the press landed and `x2/y2`
+ * follows the pointer, so either may be the smaller — consumers normalise.
+ */
+export interface OverlaySelectionRect {
+  paneId: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+interface XY { x: number, y: number }
+
+/**
+ * Does the segment `a`→`b` meet the axis-aligned rect? Uses Cohen–Sutherland
+ * region codes: trivially accept when either end is inside, trivially reject
+ * when both ends share an outside region, and otherwise clip the segment
+ * against the offending edge and retry.
+ */
+function segmentIntersectsRect (a: XY, b: XY, left: number, top: number, right: number, bottom: number): boolean {
+  const code = (p: XY): number =>
+    (p.x < left ? 1 : 0) | (p.x > right ? 2 : 0) | (p.y < top ? 4 : 0) | (p.y > bottom ? 8 : 0)
+  let { x: x1, y: y1 } = a
+  let { x: x2, y: y2 } = b
+  let c1 = code({ x: x1, y: y1 })
+  let c2 = code({ x: x2, y: y2 })
+  for (;;) {
+    if ((c1 | c2) === 0) return true
+    if ((c1 & c2) !== 0) return false
+    const outside = c1 !== 0 ? c1 : c2
+    let x = 0
+    let y = 0
+    if ((outside & 8) !== 0) {
+      x = x1 + (x2 - x1) * (bottom - y1) / (y2 - y1)
+      y = bottom
+    } else if ((outside & 4) !== 0) {
+      x = x1 + (x2 - x1) * (top - y1) / (y2 - y1)
+      y = top
+    } else if ((outside & 2) !== 0) {
+      y = y1 + (y2 - y1) * (right - x1) / (x2 - x1)
+      x = right
+    } else {
+      y = y1 + (y2 - y1) * (left - x1) / (x2 - x1)
+      x = left
+    }
+    if (outside === c1) {
+      x1 = x
+      y1 = y
+      c1 = code({ x: x1, y: y1 })
+    } else {
+      x2 = x
+      y2 = y
+      c2 = code({ x: x2, y: y2 })
+    }
+  }
+}
+
 const DEFAULT_BAR_SPACE = 10
 
 const DEFAULT_OFFSET_RIGHT_DISTANCE = 80
@@ -442,6 +500,24 @@ export default class StoreImp implements Store {
     figureIndex: -1,
     figure: null
   }
+
+  /**
+   * Ids of every selected overlay.
+   *
+   * `_clickOverlayInfo` is the single overlay the last click landed on — it
+   * drives per-overlay events (onSelected / onDeselected) and the inline text
+   * editor. This set is the wider selection a Cmd/Ctrl-click or a marquee
+   * builds up, and is what "delete everything selected" acts on. A plain click
+   * collapses it to the one clicked overlay, so the two never disagree about
+   * what a single-selection looks like.
+   */
+  private _selectedOverlayIds = new Set<string>()
+
+  /**
+   * The in-flight marquee (Cmd/Ctrl-drag on empty chart space), in pane-local
+   * pixels. Non-null only while the drag is running.
+   */
+  private _overlaySelectionRect: Nullable<OverlaySelectionRect> = null
 
   constructor (chart: Chart, options?: Options) {
     this._chart = chart
@@ -2054,6 +2130,9 @@ export default class StoreImp implements Store {
 
   removeOverlay (filter: OverlayFilter): boolean {
     const updatePaneIds: string[] = []
+    // Compared after the loop rather than tracked with a flag: the deletions
+    // happen inside a callback, where a `let` wouldn't narrow.
+    const selectionSizeBefore = this._selectedOverlayIds.size
     const filterOverlays = this.getOverlaysByFilter(filter)
     if (filterOverlays.length > 1) {
       // Bulk path: a groupId/name filter can match thousands of overlays (e.g. a script's
@@ -2065,6 +2144,9 @@ export default class StoreImp implements Store {
       const idsByPaneId = new Map<string, Set<string>>()
       filterOverlays.forEach(overlay => {
         const paneId = overlay.paneId
+        // A removed overlay must not linger in the selection — otherwise a
+        // later "delete selected" would chase an id that no longer exists.
+        this._selectedOverlayIds.delete(overlay.id)
         overlay.onRemoved?.({ overlay, chart: this._chart })
         if (!updatePaneIds.includes(paneId)) {
           updatePaneIds.push(paneId)
@@ -2100,6 +2182,9 @@ export default class StoreImp implements Store {
       filterOverlays.forEach(overlay => {
         const paneId = overlay.paneId
         const paneOverlays = this.getOverlaysByPaneId(overlay.paneId)
+        // A removed overlay must not linger in the selection — otherwise a
+        // later "delete selected" would chase an id that no longer exists.
+        this._selectedOverlayIds.delete(overlay.id)
         overlay.onRemoved?.({ overlay, chart: this._chart })
         if (!updatePaneIds.includes(paneId)) {
           updatePaneIds.push(paneId)
@@ -2123,6 +2208,9 @@ export default class StoreImp implements Store {
           this._overlays.delete(paneId)
         }
       })
+    }
+    if (this._selectedOverlayIds.size !== selectionSizeBefore) {
+      this.executeAction('onSelectedOverlaysChange', this.getSelectedOverlayIds())
     }
     if (updatePaneIds.length > 0) {
       updatePaneIds.forEach(paneId => {
@@ -2215,6 +2303,89 @@ export default class StoreImp implements Store {
 
   getClickOverlayInfo (): EventOverlayInfo {
     return this._clickOverlayInfo
+  }
+
+  getSelectedOverlayIds (): string[] {
+    return [...this._selectedOverlayIds]
+  }
+
+  isOverlaySelected (id: string): boolean {
+    return this._selectedOverlayIds.has(id)
+  }
+
+  /** Replace the selection wholesale. Pass `[]` to clear. */
+  setSelectedOverlayIds (ids: string[]): void {
+    const next = new Set(ids)
+    if (next.size === this._selectedOverlayIds.size && ids.every(id => this._selectedOverlayIds.has(id))) {
+      return
+    }
+    this._selectedOverlayIds = next
+    this._notifySelectionChanged()
+  }
+
+  /** Add or remove one overlay — the Cmd/Ctrl-click gesture. */
+  toggleSelectedOverlayId (id: string): void {
+    if (this._selectedOverlayIds.has(id)) {
+      this._selectedOverlayIds.delete(id)
+    } else {
+      this._selectedOverlayIds.add(id)
+    }
+    this._notifySelectionChanged()
+  }
+
+  /** Repaint the handles and tell subscribers (the host's multi-select
+   *  toolbar) what is selected now. */
+  private _notifySelectionChanged (): void {
+    this._chart.updatePane(UpdateLevel.Overlay)
+    this.executeAction('onSelectedOverlaysChange', this.getSelectedOverlayIds())
+  }
+
+  getOverlaySelectionRect (): Nullable<OverlaySelectionRect> {
+    return this._overlaySelectionRect
+  }
+
+  setOverlaySelectionRect (rect: Nullable<OverlaySelectionRect>): void {
+    this._overlaySelectionRect = rect
+    this._chart.updatePane(UpdateLevel.Overlay)
+  }
+
+  /**
+   * Every overlay whose drawn shape meets the given pane-local rect. Points are
+   * tested individually and the segments between consecutive points are tested
+   * too, so a trendline crossing the marquee counts even when both of its
+   * handles sit outside it.
+   */
+  selectOverlaysByRect (rect: OverlaySelectionRect): string[] {
+    // Same cast as `_magnet`: the Store holds the `Chart` interface, while
+    // pane lookup and the y-axis live on the concrete ChartImp / DrawPane.
+    interface DrawPaneLike { getAxisComponent: () => { convertToPixel: (value: number) => number } }
+    interface ChartLike { getDrawPaneById: (id: string) => DrawPaneLike | null }
+    const yAxis = (this._chart as unknown as ChartLike).getDrawPaneById(rect.paneId)?.getAxisComponent()
+    if (yAxis == null) return []
+    const left = Math.min(rect.x1, rect.x2)
+    const right = Math.max(rect.x1, rect.x2)
+    const top = Math.min(rect.y1, rect.y2)
+    const bottom = Math.max(rect.y1, rect.y2)
+    const ids: string[] = []
+    this.getOverlaysByPaneId(rect.paneId).forEach(overlay => {
+      if (!overlay.visible || overlay.isDrawing()) return
+      const coordinates = overlay.points.map(point => {
+        const dataIndex = isNumber(point.timestamp)
+          ? this.timestampToDataIndex(point.timestamp)
+          : point.dataIndex
+        return {
+          x: isNumber(dataIndex) ? this.dataIndexToCoordinate(dataIndex) : 0,
+          y: isNumber(point.value) ? yAxis.convertToPixel(point.value) : 0
+        }
+      })
+      if (coordinates.length === 0) return
+      const hit = coordinates.some(c => c.x >= left && c.x <= right && c.y >= top && c.y <= bottom) ||
+        coordinates.some((c, i) => (
+          i > 0 && segmentIntersectsRect(coordinates[i - 1], c, left, top, right, bottom)
+        ))
+      if (hit) ids.push(overlay.id)
+    })
+    return ids
   }
 
   isOverlayEmpty (): boolean {

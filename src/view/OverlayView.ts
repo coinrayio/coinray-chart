@@ -40,6 +40,10 @@ import { getTextRect } from '../extension/figure/text'
 
 import View from './View'
 
+/** Marquee paint. Neutral blue, readable over both chart themes. */
+const SELECTION_RECT_FILL = 'rgba(41, 98, 255, 0.12)'
+const SELECTION_RECT_STROKE = 'rgba(41, 98, 255, 0.9)'
+
 export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   private _activeTextEditor: Nullable<{
     input: HTMLInputElement | HTMLTextAreaElement
@@ -140,6 +144,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         (o, f) => this._processOverlaySelectedEvent(o, f, event),
         (o, f) => this._processOverlayDeselectedEvent(o, f, event)
       )
+      // A click on empty space drops the whole selection — but not when it
+      // ends a Cmd/Ctrl-drag, which is the marquee that just built one.
+      if (event.metaKey !== true && event.ctrlKey !== true) {
+        chartStore.setSelectedOverlayIds([])
+      }
       return false
     }).registerEvent('mouseDoubleClickEvent', event => {
       const progressOverlayInfo = chartStore.getProgressOverlayInfo()
@@ -762,6 +771,17 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       if (check) {
         overlay.onClick?.({ chart, overlay, figure, ...event })
       }
+
+      // Cmd/Ctrl-click extends the selection instead of replacing it, and
+      // leaves `clickOverlayInfo` alone so the additions don't each become
+      // "the" selected overlay. A plain click collapses the selection to
+      // just this one.
+      if (event.metaKey === true || event.ctrlKey === true) {
+        chartStore.toggleSelectedOverlayId(overlay.id)
+        return check
+      }
+      chartStore.setSelectedOverlayIds([overlay.id])
+
       chartStore.setClickOverlayInfo(
         { paneId, overlay, figureType, figureIndex, figure },
         (o, f) => this._processOverlaySelectedEvent(o, f, event),
@@ -947,6 +967,32 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     } finally {
       setDrawingOverlay(false)
     }
+    this._drawSelectionRect(ctx)
+  }
+
+  /**
+   * The marquee itself — a translucent rectangle following a Cmd/Ctrl-drag.
+   * Drawn last so it sits over the overlays it is picking up, and only in the
+   * pane the drag started in (the rect's coordinates are pane-local).
+   */
+  private _drawSelectionRect (ctx: CanvasRenderingContext2D): void {
+    const pane = this.getWidget().getPane()
+    const rect = pane.getChart().getChartStore().getOverlaySelectionRect()
+    if (rect?.paneId !== pane.getId()) return
+    const x = Math.min(rect.x1, rect.x2)
+    const y = Math.min(rect.y1, rect.y2)
+    const width = Math.abs(rect.x2 - rect.x1)
+    const height = Math.abs(rect.y2 - rect.y1)
+    if (width < 1 && height < 1) return
+    ctx.save()
+    ctx.fillStyle = SELECTION_RECT_FILL
+    ctx.strokeStyle = SELECTION_RECT_STROKE
+    ctx.lineWidth = 1
+    ctx.fillRect(x, y, width, height)
+    // Half-pixel offset keeps the 1px border crisp rather than straddling
+    // two device pixels.
+    ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1)
+    ctx.restore()
   }
 
   private _drawOverlay (
@@ -1259,7 +1305,10 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       const clickOverlayInfo = chartStore.getClickOverlayInfo()
       if (
         (hoverOverlayInfo.overlay?.id === overlay.id && hoverOverlayInfo.figureType !== 'none') ||
-        (clickOverlayInfo.overlay?.id === overlay.id && clickOverlayInfo.figureType !== 'none')
+        (clickOverlayInfo.overlay?.id === overlay.id && clickOverlayInfo.figureType !== 'none') ||
+        // Part of a multi-selection (Cmd/Ctrl-click or marquee): show the same
+        // handles a single click gives, so what will be deleted is visible.
+        chartStore.isOverlaySelected(overlay.id)
       ) {
         const defaultStyles = chartStore.getStyles().overlay
         const styles = overlay.styles
