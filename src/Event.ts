@@ -58,6 +58,11 @@ export default class Event implements EventHandler {
 
   private _mouseDownWidget: Nullable<Widget> = null
 
+  // Marquee drag (Cmd/Ctrl + drag on empty chart space) — where the press
+  // landed, in pane-local pixels, plus which pane it belongs to. Non-null for
+  // the life of the gesture; while set, the drag selects instead of scrolling.
+  private _selectionStart: Nullable<{ paneId: string, x: number, y: number }> = null
+
   private _prevYAxisRange: Nullable<AxisRange> = null
 
   private _xAxisStartScaleCoordinate: Nullable<Coordinate> = null
@@ -161,6 +166,22 @@ export default class Event implements EventHandler {
         case WidgetNameConstants.MAIN: {
           // Dispatch event first to allow overlays (e.g., continuous drawing) to consume it
           const consumed = widget.dispatchEvent('mouseDownEvent', event)
+          // Cmd/Ctrl + press on empty chart space starts a marquee rather than
+          // a pan. `consumed` is the test for "empty": a press that landed on
+          // an overlay is consumed by it, and that gesture is the drag-to-
+          // duplicate one instead.
+          if (
+            !consumed &&
+            (event.metaKey === true || event.ctrlKey === true) &&
+            !this._chart.getChartStore().isOverlayDrawing()
+          ) {
+            const paneId = pane?.getId() ?? ''
+            this._selectionStart = { paneId, x: event.x, y: event.y }
+            this._chart.getChartStore().setOverlaySelectionRect({
+              paneId, x1: event.x, y1: event.y, x2: event.x, y2: event.y
+            })
+            return true
+          }
           // Only start scrolling if the event was not consumed by an overlay
           if (!consumed) {
             const yAxis = (pane as DrawPane<YAxis>).getAxisComponent()
@@ -238,6 +259,19 @@ export default class Event implements EventHandler {
       const name = widget.getName()
       switch (name) {
         case WidgetNameConstants.MAIN: {
+          // Marquee in flight: grow the rect and swallow the move, so the
+          // chart neither scrolls nor shows a crosshair mid-selection.
+          const selectionStart = this._selectionStart
+          if (selectionStart !== null) {
+            this._chart.getChartStore().setOverlaySelectionRect({
+              paneId: selectionStart.paneId,
+              x1: selectionStart.x,
+              y1: selectionStart.y,
+              x2: event.x,
+              y2: event.y
+            })
+            return true
+          }
           // eslint-disable-next-line @typescript-eslint/init-declarations -- ignore
           let crosshair: Crosshair | undefined
           const consumed = widget.dispatchEvent('pressedMouseMoveEvent', event)
@@ -265,6 +299,22 @@ export default class Event implements EventHandler {
   }
 
   mouseUpEvent (e: MouseTouchEvent): boolean {
+    // Close a marquee before anything else: commit whatever it swept up and
+    // drop the rect. Adds to the existing selection, so several sweeps (and
+    // Cmd-clicks) accumulate the way TradingView's do.
+    if (this._selectionStart !== null) {
+      const store = this._chart.getChartStore()
+      const rect = store.getOverlaySelectionRect()
+      if (rect !== null && (Math.abs(rect.x2 - rect.x1) > 1 || Math.abs(rect.y2 - rect.y1) > 1)) {
+        const swept = store.selectOverlaysByRect(rect)
+        store.setSelectedOverlayIds([...new Set([...store.getSelectedOverlayIds(), ...swept])])
+      }
+      store.setOverlaySelectionRect(null)
+      this._selectionStart = null
+      this._mouseDownWidget = null
+      this._startScrollCoordinate = null
+      return true
+    }
     const { widget } = this._findWidgetByEvent(e)
     let consumed = false
     if (widget !== null) {
