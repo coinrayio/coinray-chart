@@ -30,7 +30,10 @@ const parallelogram = (): ProOverlayTemplate => {
   const parallelogramStyle = (id: string): Partial<PolygonStyle> => {
     const props = properties.get(id) ?? {}
     return {
-      style: props.style ?? DEFAULT_OVERLAY_PROPERTIES.style,
+      // An explicitly-set fill colour implies the shape is filled. Without
+      // this, picking a fill colour does nothing until the separate 'Fill
+      // style' select is also switched off the default 'stroke'.
+      style: props.style ?? (props.backgroundColor !== undefined ? 'stroke_fill' : DEFAULT_OVERLAY_PROPERTIES.style),
       color: props.backgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.backgroundColor,
       borderColor: props.borderColor ?? DEFAULT_OVERLAY_PROPERTIES.borderColor,
       borderSize: props.borderWidth ?? DEFAULT_OVERLAY_PROPERTIES.borderWidth,
