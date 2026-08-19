@@ -46,6 +46,20 @@ import williamsR from './williamsR'
 
 const indicators: Record<string, IndicatorConstructor> = {}
 
+/**
+ * The template each registered indicator was built from, kept alongside its
+ * constructor so callers can read an indicator's metadata — `shortName`,
+ * `series`, `precision`, `calcParams` — without instantiating it.
+ *
+ * A UI that lists the indicators a chart can create (a picker, a settings
+ * editor) needs exactly this and nothing else. Going through
+ * `getIndicatorClass` would mean `new`-ing every entry to read one field, and
+ * the constructor clones state; more to the point, an indicator registered by a
+ * host through `registerIndicator` lands here too, so such a UI can be built
+ * from the registry rather than from a hardcoded list that silently omits it.
+ */
+const templates: Record<string, IndicatorTemplate> = {}
+
 const extensions = [
   averagePrice, awesomeOscillator, bias, bollingerBands, brar,
   bullAndBearIndex, commodityChannelIndex, currentRatio, differentOfMovingAverage,
@@ -57,18 +71,25 @@ const extensions = [
 
 extensions.forEach((indicator: IndicatorTemplate) => {
   indicators[indicator.name] = IndicatorImp.extend(indicator)
+  templates[indicator.name] = indicator
 })
 
 function registerIndicator<D = unknown, C = unknown, E = unknown> (indicator: IndicatorTemplate<D, C, E>): void {
   indicators[indicator.name] = IndicatorImp.extend(indicator)
+  templates[indicator.name] = indicator as unknown as IndicatorTemplate
 }
 
 function getIndicatorClass (name: string): Nullable<IndicatorConstructor> {
   return indicators[name] ?? null
 }
 
+/** The template `name` was registered with, or null. See `templates` above. */
+function getIndicatorTemplate (name: string): Nullable<IndicatorTemplate> {
+  return templates[name] ?? null
+}
+
 function getSupportedIndicators (): string[] {
   return Object.keys(indicators)
 }
 
-export { registerIndicator, getIndicatorClass, getSupportedIndicators }
+export { registerIndicator, getIndicatorClass, getIndicatorTemplate, getSupportedIndicators }
