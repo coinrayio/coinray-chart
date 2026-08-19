@@ -71,7 +71,7 @@ import { checkCoordinateOnRect } from './extension/figure/rect'
 import { checkCoordinateOnText } from './extension/figure/text'
 
 import { registerFigure, getSupportedFigures, getFigureClass } from './extension/figure/index'
-import { registerIndicator, getSupportedIndicators } from './extension/indicator/index'
+import { registerIndicator, getSupportedIndicators, getIndicatorTemplate } from './extension/indicator/index'
 import { registerLocale, getSupportedLocales } from './extension/i18n/index'
 import {
   registerOverlay, getOverlayClass, getSupportedOverlays,
@@ -186,7 +186,7 @@ const utils = {
 export {
   version, init, dispose,
   registerFigure, getSupportedFigures, getFigureClass,
-  registerIndicator, getSupportedIndicators,
+  registerIndicator, getSupportedIndicators, getIndicatorTemplate,
   registerOverlay, getSupportedOverlays, getOverlayClass,
   registerLocale, getSupportedLocales,
   registerStyles,
