@@ -166,3 +166,8 @@ export { createPriceLine } from './priceLineApi'
 // Export trade line types and fluent API
 export type { TradeLineProperties, TradeLine, TradeLineOptions } from './tradeLineApi'
 export { createTradeLine } from './tradeLineApi'
+
+// Export wide trade-arrow point geometry — single source of truth for the
+// "wide" arrow glyph, shared with the Superchart script-marker glyph
+export type { WideArrowDirection, WideArrowGeometry } from './tradeArrowGeometry'
+export { wideArrowGeometry } from './tradeArrowGeometry'

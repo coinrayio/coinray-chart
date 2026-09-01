@@ -39,6 +39,7 @@ import { merge, clone } from '../../common/utils/typeChecks'
 
 import type { ProOverlayTemplate } from './types'
 import type { TradeLineProperties } from './tradeLineApi'
+import { wideArrowGeometry, BASE_BODY_H as WIDE_BODY_H, BASE_HEAD_H as WIDE_HEAD_H } from './tradeArrowGeometry'
 
 // ---------------------------------------------------------------------------
 // Default style constants
@@ -60,11 +61,10 @@ const defaultTradeLineStyle: Required<Omit<TradeLineProperties, 'timestamp' | 'p
 // Arrow geometry constants — main arrows (inside candle body)
 // ---------------------------------------------------------------------------
 
-// Wide arrow: narrow rect body + wider triangle head (stroke_fill)
-const WIDE_BODY_W = 8
-const WIDE_BODY_H = 12
-const WIDE_HEAD_W = 16
-const WIDE_HEAD_H = 10
+// Wide arrow: narrow rect body + wider triangle head (stroke_fill).
+// Point geometry lives in `tradeArrowGeometry.ts` (`wideArrowGeometry`) —
+// the sole source of truth, also consumed outside this package via the
+// `wideArrowGeometry` export in `src/index.ts`.
 
 // Arrow (line-based): stem + chevron head — smaller than wide
 const ARROW_LINE_W = 2
@@ -255,64 +255,26 @@ function getArrowTotalHeight (arrowType: 'wide' | 'arrow' | 'tiny'): number {
 // ---------------------------------------------------------------------------
 
 function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
-  const halfBodyW = WIDE_BODY_W / 2
-  const halfHeadW = WIDE_HEAD_W / 2
   const strokeFillStyle = { style: 'stroke_fill', color, borderColor: color, borderSize: 1 }
+  const { head, body } = wideArrowGeometry(x, tipY, direction)
+
+  const headFigure: FigureArray[number] = {
+    type: 'polygon',
+    key: 'main-head',
+    attrs: { coordinates: head },
+    styles: strokeFillStyle
+  }
+  const bodyFigure: FigureArray[number] = {
+    type: 'polygon',
+    key: 'main-body',
+    attrs: { coordinates: body },
+    styles: strokeFillStyle
+  }
 
   if (direction === 'up') {
-    const headBase = tipY + WIDE_HEAD_H
-    figures.push({
-      type: 'polygon',
-      key: 'main-head',
-      attrs: {
-        coordinates: [
-          { x, y: tipY },
-          { x: x - halfHeadW, y: headBase },
-          { x: x + halfHeadW, y: headBase }
-        ]
-      },
-      styles: strokeFillStyle
-    })
-    figures.push({
-      type: 'polygon',
-      key: 'main-body',
-      attrs: {
-        coordinates: [
-          { x: x - halfBodyW, y: headBase },
-          { x: x + halfBodyW, y: headBase },
-          { x: x + halfBodyW, y: headBase + WIDE_BODY_H },
-          { x: x - halfBodyW, y: headBase + WIDE_BODY_H }
-        ]
-      },
-      styles: strokeFillStyle
-    })
+    figures.push(headFigure, bodyFigure)
   } else {
-    const headBase = tipY - WIDE_HEAD_H
-    figures.push({
-      type: 'polygon',
-      key: 'main-body',
-      attrs: {
-        coordinates: [
-          { x: x - halfBodyW, y: headBase - WIDE_BODY_H },
-          { x: x + halfBodyW, y: headBase - WIDE_BODY_H },
-          { x: x + halfBodyW, y: headBase },
-          { x: x - halfBodyW, y: headBase }
-        ]
-      },
-      styles: strokeFillStyle
-    })
-    figures.push({
-      type: 'polygon',
-      key: 'main-head',
-      attrs: {
-        coordinates: [
-          { x, y: tipY },
-          { x: x - halfHeadW, y: headBase },
-          { x: x + halfHeadW, y: headBase }
-        ]
-      },
-      styles: strokeFillStyle
-    })
+    figures.push(bodyFigure, headFigure)
   }
 }
 

@@ -1865,7 +1865,24 @@ export default class StoreImp implements Store {
     }
 
     let overlays: OverlayImp[] = []
-    if (isValid(paneId)) {
+    if (isValid(id)) {
+      // ids are globally unique, so at most one overlay can match — stop scanning as
+      // soon as it is found instead of filtering (and concatenating) every pane's array
+      if (isValid(paneId)) {
+        const overlay = this.getOverlaysByPaneId(paneId).find(match)
+        if (isValid(overlay)) {
+          overlays.push(overlay)
+        }
+      } else {
+        for (const paneOverlays of this._overlays.values()) {
+          const overlay = paneOverlays.find(match)
+          if (isValid(overlay)) {
+            overlays.push(overlay)
+            break
+          }
+        }
+      }
+    } else if (isValid(paneId)) {
       overlays = overlays.concat(this.getOverlaysByPaneId(paneId).filter(match))
     } else {
       this._overlays.forEach(paneOverlays => {
@@ -1946,8 +1963,11 @@ export default class StoreImp implements Store {
       return null
     })
     if (updatePaneIds.length > 0) {
-      this._sortOverlays()
+      // only the panes this call actually appended to need re-sorting — every other
+      // pane's array is already sorted from prior insertions, so re-sorting it here
+      // would be a no-op that still costs an O(n log n) pass
       updatePaneIds.forEach(paneId => {
+        this._sortOverlays(paneId)
         this._chart.updatePane(UpdateLevel.Overlay, paneId)
       })
       this._chart.updatePane(UpdateLevel.Overlay, PaneIdConstants.X_AXIS)
@@ -2017,25 +2037,75 @@ export default class StoreImp implements Store {
   removeOverlay (filter: OverlayFilter): boolean {
     const updatePaneIds: string[] = []
     const filterOverlays = this.getOverlaysByFilter(filter)
-    filterOverlays.forEach(overlay => {
-      const paneId = overlay.paneId
-      const paneOverlays = this.getOverlaysByPaneId(overlay.paneId)
-      overlay.onRemoved?.({ overlay, chart: this._chart })
-      if (!updatePaneIds.includes(paneId)) {
-        updatePaneIds.push(paneId)
-      }
-      if (overlay.isDrawing()) {
-        this._progressOverlayInfo = null
-      } else {
-        const index = paneOverlays.findIndex(o => o.id === overlay.id)
-        if (index > -1) {
-          paneOverlays.splice(index, 1)
+    if (filterOverlays.length > 1) {
+      // Bulk path: a groupId/name filter can match thousands of overlays (e.g. a script's
+      // teardown). Removing them one at a time below costs a findIndex+splice per overlay —
+      // O(n) against a shrinking pane array, O(n*m) overall. Instead, run every overlay's
+      // onRemoved callback first (in the same order as the single-match path), collect the
+      // removed ids per pane, then rewrite each touched pane's array with a single
+      // in-place pass.
+      const idsByPaneId = new Map<string, Set<string>>()
+      filterOverlays.forEach(overlay => {
+        const paneId = overlay.paneId
+        overlay.onRemoved?.({ overlay, chart: this._chart })
+        if (!updatePaneIds.includes(paneId)) {
+          updatePaneIds.push(paneId)
         }
-      }
-      if (paneOverlays.length === 0) {
-        this._overlays.delete(paneId)
-      }
-    })
+        if (overlay.isDrawing()) {
+          this._progressOverlayInfo = null
+        } else {
+          let ids = idsByPaneId.get(paneId)
+          if (!isValid(ids)) {
+            ids = new Set<string>()
+            idsByPaneId.set(paneId, ids)
+          }
+          ids.add(overlay.id)
+        }
+      })
+      idsByPaneId.forEach((ids, paneId) => {
+        // mutate the array in place (rather than replacing the map entry) since
+        // getOverlaysByPaneId hands out this exact array reference to callers
+        const paneOverlays = this.getOverlaysByPaneId(paneId)
+        let writeIndex = 0
+        for (const overlay of paneOverlays) {
+          if (!ids.has(overlay.id)) {
+            paneOverlays[writeIndex] = overlay
+            writeIndex++
+          }
+        }
+        paneOverlays.length = writeIndex
+        if (paneOverlays.length === 0) {
+          this._overlays.delete(paneId)
+        }
+      })
+    } else {
+      filterOverlays.forEach(overlay => {
+        const paneId = overlay.paneId
+        const paneOverlays = this.getOverlaysByPaneId(overlay.paneId)
+        overlay.onRemoved?.({ overlay, chart: this._chart })
+        if (!updatePaneIds.includes(paneId)) {
+          updatePaneIds.push(paneId)
+        }
+        if (overlay.isDrawing()) {
+          this._progressOverlayInfo = null
+        } else {
+          // NOTE: this re-scans paneOverlays even though getOverlaysByFilter() just
+          // located `overlay` in it — left as-is. Collapsing the two scans needs
+          // getOverlaysByFilter to hand back a splice index (or the storage to move off
+          // plain arrays), and that method is shared by getOverlays()/overrideOverlay()
+          // with multi-match, non-id filters where no single index applies. Special-casing
+          // it just for removeOverlay's id-filter path risks the "byte-identical behaviour"
+          // requirement for a win that only matters when many overlays share one pane.
+          const index = paneOverlays.findIndex(o => o.id === overlay.id)
+          if (index > -1) {
+            paneOverlays.splice(index, 1)
+          }
+        }
+        if (paneOverlays.length === 0) {
+          this._overlays.delete(paneId)
+        }
+      })
+    }
     if (updatePaneIds.length > 0) {
       updatePaneIds.forEach(paneId => {
         this._chart.updatePane(UpdateLevel.Overlay, paneId)

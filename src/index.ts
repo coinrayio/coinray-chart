@@ -76,13 +76,15 @@ import { registerLocale, getSupportedLocales } from './extension/i18n/index'
 import {
   registerOverlay, getOverlayClass, getSupportedOverlays,
   createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
-  FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS
+  FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
+  wideArrowGeometry
 } from './extension/overlay/index'
 import type {
   OverlayProperties, ProOverlayTemplate, OverlayPropertiesStore,
   FigureLevel,
   PriceLineProperties, PriceLine, PriceLineEventListener,
-  TradeLineProperties, TradeLine, TradeLineOptions
+  TradeLineProperties, TradeLine, TradeLineOptions,
+  WideArrowDirection, WideArrowGeometry
 } from './extension/overlay/index'
 import { registerStyles } from './extension/styles/index'
 import { registerXAxis } from './extension/x-axis'
@@ -194,6 +196,8 @@ export {
   utils,
   // Pro overlay utilities
   createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
+  // Trade-arrow glyph point geometry — internal to Superchart, not consumer-facing
+  wideArrowGeometry,
   // Default fibonacci levels
   FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
   // Replay engine type — exported for consumer type annotations (sc.replay: ReplayEngine | null)
@@ -212,6 +216,7 @@ export {
   type OverlayProperties, type ProOverlayTemplate, type OverlayPropertiesStore, type FigureLevel,
   type PriceLineProperties, type PriceLine, type PriceLineEventListener,
   type TradeLineProperties, type TradeLine, type TradeLineOptions,
+  type WideArrowDirection, type WideArrowGeometry,
   // Replay types
   type ReplayStatus
 }
