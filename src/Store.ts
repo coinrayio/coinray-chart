@@ -1526,25 +1526,20 @@ export default class StoreImp implements Store {
     return floorIndex
   }
 
-  zoom (scale: number, coordinate: Nullable<Partial<Coordinate>>, position: 'main' | 'xAxis'): void {
+  zoom (scale: number, coordinate: Nullable<Partial<Coordinate>>, position: 'main' | 'xAxis', invertAnchor = false): void {
     if (!this._zoomEnabled) {
       return
     }
     const zoomCoordinate: Partial<Coordinate> = coordinate ?? { x: this._crosshair.x ?? this._totalBarSpace / 2 }
 
-    if (position === 'xAxis') {
-      if (this._zoomAnchor.xAxis === 'last_bar') {
-        const lastBarX = this.dataIndexToCoordinate(this._dataList.length - 1)
-        if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
-          zoomCoordinate.x = lastBarX
-        }
-      }
-    } else {
-      if (this._zoomAnchor.main === 'last_bar') {
-        const lastBarX = this.dataIndexToCoordinate(this._dataList.length - 1)
-        if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
-          zoomCoordinate.x = lastBarX
-        }
+    const configured = this._zoomAnchor[position]
+    const anchor = invertAnchor
+      ? (configured === 'last_bar' ? 'cursor' : 'last_bar')
+      : configured
+    if (anchor === 'last_bar') {
+      const lastBarX = this.dataIndexToCoordinate(this._dataList.length - 1)
+      if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
+        zoomCoordinate.x = lastBarX
       }
     }
     const x = zoomCoordinate.x!

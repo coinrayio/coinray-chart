@@ -147,7 +147,9 @@ export default class Event implements EventHandler {
     const event = this._makeWidgetEvent(e, widget)
     const name = widget?.getName()
     if (name === WidgetNameConstants.MAIN) {
-      this._chart.getChartStore().zoom(scale, { x: event.x, y: event.y }, 'main')
+      // Cmd/Ctrl + wheel zooms around the opposite anchor (cursor <-> last bar).
+      const invertAnchor = event.metaKey === true || event.ctrlKey === true
+      this._chart.getChartStore().zoom(scale, { x: event.x, y: event.y }, 'main', invertAnchor)
       return true
     }
     return false
