@@ -367,8 +367,6 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   onDeselected: Nullable<OverlayEventCallback<E>> = null
   onTextChange: Nullable<OverlayTextChangeCallback<E>> = null
 
-  private _prevZLevel = 0
-
   private _prevOverlay: Overlay<E>
 
   private _prevPressedPoint: Nullable<Partial<Point>> = null
@@ -447,10 +445,6 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
       }
     }
   }
-
-  getPrevZLevel (): number { return this._prevZLevel }
-
-  setPrevZLevel (zLevel: number): void { this._prevZLevel = zLevel }
 
   shouldUpdate (): { draw: boolean, sort: boolean } {
     const sort = this._prevOverlay.zLevel !== this.zLevel

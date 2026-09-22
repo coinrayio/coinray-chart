@@ -1990,11 +1990,18 @@ export default class StoreImp implements Store {
   }
 
   private _sortOverlays (paneId?: string): void {
+    // Hover is a sort key, not a zLevel override, so the drawing's chosen
+    // zLevel is never clobbered while it's hovered.
+    const hoverId = this._hoverOverlayInfo.overlay?.id
+    const compare = (o1: OverlayImp, o2: OverlayImp): number => {
+      const hoverDiff = Number(o1.id === hoverId) - Number(o2.id === hoverId)
+      return hoverDiff !== 0 ? hoverDiff : o1.zLevel - o2.zLevel
+    }
     if (isString(paneId)) {
-      this._overlays.get(paneId)?.sort((o1, o2) => o1.zLevel - o2.zLevel)
+      this._overlays.get(paneId)?.sort(compare)
     } else {
       this._overlays.forEach(paneOverlays => {
-        paneOverlays.sort((o1, o2) => o1.zLevel - o2.zLevel)
+        paneOverlays.sort(compare)
       })
     }
   }
@@ -2242,7 +2249,6 @@ export default class StoreImp implements Store {
         let ignoreUpdateFlag = false
         let sortFlag = false
         if (overlay !== null) {
-          overlay.override({ zLevel: overlay.getPrevZLevel() })
           sortFlag = true
           if (processOnMouseLeaveEvent(overlay, figure)) {
             ignoreUpdateFlag = true
@@ -2250,8 +2256,6 @@ export default class StoreImp implements Store {
         }
 
         if (infoOverlay !== null) {
-          infoOverlay.setPrevZLevel(infoOverlay.zLevel)
-          infoOverlay.override({ zLevel: Number.MAX_SAFE_INTEGER })
           sortFlag = true
           if (processOnMouseEnterEvent(infoOverlay, info.figure)) {
             ignoreUpdateFlag = true
