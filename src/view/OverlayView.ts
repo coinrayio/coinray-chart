@@ -726,7 +726,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     return (event: MouseTouchEvent) => {
       const pane = this.getWidget().getPane()
       const paneId = pane.getId()
-      overlay.startPressedMove(this._coordinateToPoint(overlay, event))
+      overlay.startPressedMove(this._coordinateToPoint(overlay, event), pane.getChart().getChartStore())
       if (checkOverlayFigureEvent('onPressedMoveStart', figure)) {
         overlay.onPressedMoveStart?.({ chart: pane.getChart(), overlay, figure, ...event })
         pane.getChart().getChartStore().setPressedOverlayInfo({ paneId, overlay, figureType, figureIndex, figure })

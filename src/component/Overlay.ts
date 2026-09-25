@@ -757,7 +757,18 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
     })
   }
 
-  startPressedMove (point: Partial<Point>): void {
+  startPressedMove (point: Partial<Point>, chartStore: ChartStore): void {
+    // Re-derive dataIndex from timestamp before snapshotting, mirroring the
+    // render path — a history load can shift bar indexes without touching
+    // timestamps, leaving a stored dataIndex stale.
+    const useFloatIndex = this.isContinuousDrawing()
+    this.points.forEach(p => {
+      if (isNumber(p.timestamp)) {
+        p.dataIndex = useFloatIndex
+          ? chartStore.timestampToFloatIndex(p.timestamp)
+          : chartStore.timestampToDataIndex(p.timestamp)
+      }
+    })
     this._prevPressedPoint = { ...point }
     this._prevPressedPoints = clone(this.points)
     logDrag('press-start', {
@@ -786,14 +797,6 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
         difValue = point.value - this._prevPressedPoint.value
       }
       this.points = this._prevPressedPoints.map(p => {
-        // Only derive dataIndex from timestamp when missing (e.g. after restore).
-        // Continuous-drawing overlays like brush already carry float-precision
-        // dataIndexes from the initial draw; overwriting them via
-        // `timestampToDataIndex` (which floors to integer bar boundaries) would
-        // quantize the curve to candle x-coords on every drag.
-        if (!isNumber(p.dataIndex) && isNumber(p.timestamp)) {
-          p.dataIndex = chartStore.timestampToDataIndex(p.timestamp)
-        }
         const newPoint = { ...p }
         if (isNumber(difDataIndex) && isNumber(p.dataIndex)) {
           newPoint.dataIndex = p.dataIndex + difDataIndex
