@@ -1136,11 +1136,23 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
           borderSize: 0
         }
 
+        // Follow the label's rotation (e.g. a trend line's text runs along
+        // the line) — the same pivot the `editableText` figure and the
+        // inline editor use, so the placeholder sits where the text will.
+        const angle = (attrs as { angle?: number }).angle ?? 0
+        if (angle !== 0) {
+          ctx.save()
+          ctx.translate(attrs.x, attrs.y)
+          ctx.rotate(angle)
+          placeholderAttrs.x = 0
+          placeholderAttrs.y = 0
+        }
         this.createFigure({
           name: 'text',
           attrs: placeholderAttrs,
           styles: placeholderStyles
         })?.draw(ctx)
+        if (angle !== 0) ctx.restore()
       })
     })
   }
