@@ -95,7 +95,7 @@ export default class IndicatorView extends CandleBarView {
           const lines: Array<Array<{ coordinates: Coordinate[], styles: Partial<SmoothLineStyle> }>> = []
 
           this.eachChildren((data, barSpace) => {
-            const { halfGapBar } = barSpace
+            const { bar, halfGapBar } = barSpace
             const { dataIndex, x } = data
             const prevX = xAxis.convertToPixel(dataIndex - 1)
             const nextX = xAxis.convertToPixel(dataIndex + 1)
@@ -156,10 +156,22 @@ export default class IndicatorView extends CandleBarView {
                         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
                         y = valueY
                       }
+                      // Column plots take a FIXED 1px separator, not the
+                      // candle's proportional gap. A histogram is read as a
+                      // band — a colour ribbon like Chop Zone carries its whole
+                      // meaning in adjacent columns touching — where a candle
+                      // is read as a discrete mark and wants air around it.
+                      // Measured against TradingView / Altrady: their gap is
+                      // 1px at every bar spacing, ~85% duty, while borrowing
+                      // `halfGapBar * 2` here gave 60% at a 10px bar space.
+                      // That also loses a pixel to the floor, so a column came
+                      // out narrower than the candle above it and, being
+                      // always even, could never line up with one.
+                      const columnWidth = Math.max(1, Math.round(bar) - 1)
                       attrs = {
-                        x: x - halfGapBar,
+                        x: x - Math.floor(columnWidth / 2),
                         y,
-                        width: Math.max(1, halfGapBar * 2),
+                        width: columnWidth,
                         height
                       }
                       break
