@@ -17,7 +17,7 @@ import type { VisibleRangeData } from '../common/Data'
 import type BarSpace from '../common/BarSpace'
 import { isValid } from '../common/utils/typeChecks'
 import type { EventHandler } from '../common/EventHandler'
-import type { CandleType, CandleBarColor, RectStyle } from '../common/Styles'
+import type { CandleType, CandleLineSeriesType, CandleBarColor, RectStyle } from '../common/Styles'
 
 import type { FigureCreate } from '../component/Figure'
 import type { RectAttrs } from '../extension/figure/rect'
@@ -27,7 +27,7 @@ import ChildrenView from './ChildrenView'
 import { PaneIdConstants } from '../pane/types'
 
 export interface CandleBarOptions {
-  type: Exclude<CandleType, 'area'>
+  type: Exclude<CandleType, 'area' | CandleLineSeriesType>
   styles: CandleBarColor
 }
 
@@ -55,12 +55,16 @@ export default class CandleBarView extends ChildrenView {
         halfOhlcSize = Math.floor(ohlcSize / 2)
       }
       const yAxis = pane.getAxisComponent()
+      const boundingHeight = this.getWidget().getBounding().height
 
       this.eachChildren((visibleData, barSpace) => {
         const { x, data: { current, prev } } = visibleData
         if (isValid(current)) {
           const { open, high, low, close } = current
-          const comparePrice = styles.compareRule === 'current_open' ? open : (prev?.close ?? close)
+          // These two types have no open/close body, so direction comes from the previous close.
+          const comparePrice = type === 'column' || type === 'high_low'
+            ? (prev?.close ?? open)
+            : styles.compareRule === 'current_open' ? open : (prev?.close ?? close)
           const colors: string[] = []
           if (close > comparePrice) {
             colors[0] = styles.upColor
@@ -112,6 +116,32 @@ export default class CandleBarView extends ChildrenView {
               }
               break
             }
+            case 'column': {
+              rects = [{
+                name: 'rect',
+                attrs: {
+                  x: x - barSpace.halfGapBar,
+                  y: closeY,
+                  width: barSpace.gapBar + correction,
+                  height: Math.max(1, boundingHeight - closeY)
+                },
+                styles: { color: colors[0] }
+              }]
+              break
+            }
+            case 'high_low': {
+              rects = [{
+                name: 'rect',
+                attrs: {
+                  x: x - barSpace.halfGapBar,
+                  y: priceY[0],
+                  width: barSpace.gapBar + correction,
+                  height: Math.max(1, priceY[3] - priceY[0])
+                },
+                styles: { color: colors[0] }
+              }]
+              break
+            }
             case 'ohlc': {
               rects = [
                 {
@@ -159,7 +189,7 @@ export default class CandleBarView extends ChildrenView {
   protected getCandleBarOptions (): Nullable<CandleBarOptions> {
     const candleStyles = this.getWidget().getPane().getChart().getStyles().candle
     return {
-      type: candleStyles.type as Exclude<CandleType, 'area'>,
+      type: candleStyles.type as CandleBarOptions['type'],
       styles: candleStyles.bar
     }
   }
