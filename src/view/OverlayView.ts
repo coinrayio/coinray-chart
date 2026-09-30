@@ -52,6 +52,17 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     cleanup: () => void
   }> = null
 
+  /**
+   * Other selected drawings riding along a whole-body drag of one of their
+   * selection-mates. Populated on mousedown (a body drag of an overlay that
+   * is part of a >1 multi-selection), translated in lockstep every
+   * `pressedMouseMoveEvent`, and drained on mouseup — each gets its own
+   * `onPressedMoveEnd` so the app layer persists it exactly like the drawing
+   * that was actually grabbed. Locked overlays and `tradeHandles` (chart UI,
+   * never a user selection) are excluded when this is populated.
+   */
+  private _coDraggedOverlays: OverlayImp[] = []
+
   constructor (widget: DrawWidget<DrawPane<C>>) {
     super(widget)
     this._initEvent()
@@ -228,6 +239,15 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
           overlay.onPressedMoveEnd?.({ chart, overlay, figure: figure ?? undefined, ...event })
         }
       }
+      // Each co-dragged selection-mate gets its own `onPressedMoveEnd` (no
+      // figure — it was never itself pressed), so the app layer's per-overlay
+      // persistence hook fires for all of them, not just the one grabbed.
+      if (this._coDraggedOverlays.length > 0) {
+        for (const other of this._coDraggedOverlays) {
+          other.onPressedMoveEnd?.({ chart, overlay: other, figure: undefined, ...event })
+        }
+        this._coDraggedOverlays = []
+      }
       chartStore.setPressedOverlayInfo({
         paneId,
         overlay: null,
@@ -264,6 +284,15 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
                 overlay.eventPressedPointMove(point, figureIndex)
               } else {
                 overlay.eventPressedOtherMove(point, this.getWidget().getPane().getChart().getChartStore())
+                // Multi-selection: translate every other armed drawing by
+                // its own delta from the same cursor position, so the whole
+                // selection moves together in time/price space.
+                if (this._coDraggedOverlays.length > 0) {
+                  const store = this.getWidget().getPane().getChart().getChartStore()
+                  for (const other of this._coDraggedOverlays) {
+                    other.eventPressedOtherMove(this._coordinateToPoint(other, event), store)
+                  }
+                }
               }
             }
             let prevented = false
@@ -728,10 +757,32 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     return (event: MouseTouchEvent) => {
       const pane = this.getWidget().getPane()
       const paneId = pane.getId()
-      overlay.startPressedMove(this._coordinateToPoint(overlay, event), pane.getChart().getChartStore())
+      const chartStore = pane.getChart().getChartStore()
+      overlay.startPressedMove(this._coordinateToPoint(overlay, event), chartStore)
+
+      // Multi-selection drag: grabbing the *body* (not a single point handle)
+      // of a drawing that is part of a >1 multi-selection arms every other
+      // selected drawing in the same pane to translate alongside it — locked
+      // overlays and the chart-UI `tradeHandles` overlay never join. Each
+      // gets its own `startPressedMove` snapshot so `eventPressedOtherMove`
+      // can translate it from its own start point, same as a single drag.
+      this._coDraggedOverlays = []
+      if (figureType === 'other' && !overlay.lock && overlay.name !== 'tradeHandles') {
+        const selectedIds = chartStore.getSelectedOverlayIds()
+        if (selectedIds.includes(overlay.id) && selectedIds.length > 1) {
+          for (const id of selectedIds) {
+            if (id === overlay.id) continue
+            const other = chartStore.getOverlaysByFilter({ id, paneId }).at(0)
+            if (other === undefined || other.lock || other.name === 'tradeHandles') continue
+            other.startPressedMove(this._coordinateToPoint(other, event), chartStore)
+            this._coDraggedOverlays.push(other)
+          }
+        }
+      }
+
       if (checkOverlayFigureEvent('onPressedMoveStart', figure)) {
         overlay.onPressedMoveStart?.({ chart: pane.getChart(), overlay, figure, ...event })
-        pane.getChart().getChartStore().setPressedOverlayInfo({ paneId, overlay, figureType, figureIndex, figure })
+        chartStore.setPressedOverlayInfo({ paneId, overlay, figureType, figureIndex, figure })
         return !overlay.isDrawing()
       }
       return false
@@ -1138,11 +1189,23 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
           borderSize: 0
         }
 
+        // Follow the label's rotation (e.g. a trend line's text runs along
+        // the line) — the same pivot the `editableText` figure and the
+        // inline editor use, so the placeholder sits where the text will.
+        const angle = (attrs as { angle?: number }).angle ?? 0
+        if (angle !== 0) {
+          ctx.save()
+          ctx.translate(attrs.x, attrs.y)
+          ctx.rotate(angle)
+          placeholderAttrs.x = 0
+          placeholderAttrs.y = 0
+        }
         this.createFigure({
           name: 'text',
           attrs: placeholderAttrs,
           styles: placeholderStyles
         })?.draw(ctx)
+        if (angle !== 0) ctx.restore()
       })
     })
   }
@@ -1264,7 +1327,8 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
 
   protected getCompleteOverlays (): OverlayImp[] {
     const pane = this.getWidget().getPane()
-    return pane.getChart().getChartStore().getOverlaysByPaneId(pane.getId())
+    const store = pane.getChart().getChartStore()
+    return store.getOverlaysByPaneId(pane.getId())
   }
 
   protected getProgressOverlay (): Nullable<OverlayImp> {

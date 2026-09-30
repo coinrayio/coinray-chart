@@ -34,7 +34,8 @@ export default class OverlayXAxisView extends OverlayYAxisView<XAxis> {
   }
 
   override getCompleteOverlays (): OverlayImp[] {
-    return this.getWidget().getPane().getChart().getChartStore().getOverlaysByPaneId()
+    const store = this.getWidget().getPane().getChart().getChartStore()
+    return store.getOverlaysByPaneId()
   }
 
   override getProgressOverlay (): Nullable<OverlayImp> {

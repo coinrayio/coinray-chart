@@ -248,8 +248,30 @@ export default class Event implements EventHandler {
   }
 
   pressedMouseMoveEvent (e: MouseTouchEvent): boolean {
-    if (this._mouseDownWidget !== null && this._mouseDownWidget.getName() === WidgetNameConstants.SEPARATOR) {
-      return this._mouseDownWidget.dispatchEvent('pressedMouseMoveEvent', e)
+    const downWidget = this._mouseDownWidget
+    if (downWidget !== null) {
+      const downName = downWidget.getName()
+      if (downName === WidgetNameConstants.SEPARATOR) {
+        return downWidget.dispatchEvent('pressedMouseMoveEvent', e)
+      }
+      // X/Y axis scale-drags anchor to the widget the press started on, not
+      // whatever's under the pointer now: the axis strip is narrow, so a
+      // straight-line drag routinely carries the pointer off it — onto the
+      // candle pane, or past the chart's edge — while the button is still
+      // down. Re-resolving the widget from the current pointer position (as
+      // below, for MAIN) would silently stop the drag the moment that
+      // happens. `_makeWidgetEvent` still keys off the axis widget's own
+      // bounding box, so `x`/`y` stay meaningful even once the pointer has
+      // left it; `_process{X,Y}AxisScal(l)ingEvent` use `pageX`/`pageY` for
+      // the actual scale delta, which are viewport-absolute regardless.
+      if (downName === WidgetNameConstants.X_AXIS) {
+        const event = this._makeWidgetEvent(e, downWidget)
+        return this._processXAxisScrollingEvent(downWidget as Widget<DrawPane<XAxis>>, event)
+      }
+      if (downName === WidgetNameConstants.Y_AXIS) {
+        const event = this._makeWidgetEvent(e, downWidget)
+        return this._processYAxisScalingEvent(downWidget as Widget<DrawPane<YAxis>>, event)
+      }
     }
     const { pane, widget } = this._findWidgetByEvent(e)
     if (
@@ -289,12 +311,8 @@ export default class Event implements EventHandler {
           this._chart.getChartStore().setCrosshair(crosshair, { forceInvalidate: true })
           return consumed
         }
-        case WidgetNameConstants.X_AXIS: {
-          return this._processXAxisScrollingEvent(widget as Widget<DrawPane<XAxis>>, event)
-        }
-        case WidgetNameConstants.Y_AXIS: {
-          return this._processYAxisScalingEvent(widget as Widget<DrawPane<YAxis>>, event)
-        }
+        // X_AXIS/Y_AXIS are handled above, off `downWidget` directly — this
+        // branch only ever sees MAIN.
       }
     }
     return false
@@ -774,20 +792,24 @@ export default class Event implements EventHandler {
       const yAxis = widget.getPane().getAxisComponent()
       if (this._prevYAxisRange !== null && yAxis.scrollZoomEnabled && this._yAxisStartScaleDistance !== 0) {
         event.preventDefault?.()
-        const { from, to, range } = this._prevYAxisRange
+        const { realFrom, realTo, realRange } = this._prevYAxisRange
         const scale = event.pageY / this._yAxisStartScaleDistance
-        const newRange = range * scale
-        const difRange = (newRange - range) / 2
-        const newFrom = from - difRange
-        const newTo = to + difRange
-        const newRealFrom = yAxis.valueToRealValue(newFrom, { range: this._prevYAxisRange })
-        const newRealTo = yAxis.valueToRealValue(newTo, { range: this._prevYAxisRange })
+        // Zoom in *real* space -- the space the pixel mapping is linear in -- so a
+        // drag zooms at a constant visual rate on every axis type. Zooming in
+        // value/price space overshoots on a logarithmic axis (increasingly so
+        // the wider the price range), matching the panning fix above.
+        const newRealRange = realRange * scale
+        const difRealRange = (newRealRange - realRange) / 2
+        const newRealFrom = realFrom - difRealRange
+        const newRealTo = realTo + difRealRange
+        const newFrom = yAxis.realValueToValue(newRealFrom, { range: this._prevYAxisRange })
+        const newTo = yAxis.realValueToValue(newRealTo, { range: this._prevYAxisRange })
         const newDisplayFrom = yAxis.realValueToDisplayValue(newRealFrom, { range: this._prevYAxisRange })
         const newDisplayTo = yAxis.realValueToDisplayValue(newRealTo, { range: this._prevYAxisRange })
         yAxis.setRange({
           from: newFrom,
           to: newTo,
-          range: newRange,
+          range: newTo - newFrom,
           realFrom: newRealFrom,
           realTo: newRealTo,
           realRange: newRealTo - newRealFrom,

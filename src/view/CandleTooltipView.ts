@@ -37,6 +37,14 @@ export default class CandleTooltipView extends IndicatorTooltipView {
       const styles = chartStore.getStyles()
       const candleStyles = styles.candle
       const indicatorStyles = styles.indicator
+      // `candle.tooltip.showRule: 'none'` turns off this pane's whole tooltip
+      // block, its overlaid indicators included — a host that replaces the
+      // candle pane's legend with its own DOM one wants both gone, and
+      // `indicator.tooltip.showRule` can't say it because every sub-pane
+      // shares it.
+      if (candleStyles.tooltip.showRule === 'none') {
+        return
+      }
       if (
         candleStyles.tooltip.showType === 'rect' &&
         indicatorStyles.tooltip.showType === 'rect'
