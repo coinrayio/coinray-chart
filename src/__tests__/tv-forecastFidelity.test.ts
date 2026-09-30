@@ -57,6 +57,12 @@ describe('long / short position', () => {
     expect(keys(run({ alwaysShowStats: false, showLabels: false }, { active: true }))).not.toContain('target_label')
   })
 
+  it('takes presses on its lines only, until selected, so the box doesn\'t steal them from what lies under it', () => {
+    const pressable = (figs: any[]): Array<string | undefined> => figs.filter((f) => f.ignoreEvent !== true).map((f) => f.key)
+    expect(pressable(run({}))).toEqual(['target_line', 'stop_line', 'entry'])
+    expect(pressable(run({}, { active: true }))).toEqual(expect.arrayContaining(['profit', 'stop', 'target_line', 'stop_line', 'entry']))
+  })
+
   it('takes the level lines and the pill colours from the stop and target colours', () => {
     const figs = run({ stopColor: 'rgba(255, 152, 0, 0.2)', profitColor: 'rgba(33, 150, 243, 0.2)', alwaysShowStats: true }, { lineColor: '#e91e63' })
     const by = (k: string) => figs.find((f) => f.key === k)

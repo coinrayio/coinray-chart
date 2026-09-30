@@ -229,14 +229,19 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
       const r = coordinates[3] ?? { x: e.x + NEW_WIDTH_PX, y: e.y }
       const left = Math.min(e.x, r.x)
       const width = Math.abs(r.x - e.x)
+      const store = chart.getChartStore()
+      // Unselected, only the three lines grab the position, so the shaded
+      // box doesn't steal hovers and clicks from the candles and drawings under it.
+      const selected = store.getClickOverlayInfo().overlay?.id === overlay.id || store.isOverlaySelected(overlay.id)
       const zone = (yFar: number, color: string | CanvasGradient, key: string): Figure => ({
         type: 'rect',
         key,
         attrs: { x: left, y: Math.min(yFar, e.y), width, height: Math.abs(yFar - e.y) },
-        styles: { style: 'fill', color, borderSize: 0 }
+        styles: { style: 'fill', color, borderSize: 0 },
+        ignoreEvent: !selected
       })
       const level = (y: number, color: string, key: string, size = 1.5, dashed = false): Figure => ({
-        type: 'line', key, attrs: { coordinates: [{ x: left, y }, { x: left + width, y }] }, styles: { color, size, style: dashed ? 'dashed' : 'solid', dashedValue: props.lineDashedValue ?? [4, 4] }, ignoreEvent: true
+        type: 'line', key, attrs: { coordinates: [{ x: left, y }, { x: left + width, y }] }, styles: { color, size, style: dashed ? 'dashed' : 'solid', dashedValue: props.lineDashedValue ?? [4, 4] }
       })
       const top = Math.min(t.y, s.y)
       const profitZone = ext.profitColor ?? PROFIT_ZONE
@@ -285,8 +290,7 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
         level(e.y, props.lineColor ?? ENTRY_LINE, 'entry', props.lineWidth ?? 1, props.lineStyle === 'dashed')
       )
       if (ext.showLabels === false || !priced || stats === null) return figures
-      const store = chart.getChartStore()
-      const active = store.getHoverOverlayInfo().overlay?.id === overlay.id || store.getClickOverlayInfo().overlay?.id === overlay.id || store.isOverlaySelected(overlay.id)
+      const active = selected || store.getHoverOverlayInfo().overlay?.id === overlay.id
       // TV: the pills show while hovered or selected, or always when asked.
       if (ext.alwaysShowStats !== true && !active) return figures
 
