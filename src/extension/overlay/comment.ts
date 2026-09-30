@@ -49,22 +49,24 @@ interface CommentOverlayData {
   fontWeight?: number | 'normal' | 'bold'
   fontFamily?: string
   backgroundColor?: string
+  borderColor?: string
 }
 
 interface OverlayStyleSlice {
-  polygon?: { color?: string }
+  polygon?: { color?: string, borderColor?: string }
   text?: { color?: string, size?: number, family?: string, weight?: number | string, backgroundColor?: string }
 }
 
 // Visual defaults — tuned to read clearly on a dark candle chart.
-const DEFAULT_FILL = 'rgba(30, 33, 41, 0.95)'
+const DEFAULT_FILL = '#2962ff'
+const DEFAULT_TEXT_COLOR = '#ffffff'
 const LABEL_PADDING_H = 12
 const LABEL_PADDING_V = 14
 // 3× Callout's radius (Callout = 7). Three corners use this; the
 // bottom-left stays sharp so the bubble "points" at the click target.
 const LABEL_BORDER_RADIUS = 21
 const MIN_BUBBLE_WIDTH = 120
-const DEFAULT_FONT_SIZE = 14
+const DEFAULT_FONT_SIZE = 16
 const DEFAULT_FONT_FAMILY = 'Helvetica Neue'
 // Per-corner border-radius for the textarea — CSS shorthand TL TR BR
 // BL. Mirrors the canvas polygon's rounded TL/TR/BR + sharp BL.
@@ -152,7 +154,7 @@ const comment: OverlayTemplate = {
     const fontSize = styles.text?.size ?? data.fontSize ?? DEFAULT_FONT_SIZE
     const fontWeight = styles.text?.weight ?? data.fontWeight ?? 'normal'
     const fontFamily = styles.text?.family ?? data.fontFamily ?? DEFAULT_FONT_FAMILY
-    const textColor = styles.text?.color ?? data.textColor
+    const textColor = styles.text?.color ?? data.textColor ?? DEFAULT_TEXT_COLOR
 
     // Bubble fill — reads from polygon.color so the floating-panel
     // "background colour" control and the modal Text tab's background
@@ -184,9 +186,10 @@ const comment: OverlayTemplate = {
     const polygonCoords = buildBubblePolygon(rect, LABEL_BORDER_RADIUS)
 
     const bubbleStyle: Record<string, unknown> = {
-      style: 'fill',
+      style: 'stroke_fill',
       color: fill,
-      borderSize: 0
+      borderColor: styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_FILL,
+      borderSize: 1
     }
 
     // EditableText carries the bubble's fill + per-corner radius +
@@ -204,7 +207,7 @@ const comment: OverlayTemplate = {
       paddingTop: LABEL_PADDING_V,
       paddingBottom: LABEL_PADDING_V
     }
-    if (textColor !== undefined) editableTextStyle.color = textColor
+    editableTextStyle.color = textColor
 
     const figures: OverlayFigure[] = [
       {

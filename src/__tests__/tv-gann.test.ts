@@ -9,7 +9,7 @@ const draw = (factory: () => unknown, extendData: unknown, properties?: unknown)
     setProperties: (p: unknown, id: string) => void
   }
   if (properties !== undefined) t.setProperties(properties, 'a')
-  return t.createPointFigures({ coordinates: [{ x: 0, y: 0 }, { x: 100, y: 50 }], overlay: { id: 'a', extendData } })
+  return t.createPointFigures({ chart: { getSymbol: () => null }, coordinates: [{ x: 0, y: 0 }, { x: 100, y: 50 }], overlay: { id: 'a', extendData, points: [{ value: 10, dataIndex: 0 }, { value: 5, dataIndex: 20 }] } })
 }
 
 describe('tvGannBox', () => {

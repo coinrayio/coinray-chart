@@ -57,7 +57,7 @@ export function extendedLine (a: Coordinate, b: Coordinate, left: boolean, right
 export interface Level { value: number, color: string, enabled: boolean, lineStyle?: LineStyle['style'], lineWidth?: number, lineDashedValue?: number[] }
 
 /** Levels from the overlay's `figureLevels`, else the tool's defaults, ascending. */
-export function resolveLevels (custom: DeepPartial<OverlayProperties>['figureLevels'], defaults: Level[]): Level[] {
+export function resolveLevels (custom: DeepPartial<OverlayProperties>['figureLevels'], defaults: Level[], oneColor?: string): Level[] {
   const levels = custom !== undefined && custom.length > 0
     ? custom.map((l, i) => ({
       value: l.value ?? defaults.at(i)?.value ?? 0,
@@ -68,5 +68,5 @@ export function resolveLevels (custom: DeepPartial<OverlayProperties>['figureLev
       lineDashedValue: l.lineDashedValue
     }))
     : defaults
-  return levels.filter((l) => l.enabled).sort((a, b) => a.value - b.value)
+  return levels.filter((l) => l.enabled).sort((a, b) => a.value - b.value).map((l) => oneColor === undefined ? l : { ...l, color: oneColor })
 }

@@ -12,61 +12,26 @@
  * limitations under the License.
  */
 
-import type DeepPartial from '../../common/DeepPartial'
-import type { LineStyle, TextStyle } from '../../common/Styles'
-import { merge, clone } from '../../common/utils/typeChecks'
-import type { OverlayProperties, ProOverlayTemplate } from './types'
-import type { LineAttrs } from '../figure/line'
-import type { TextAttrs } from '../figure/text'
+import type { ProOverlayTemplate } from './types'
+import { centredLabel, labelAbove, midpoint, patternProperties, pointLabel, ratio } from './tv/patterns/patternShared'
+
+/** [from, to, ratio] for each connector that has all its points. */
+export function abcdConnectors (v: number[]): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  if (v.length >= 3) out.push([0, 2, ratio(v[0], v[1], v[2], 3)])
+  if (v.length >= 4) out.push([1, 3, ratio(v[1], v[2], v[3], 3)])
+  return out
+}
 
 /**
  * ABCD overlay - ABCD harmonic pattern
- * 4 points with labels: (A), (B), (C), (D)
- * Includes dashed lines connecting A-C and B-D
+ * 4 points labelled A, B, C, D, styled like TV's `abcd_pattern`: a border
+ * line through the points and dotted connectors A-C and B-D, with TV's pill labels
+ * and the ratios BC/AB and CD/BC at the connectors' midpoints.
  */
 const abcd = (): ProOverlayTemplate => {
-  const properties = new Map<string, DeepPartial<OverlayProperties>>()
-
+  const store = patternProperties({ color: '#089981', background: 'transparent' })
   const tags = ['A', 'B', 'C', 'D']
-
-  const line1Style = (id: string): DeepPartial<LineStyle> => {
-    const props = properties.get(id) ?? {}
-    return {
-      style: props.lineStyle,
-      size: props.lineWidth,
-      color: props.lineColor ?? props.borderColor,
-      dashedValue: props.lineDashedValue
-    }
-  }
-
-  const line2Style = (id: string): DeepPartial<LineStyle> => ({
-    ...line1Style(id),
-    style: 'dashed'
-  })
-
-  const textStyle = (id: string): DeepPartial<TextStyle> => {
-    const props = properties.get(id) ?? {}
-    return {
-      color: props.textColor,
-      family: props.textFont,
-      size: props.textFontSize,
-      weight: props.textFontWeight,
-      backgroundColor: props.textBackgroundColor,
-      paddingLeft: props.textPaddingLeft,
-      paddingRight: props.textPaddingRight,
-      paddingTop: props.textPaddingTop,
-      paddingBottom: props.textPaddingBottom
-    }
-  }
-
-  const setProperties = (_properties: DeepPartial<OverlayProperties>, id: string): void => {
-    const current = properties.get(id) ?? {}
-    const newProps = clone(current) as Record<string, unknown>
-    merge(newProps, _properties)
-    properties.set(id, newProps as DeepPartial<OverlayProperties>)
-  }
-
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
 
   return {
     name: 'abcd',
@@ -74,46 +39,25 @@ const abcd = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates: c, overlay }) => {
       const id = overlay.id
-      const connectorLines: LineAttrs[] = []
-
-      const texts: TextAttrs[] = coordinates.map((coordinate, i) => ({
-        x: coordinate.x,
-        y: coordinate.y,
-        baseline: 'bottom',
-        text: `(${tags[i]})`
-      }))
-
-      if (coordinates.length > 2) {
-        connectorLines.push({ key: 'connector_ac', coordinates: [coordinates[0], coordinates[2]] })
-        if (coordinates.length > 3) {
-          connectorLines.push({ key: 'connector_bd', coordinates: [coordinates[1], coordinates[3]] })
-        }
-      }
-
+      const connectors = abcdConnectors(overlay.points.map((p) => p.value ?? NaN))
       return [
-        {
-          type: 'line',
-          key: 'main',
-          attrs: { coordinates },
-          styles: line1Style(id)
-        },
-        {
-          type: 'line',
-          attrs: connectorLines,
-          styles: line2Style(id)
-        },
+        { type: 'line', key: 'main', attrs: { coordinates: c }, styles: store.line(id) },
+        { type: 'line', key: 'connectors', ignoreEvent: true, attrs: connectors.map(([a, b]) => ({ coordinates: [c[a], c[b]] })), styles: store.dotted(id) },
         {
           type: 'text',
           ignoreEvent: true,
-          attrs: texts,
-          styles: textStyle(id)
+          attrs: [
+            ...connectors.map(([a, b, r], i) => centredLabel(midpoint(c[a], c[b]), String(r), `ratio_${i}`)),
+            ...c.map((p, i) => pointLabel(p, tags[i], labelAbove(c, i), `label_${i}`))
+          ],
+          styles: store.label(id)
         }
       ]
     },
-    setProperties,
-    getProperties
+    setProperties: store.setProperties,
+    getProperties: store.getProperties
   }
 }
 

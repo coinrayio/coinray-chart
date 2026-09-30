@@ -26,9 +26,22 @@ import { getDistance } from './utils'
  */
 const circle = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
+  // TradingView's Circle defaults, held as explicit properties so the settings
+  // dialog reads exactly what is drawn.
+  const look: DeepPartial<OverlayProperties> = {
+    style: 'stroke_fill',
+    borderColor: '#FF9800',
+    borderWidth: 2,
+    backgroundColor: 'rgba(255, 152, 0, 0.2)',
+    textColor: '#FF9800',
+    textFontSize: 14,
+    textAlignHorizontal: 'center',
+    textAlignVertical: 'middle'
+  }
+  const withLook = (id: string): DeepPartial<OverlayProperties> => ({ ...look, ...(properties.get(id) ?? {}) })
 
   const circleStyle = (id: string): Partial<PolygonStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       // An explicitly-set fill colour implies the shape is filled. Without
       // this, picking a fill colour does nothing until the separate 'Fill
@@ -43,7 +56,7 @@ const circle = (): ProOverlayTemplate => {
   }
 
   const textStyle = (id: string): Partial<TextStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
@@ -53,7 +66,8 @@ const circle = (): ProOverlayTemplate => {
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
       paddingTop: props.textPaddingTop ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingTop,
       paddingBottom: props.textPaddingBottom ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingBottom,
-      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor
+      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor,
+      fontStyle: props.textFontStyle
     }
   }
 
@@ -64,7 +78,7 @@ const circle = (): ProOverlayTemplate => {
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
 
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  const getProperties = withLook
 
   return {
     name: 'circle',
@@ -93,7 +107,7 @@ const circle = (): ProOverlayTemplate => {
         }
       ]
 
-      const props = properties.get(id) ?? {}
+      const props = withLook(id)
       // Text lives in extendData (like text.ts) so inline edits are
       // captured by onTextChange and persisted; fall back to the
       // Map-based property for any legacy settings-panel value.

@@ -26,9 +26,22 @@ import { computeTextPosition } from './textUtils'
  */
 const parallelogram = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
+  // TradingView's Parallelogram defaults, held as explicit properties so the settings
+  // dialog reads exactly what is drawn.
+  const look: DeepPartial<OverlayProperties> = {
+    style: 'stroke_fill',
+    borderColor: '#9C27B0',
+    borderWidth: 2,
+    backgroundColor: 'rgba(156, 39, 176, 0.2)',
+    textColor: '#9C27B0',
+    textFontSize: 14,
+    textAlignHorizontal: 'center',
+    textAlignVertical: 'middle'
+  }
+  const withLook = (id: string): DeepPartial<OverlayProperties> => ({ ...look, ...(properties.get(id) ?? {}) })
 
   const parallelogramStyle = (id: string): Partial<PolygonStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       // An explicitly-set fill colour implies the shape is filled. Without
       // this, picking a fill colour does nothing until the separate 'Fill
@@ -43,7 +56,7 @@ const parallelogram = (): ProOverlayTemplate => {
   }
 
   const textStyle = (id: string): Partial<TextStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
@@ -53,7 +66,8 @@ const parallelogram = (): ProOverlayTemplate => {
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
       paddingTop: props.textPaddingTop ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingTop,
       paddingBottom: props.textPaddingBottom ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingBottom,
-      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor
+      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor,
+      fontStyle: props.textFontStyle
     }
   }
 
@@ -64,7 +78,7 @@ const parallelogram = (): ProOverlayTemplate => {
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
 
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  const getProperties = withLook
 
   return {
     name: 'parallelogram',
@@ -115,7 +129,7 @@ const parallelogram = (): ProOverlayTemplate => {
         }
       ]
 
-      const props = properties.get(id) ?? {}
+      const props = withLook(id)
       const text = props.text ?? ''
       figures.push({
         type: 'editableText',

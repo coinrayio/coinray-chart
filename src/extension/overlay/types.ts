@@ -33,6 +33,8 @@ export interface FigureLevel {
   lineWidth?: number
   /** Dash pattern for `lineStyle: 'dashed'` (falls back to the overlay's lineDashedValue) */
   lineDashedValue?: number[]
+  /** Custom text shown on the level (TV's per-level `text`), placed by `levelTextAlign*` */
+  text?: string
 }
 
 /**

@@ -17,7 +17,11 @@ import type { PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { computeTextPosition } from './textUtils'
+
+/** Gap between the box edge and text aligned to it. */
+const TEXT_INSET = 8
+/** Gap between the box edge and text hung outside it (TV's vertical Top / Bottom). */
+const TEXT_GAP = 3
 
 /**
  * Rectangle overlay - rectangle defined by two corner points
@@ -25,9 +29,27 @@ import { computeTextPosition } from './textUtils'
  */
 const rect = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
+  // TradingView's Rectangle defaults, held as explicit properties so the settings
+  // dialog reads exactly what is drawn.
+  const look: Record<string, unknown> = {
+    style: 'stroke_fill',
+    borderColor: '#9C27B0',
+    borderWidth: 2,
+    backgroundColor: 'rgba(156, 39, 176, 0.2)',
+    textColor: '#9C27B0',
+    textFontSize: 14,
+    textAlignHorizontal: 'center',
+    textAlignVertical: 'middle',
+    // TV's Middle line: off, dashed, thinner than the border (`EXT_LINE_ROWS.middleLine` in the bindings).
+    showMiddleLine: false,
+    middleLineColor: '#9C27B0',
+    middleLineWidth: 1,
+    middleLineStyle: 'dashed'
+  }
+  const withLook = (id: string): DeepPartial<OverlayProperties> => Object.assign({}, look, properties.get(id))
 
   const rectStyle = (id: string): Partial<PolygonStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       // An explicitly-set fill colour implies the shape is filled. Without
       // this, picking a fill colour does nothing until the separate 'Fill
@@ -42,7 +64,7 @@ const rect = (): ProOverlayTemplate => {
   }
 
   const textStyle = (id: string): Partial<TextStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
@@ -52,7 +74,8 @@ const rect = (): ProOverlayTemplate => {
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
       paddingTop: props.textPaddingTop ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingTop,
       paddingBottom: props.textPaddingBottom ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingBottom,
-      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor
+      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor,
+      fontStyle: props.textFontStyle
     }
   }
 
@@ -63,7 +86,7 @@ const rect = (): ProOverlayTemplate => {
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
 
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  const getProperties = withLook
 
   return {
     name: 'rect',
@@ -92,7 +115,7 @@ const rect = (): ProOverlayTemplate => {
         { x: topLeft.x, y: bottomRight.y }
       ]
 
-      const figures: Array<{ type: string; attrs: unknown; styles?: unknown }> = [
+      const figures: Array<{ type: string; key?: string; attrs: unknown; styles?: unknown }> = [
         {
           type: 'polygon',
           attrs: { coordinates: rectCoordinates },
@@ -100,12 +123,35 @@ const rect = (): ProOverlayTemplate => {
         }
       ]
 
-      const props = properties.get(id) ?? {}
-      const text = props.text ?? ''
+      const props = withLook(id)
+      const top = Math.min(topLeft.y, bottomRight.y)
+      const bottom = Math.max(topLeft.y, bottomRight.y)
+
+      // TV's Middle line: a horizontal line across the box.
+      const middle = props as Record<string, unknown>
+      if (middle.showMiddleLine === true) {
+        const y = (top + bottom) / 2
+        figures.push({
+          type: 'line',
+          key: 'middleLine',
+          attrs: { coordinates: [{ x: topLeft.x, y }, { x: bottomRight.x, y }] },
+          styles: { color: middle.middleLineColor, size: middle.middleLineWidth, style: middle.middleLineStyle, dashedValue: middle.middleLineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue }
+        })
+      }
+
+      // Text is horizontally inside the box, at the edge or middle the alignment names. TV's
+      // vertical Top / Bottom hang it *outside*, opposite: Top puts the text just under the bottom
+      // edge, Bottom just above the top edge (measured on TV's own rectangle); Middle is centred.
+      const h = props.textAlignHorizontal ?? 'center'
+      const v = props.textAlignVertical ?? 'middle'
       figures.push({
         type: 'editableText',
         attrs: {
-          ...computeTextPosition((topLeft.x + bottomRight.x) / 2, (topLeft.y + bottomRight.y) / 2, props, bounding.width, 'center', 'middle'), text
+          x: h === 'left' ? topLeft.x + TEXT_INSET : h === 'right' ? bottomRight.x - TEXT_INSET : (topLeft.x + bottomRight.x) / 2,
+          y: v === 'top' ? bottom + TEXT_GAP : v === 'bottom' ? top - TEXT_GAP : (top + bottom) / 2,
+          align: h,
+          baseline: v,
+          text: props.text ?? ''
         },
         styles: textStyle(id)
       })

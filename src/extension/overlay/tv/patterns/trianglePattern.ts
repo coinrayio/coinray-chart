@@ -53,6 +53,7 @@ const trianglePattern = (): ProOverlayTemplate => {
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates: c, overlay }) => {
       const id = overlay.id
+      const width = store.getProperties(id).lineWidth ?? 2
       const wedge = triangleWedge(c)
       const figures: OverlayFigure[] = [{ type: 'line', key: 'main', attrs: { coordinates: c }, styles: store.line(id) }]
       if (wedge !== null) {
@@ -61,7 +62,7 @@ const trianglePattern = (): ProOverlayTemplate => {
           key: 'wedge',
           ignoreEvent: true,
           attrs: { coordinates: wedge },
-          styles: { ...store.fill(id), style: 'stroke_fill', borderColor: store.color(id), borderSize: store.getProperties(id).lineWidth ?? 2, borderStyle: 'dashed', borderDashedValue: [1, 3] }
+          styles: { ...store.fill(id), style: 'stroke_fill', borderColor: store.color(id), borderSize: width, borderStyle: 'dashed', borderDashedValue: [width, width * 2] }
         })
       }
       figures.push({

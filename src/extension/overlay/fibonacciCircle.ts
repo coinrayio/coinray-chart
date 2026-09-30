@@ -42,11 +42,10 @@ import { merge, clone } from '../../common/utils/typeChecks'
 
 import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 
-import type { PolygonAttrs } from '../figure/polygon'
 import type { TextAttrs } from '../figure/text'
 import type { PathAttrs } from '../figure/path'
 
-import { formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared'
+import { diagonalStroke, formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared'
 
 /** Grey palette entry used both as the level-1 default colour
  *  AND the trendline's default. Storing the constant here
@@ -55,38 +54,20 @@ import { formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared
  *  bleed into the trendline. */
 const GREY = '#787b86'
 
-/** Default level set — extends to 4.618 per spec, one colour
- *  per ratio so a fresh circle already shows distinct rings.
- *  Level 1 sits deliberately in the middle of the palette as
- *  grey, matching the trendline's grey default. */
+/** Default level set: TradingView's eleven rings, up to 4.618, one colour each. */
 export const FIBONACCI_CIRCLE_LEVELS: FigureLevel[] = [
-  { value: 0.236, enabled: true, color: '#f44336' },
-  { value: 0.382, enabled: true, color: '#ff9800' },
-  { value: 0.5, enabled: true, color: '#ffc107' },
-  { value: 0.618, enabled: true, color: '#fdd835' },
-  { value: 0.786, enabled: true, color: '#cddc39' },
-  { value: 1, enabled: true, color: GREY },
-  { value: 1.236, enabled: true, color: '#66bb6a' },
-  { value: 1.618, enabled: true, color: '#4caf50' },
-  { value: 2.618, enabled: true, color: '#00bcd4' },
-  { value: 3.618, enabled: true, color: '#2196f3' },
-  { value: 4.236, enabled: true, color: '#5c6bc0' },
-  { value: 4.618, enabled: true, color: '#9c27b0' }
-]
+  [0.236, '#f23645'], [0.382, '#ff9800'], [0.5, '#089981'], [0.618, '#4caf50'], [0.786, '#00bcd4'], [1, GREY],
+  [1.618, '#2962ff'], [2.618, '#e91e63'], [3.618, '#2962ff'], [4.236, '#e91e63'], [4.618, '#f23645']
+].map(([value, color]) => ({ value: value as number, enabled: true, color: color as string }))
 
 /** Vertex count per sampled ellipse. 96 gives a visibly smooth
  *  curve at typical chart sizes without exploding the vertex
  *  count when several levels are enabled. */
 const ELLIPSE_SAMPLES = 96
 
-/** Diameter reach — trendline endpoints sit at level 1.5 on
- *  both sides of the centre (between level 1 and level 1.618,
- *  closer to 1.618 as the spec calls for). */
-const TRENDLINE_LEVEL = 1.5
-
 /** Default faint tint for background rings. 10 % keeps the
  *  rings readable without drowning out the strokes. */
-const DEFAULT_BG_OPACITY = 10
+const DEFAULT_BG_OPACITY = 20
 
 const fibonacciCircle = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -94,7 +75,7 @@ const fibonacciCircle = (): ProOverlayTemplate => {
   const circleStyle = (props: DeepPartial<OverlayProperties>): Partial<PolygonStyle> => ({
     style: 'stroke',
     borderColor: props.lineColor ?? props.borderColor ?? GREY,
-    borderSize: props.lineWidth ?? props.borderWidth,
+    borderSize: props.lineWidth ?? props.borderWidth ?? 2,
     borderStyle: props.lineStyle ?? props.borderStyle,
     borderDashedValue: props.lineDashedValue
   })
@@ -166,21 +147,14 @@ const fibonacciCircle = (): ProOverlayTemplate => {
       }
       const halfPxX = Math.abs((anchorEnd.x - anchorStart.x) / 2)
       const halfPxY = Math.abs((anchorEnd.y - anchorStart.y) / 2)
-      // Semi-axes carry a √2 factor so anchors land on the
-      // level-TRENDLINE_LEVEL ellipse itself (at parametric 45°),
-      // not on its bounding-box corner. Without √2 the anchor
-      // would sit at effective level √2 · TRENDLINE_LEVEL
-      // (~2.12), past the 1.618 ring, and the trendline would
-      // visually detach from the "between level 1 and 1.618"
-      // zone. Derivation: on the level-p ellipse
-      // (anchor/(rxBase·p))² + (anchor/(ryBase·p))² = 1, and
-      // at the anchor both terms contribute equally, so
-      // rxBase = halfPx · √2 / p.
-      const rxBase = halfPxX * Math.SQRT2 / TRENDLINE_LEVEL
-      const ryBase = halfPxY * Math.SQRT2 / TRENDLINE_LEVEL
+      // TV's level-L ring has semi-axes L × the anchors' half-distance (the
+      // level-1 ellipse is inscribed in the rectangle the two anchors span).
+      const rxBase = halfPxX
+      const ryBase = halfPxY
 
       const enabledLevels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_CIRCLE_LEVELS)
-        .filter(l => l.enabled === true) as FigureLevel[]
+        .filter(l => l.enabled === true)
+        .map(l => settings.oneColor === undefined ? l : { ...l, color: settings.oneColor }) as FigureLevel[]
 
       const figures: Array<{
         type: string
@@ -254,60 +228,46 @@ const fibonacciCircle = (): ProOverlayTemplate => {
       // Style-tab "Levels" checkbox controls LABEL visibility,
       // not ring visibility (per-level enable checkbox is the
       // per-ring toggle).
-      const polygons: PolygonAttrs[] = []
-      const texts: TextAttrs[] = []
+      const texts: Array<TextAttrs & { color?: string }> = []
       enabledLevels.forEach(level => {
         const percent = level.value
         const levelKey = `circle_${percent}`
         const verts = sampleEllipse(percent)
         // A level with its own line style / width is stroked on its own;
         // the rest share one batched figure.
-        if (level.lineStyle !== undefined || level.lineWidth !== undefined) {
-          const base = circleStyle(props)
-          figures.push({
-            type: 'polygon',
-            attrs: [{ key: levelKey, coordinates: verts }],
-            styles: {
-              ...base,
-              ...(level.lineStyle !== undefined ? { borderStyle: level.lineStyle, borderDashedValue: level.lineDashedValue ?? base.borderDashedValue } : {}),
-              ...(level.lineWidth !== undefined ? { borderSize: level.lineWidth } : {})
-            }
-          })
-        } else {
-          polygons.push({ key: levelKey, coordinates: verts })
-        }
+        // One polygon per ring so each strokes in its own colour.
+        const base = circleStyle(props)
+        figures.push({
+          type: 'polygon',
+          attrs: [{ key: levelKey, coordinates: verts }],
+          styles: {
+            ...base,
+            ...(level.color !== undefined ? { borderColor: level.color } : {}),
+            ...(level.lineStyle !== undefined ? { borderStyle: level.lineStyle, borderDashedValue: level.lineDashedValue ?? base.borderDashedValue } : {}),
+            ...(level.lineWidth !== undefined ? { borderSize: level.lineWidth } : {})
+          }
+        })
         if (showLevels) {
-          const label = formatFibRatio(percent, settings.levelFormat)
-          const vAlign = props.textAlignVertical ?? 'top'
-          // Label sits at the ring's top/bottom pole in pixel
-          // space — 6 px gap outside the ring so the label
-          // doesn't overlap the stroke.
+          // TV writes each coefficient in its ring's colour, centred on the
+          // ring's bottom pole (or the top one when aligned to the top).
           const ry = ryBase * percent
-          const y = vAlign === 'bottom' ? centre.y + ry + 6 : centre.y - ry - 6
           texts.push({
             key: `${levelKey}_text`,
             x: centre.x,
-            y,
-            text: label
+            y: props.textAlignVertical === 'top' ? centre.y - ry : centre.y + ry,
+            text: formatFibRatio(percent, settings.levelFormat),
+            color: level.color
           })
         }
       })
 
-      if (polygons.length > 0) {
-        figures.push({
-          type: 'polygon',
-          attrs: polygons,
-          styles: circleStyle(props)
-        })
-      }
-      if (texts.length > 0) {
-        figures.push({
-          type: 'text',
-          isCheckEvent: false,
-          attrs: texts,
-          styles: textStyleFn(props)
-        })
-      }
+      texts.forEach(({ color, ...t }) => figures.push({
+        type: 'text',
+        key: t.key,
+        isCheckEvent: false,
+        attrs: { ...t, align: 'center', baseline: 'middle' },
+        styles: { ...textStyleFn(props), color: props.textColor ?? color }
+      }))
 
       // Trendline — literally the anchor pair, since both
       // anchors ARE the trendline's endpoints (at level ±1.5).
@@ -324,25 +284,11 @@ const fibonacciCircle = (): ProOverlayTemplate => {
         // smallest" per spec). Dashed matters for the spec
         // AND the visual — a solid diameter would compete
         // with the level-1 ring at the two crossing points.
-        const dColor = settings.diagonalColor ?? GREY
-        const dWidth = settings.diagonalWidth ?? 2
-        const dStyleRaw = settings.diagonalStyle ?? 'dashed'
-        const dDashed = settings.diagonalDashedValue ?? [4, 4]
-        // Trendline is literally the anchor pair. Since the
-        // rings' centre = midpoint(anchorStart, anchorEnd) and
-        // rxBase/ryBase come from the same anchor deltas, the
-        // trendline and rings share one pixel source of truth
-        // and shift together under drag — no relative snap.
         figures.push({
           type: 'line',
           key: 'diagonal',
           attrs: { coordinates: [anchorStart, anchorEnd] },
-          styles: {
-            style: dStyleRaw as LineStyle['style'],
-            size: dWidth,
-            color: dColor,
-            dashedValue: dDashed
-          }
+          styles: diagonalStroke(settings)
         })
       }
 

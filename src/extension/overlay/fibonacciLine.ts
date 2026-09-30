@@ -41,56 +41,18 @@
 import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
+import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 
 import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { fibLevelDefaultColour, formatFibRatio, levelLineStyle, resolveFibSettings, withAlpha } from './fibonacciShared'
+import { FIB_TV_LEVELS, diagonalStroke, formatFibRatio, levelLineStyle, resolveFibSettings, withAlpha } from './fibonacciShared'
 
-/** Retracement level set — same defaults the retracement
- *  template uses, exported so other fib templates can share.
- *  1.618 / 2.618 / 3.618 are enabled by default so the classic
- *  extension trio shows past the 100 % line without a settings
- *  visit; 4.236 stays opt-in for chart-space reasons (it's far
- *  enough out that most drops don't want it in-frame). Colours
- *  come from the shared fib palette so a 0.618 retracement
- *  matches a 0.618 extension / circle at a glance; anchor
- *  ratios (0 and 1) stay grey. */
-export const FIBONACCI_RETRACEMENT_LEVELS: FigureLevel[] = [
-  { value: 0, enabled: true, color: fibLevelDefaultColour(0) },
-  { value: 0.236, enabled: true, color: fibLevelDefaultColour(0.236) },
-  { value: 0.382, enabled: true, color: fibLevelDefaultColour(0.382) },
-  { value: 0.5, enabled: true, color: fibLevelDefaultColour(0.5) },
-  { value: 0.618, enabled: true, color: fibLevelDefaultColour(0.618) },
-  { value: 0.786, enabled: true, color: fibLevelDefaultColour(0.786) },
-  { value: 1, enabled: true, color: fibLevelDefaultColour(1) },
-  { value: 1.618, enabled: true, color: fibLevelDefaultColour(1.618) },
-  { value: 2.618, enabled: true, color: fibLevelDefaultColour(2.618) },
-  { value: 3.618, enabled: true, color: fibLevelDefaultColour(3.618) },
-  { value: 4.236, enabled: false, color: fibLevelDefaultColour(4.236) }
-]
+/** Retracement level set: TradingView's own list (see FIB_TV_LEVELS),
+ *  exported so other fib templates can share. */
+export const FIBONACCI_RETRACEMENT_LEVELS: FigureLevel[] = FIB_TV_LEVELS
 
-/** Channel-specific default level set — same list as
- *  retracement but with the first three extension levels
- *  enabled out of the box. A fib channel with only 0-100 %
- *  levels feels naked; users almost always expect at least
- *  1.618 / 2.618 / 3.618 to render past the far wall so the
- *  extension side is visible on drop. Users can still toggle
- *  any of them off from the Levels section afterwards.
- *  Palette follows the shared fib colours for cross-family
- *  parity. */
-export const FIBONACCI_CHANNEL_LEVELS: FigureLevel[] = [
-  { value: 0, enabled: true, color: fibLevelDefaultColour(0) },
-  { value: 0.236, enabled: true, color: fibLevelDefaultColour(0.236) },
-  { value: 0.382, enabled: true, color: fibLevelDefaultColour(0.382) },
-  { value: 0.5, enabled: true, color: fibLevelDefaultColour(0.5) },
-  { value: 0.618, enabled: true, color: fibLevelDefaultColour(0.618) },
-  { value: 0.786, enabled: true, color: fibLevelDefaultColour(0.786) },
-  { value: 1, enabled: true, color: fibLevelDefaultColour(1) },
-  { value: 1.618, enabled: true, color: fibLevelDefaultColour(1.618) },
-  { value: 2.618, enabled: true, color: fibLevelDefaultColour(2.618) },
-  { value: 3.618, enabled: true, color: fibLevelDefaultColour(3.618) },
-  { value: 4.236, enabled: false, color: fibLevelDefaultColour(4.236) }
-]
+/** Channel level set: TradingView draws the same list as the retracement. */
+export const FIBONACCI_CHANNEL_LEVELS: FigureLevel[] = FIB_TV_LEVELS
 
 interface Coord { x: number; y: number }
 
@@ -144,7 +106,7 @@ const fibonacciLine = (): ProOverlayTemplate => {
 
   const fbLinesStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
     style: props.lineStyle ?? 'solid',
-    size: props.lineWidth,
+    size: props.lineWidth ?? 2,
     color: props.lineColor ?? props.borderColor,
     dashedValue: props.lineDashedValue
   })
@@ -172,7 +134,7 @@ const fibonacciLine = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, bounding, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, overlay, chart, yAxis }) => {
       const props = properties.get(overlay.id) ?? {}
 
       const figures: FigureSpec[] = []
@@ -198,15 +160,11 @@ const fibonacciLine = (): ProOverlayTemplate => {
       // anchor is draggable without a visible line
       // radiating out of it.
       if (settings.showDiagonal && coordinates.length >= 2) {
-        const dColor = settings.diagonalColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-        const dWidth = settings.diagonalWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth
-        const dStyle = (settings.diagonalStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle) as LineStyle['style']
-        const dDashed = settings.diagonalDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
         figures.push({
           type: 'line',
           key: 'diagonal_main',
           attrs: { coordinates: [coordinates[0], coordinates[1]] },
-          styles: { style: dStyle, size: dWidth, color: dColor, dashedValue: dDashed }
+          styles: diagonalStroke(settings)
         })
       }
 
@@ -253,7 +211,7 @@ const fibonacciLine = (): ProOverlayTemplate => {
             start = extS
             end = extE
           }
-          const color = level.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+          const color = settings.oneColor ?? level.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
           return { percent, start, end, color, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
         })
         // Reverse flag swaps sort order so bands paint the
@@ -309,10 +267,22 @@ const fibonacciLine = (): ProOverlayTemplate => {
       // Anchor stays at the endpoint, but text-align flips so
       // the drawn glyphs run away from the line rather than
       // over it. `center` keeps the natural centred behaviour.
-      if (settings.showText && settings.showLevels) {
+      if (settings.showText && (settings.showLevels || settings.showPrices)) {
+        // The price is read off the axis at the label's own y, so it follows the line's slant.
+        const decimalFold = chart.getDecimalFold()
+        const thousandsSeparator = chart.getThousandsSeparator()
+        const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
         const hAlign = props.textAlignHorizontal ?? 'left'
-        const vAlign = props.textAlignVertical ?? 'top'
-        const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'bottom' ? 'top' : 'bottom'
+        const vAlign = props.textAlignVertical ?? 'middle'
+        const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'top' ? 'top' : 'bottom'
+        const labelText = (percent: number, y: number): string => {
+          let content = settings.showLevels ? formatFibRatio(percent, settings.levelFormat) : ''
+          if (settings.showPrices && yAxis != null) {
+            const price = decimalFold.format(thousandsSeparator.format(yAxis.convertFromPixel(y).toFixed(precision)))
+            content = content.length > 0 ? `${content} (${price})` : `(${price})`
+          }
+          return content
+        }
         const texts = enrichedLevels.map(l => {
           const anchor = hAlign === 'right'
             ? l.end
@@ -329,17 +299,18 @@ const fibonacciLine = (): ProOverlayTemplate => {
             key: `level_${l.percent}_text`,
             x: anchor.x,
             y: anchor.y,
-            text: formatFibRatio(l.percent, settings.levelFormat),
+            text: labelText(l.percent, anchor.y),
             align: canvasAlign,
             baseline
           }
         })
-        figures.push({
+        texts.forEach((t, i) => figures.push({
           type: 'text',
+          key: t.key,
           isCheckEvent: false,
-          attrs: texts,
-          styles: textStyleFn(props)
-        })
+          attrs: t,
+          styles: { ...textStyleFn(props), color: props.textColor ?? enrichedLevels[i].color }
+        }))
       }
 
       return figures

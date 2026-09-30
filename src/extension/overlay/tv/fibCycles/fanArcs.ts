@@ -85,7 +85,7 @@ export const fibSpeedResistanceArcs = (): ProOverlayTemplate => {
       const down = dir > 0
       const a0 = full ? 0 : down ? 0 : Math.PI
       const a1 = full ? 2 * Math.PI : down ? Math.PI : 2 * Math.PI
-      const levels = enabledLevels(props, FIB_ARCS_LEVELS)
+      const levels = enabledLevels(props, FIB_ARCS_LEVELS, overlay.extendData)
       const figures: Figure[] = []
 
       levels.forEach((l, i) => {
@@ -133,7 +133,7 @@ export const fibWedge = (): ProOverlayTemplate => {
         figures.push({ type: 'line', key: 'trend_2', attrs: { coordinates: [c, { x: c.x + length * Math.cos(a2), y: c.y + length * Math.sin(a2) }] }, styles: settings.trend })
       }
 
-      const levels = enabledLevels(props, FIB_WEDGE_LEVELS)
+      const levels = enabledLevels(props, FIB_WEDGE_LEVELS, overlay.extendData)
       const mid = (from + to) / 2
       // Outermost first so smaller arcs paint over their fills, as TV does.
       for (let i = levels.length - 1; i >= 0; i--) {

@@ -23,22 +23,35 @@ import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle } from '../../common/Styles'
 import { isNumber, merge, clone } from '../../common/utils/typeChecks'
 import type ChartImp from '../../Chart'
+import type { OverlayCreateFiguresCallback } from '../../component/Overlay'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { anchorPriceAxisLabel } from './horizontalRayLine'
+import { anchorPriceAxisLabel, HORIZONTAL_DEFAULT_WIDTH } from './horizontalRayLine'
+import { TV_BLUE, axisLabelStyles, tvDashedValue } from './tvLine'
 
 interface CrossLineExtendData { showPriceLabels?: boolean, showTimeLabel?: boolean }
+
+/** The drawing's time on the x-axis, unless `showTimeLabel` is false. Shared with the vertical line. */
+export const timeAxisLabel = (params: Parameters<OverlayCreateFiguresCallback<unknown>>[0], color?: string): ReturnType<OverlayCreateFiguresCallback<unknown>> => {
+  const { chart, overlay, coordinates } = params
+  const ext = (overlay.extendData ?? {}) as CrossLineExtendData
+  const timestamp = overlay.points[0]?.timestamp
+  if (ext.showTimeLabel === false || coordinates.length === 0 || !isNumber(timestamp)) return []
+  const text = (chart as ChartImp).getChartStore().getInnerFormatter().formatDate(timestamp, 'YYYY-MM-DD HH:mm', 'crosshair')
+  return [{ type: 'text', attrs: { x: coordinates[0].x, y: 0, text, align: 'center' }, ...(color !== undefined ? { styles: axisLabelStyles(color) } : {}), ignoreEvent: true }]
+}
 
 const crossLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
   const lineStyle = (id: string): Partial<LineStyle> => {
     const props = properties.get(id) ?? {}
+    const size = props.lineWidth ?? HORIZONTAL_DEFAULT_WIDTH
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
-      dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
+      color: props.lineColor ?? TV_BLUE,
+      size,
+      dashedValue: tvDashedValue(props.lineDashedValue, size)
     }
   }
 
@@ -72,16 +85,9 @@ const crossLine = (): ProOverlayTemplate => {
       const ext = (params.overlay.extendData ?? {}) as CrossLineExtendData
       if (ext.showPriceLabels === false) return []
       // The shared label is opt-in; the cross line's is opt-out.
-      return anchorPriceAxisLabel({ ...params, overlay: { ...params.overlay, extendData: { showPriceLabels: true } } })
+      return anchorPriceAxisLabel({ ...params, overlay: { ...params.overlay, extendData: { showPriceLabels: true } } }, lineStyle(params.overlay.id).color)
     },
-    createXAxisFigures: (params) => {
-      const { chart, overlay, coordinates } = params as typeof params & { chart: ChartImp }
-      const ext = (overlay.extendData ?? {}) as CrossLineExtendData
-      const timestamp = overlay.points[0]?.timestamp
-      if (ext.showTimeLabel === false || coordinates.length === 0 || !isNumber(timestamp)) return []
-      const text = chart.getChartStore().getInnerFormatter().formatDate(timestamp, 'YYYY-MM-DD HH:mm', 'crosshair')
-      return [{ type: 'text', attrs: { x: coordinates[0].x, y: 0, text, align: 'center' }, ignoreEvent: true }]
-    },
+    createXAxisFigures: (params) => timeAxisLabel(params, lineStyle(params.overlay.id).color),
     setProperties,
     getProperties
   }

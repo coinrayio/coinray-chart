@@ -17,8 +17,7 @@
  *
  * One click drops a small flag at the click point — x snaps to the
  * nearest bar, y is free. The flag is a vertical pole with a small
- * rect attached at the top-right; the rect's right edge has a V
- * notch (chevron pointing left into the flag body). Pole height is
+ * rect attached at the top-right; its bottom edge waves like TV's flag. Pole height is
  * twice the rect height; there's a 2-px gap between the pole and
  * the rect so they read as separate shapes.
  *
@@ -46,7 +45,7 @@ interface OverlayStyleSlice {
 // matches Note's leader line so the two marker types read
 // consistently in a chart with both present.
 const POLE_COLOR = '#787b86'
-const DEFAULT_FLAG_COLOR = '#ef5350'
+const DEFAULT_FLAG_COLOR = '#2962ff'
 
 // Pole / flag dimensions. Pole height = 2 × rect height per TV's
 // proportion. Width tuned so the flag reads at chart density without
@@ -54,9 +53,11 @@ const DEFAULT_FLAG_COLOR = '#ef5350'
 const POLE_HEIGHT = 22
 const POLE_WIDTH = 1
 const RECT_HEIGHT = 11
-const RECT_WIDTH = 18
+const RECT_WIDTH = 16
 const POLE_RECT_GAP = 2
-const V_DEPTH = 4
+// The bottom edge sags by this much toward the fly, like TV's waving flag.
+const WAVE_DEPTH = 1.3
+const WAVE_STEPS = 8
 
 function parseExtendData (extendData: unknown): FlagMarkOverlayData {
   if (extendData !== null && typeof extendData === 'object') {
@@ -94,17 +95,13 @@ const flagMark: OverlayTemplate = {
     const rectRight = rectLeft + RECT_WIDTH
     const rectTop = poleTop.y
     const rectBottom = rectTop + RECT_HEIGHT
-    const rectMidY = rectTop + RECT_HEIGHT / 2
 
-    // Flag polygon — clockwise from top-left, with a V notch on the
-    // right edge (the chevron points inward, toward the pole).
-    const flagVertices = [
-      { x: rectLeft, y: rectTop },
-      { x: rectRight, y: rectTop },
-      { x: rectRight - V_DEPTH, y: rectMidY },
-      { x: rectRight, y: rectBottom },
-      { x: rectLeft, y: rectBottom }
-    ]
+    // Flag polygon: flat top and hoist edge, a bottom edge that waves down toward the fly.
+    const flagVertices = [{ x: rectLeft, y: rectTop }, { x: rectRight, y: rectTop }]
+    for (let i = WAVE_STEPS; i >= 0; i--) {
+      const t = i / WAVE_STEPS
+      flagVertices.push({ x: rectLeft + t * RECT_WIDTH, y: rectBottom + WAVE_DEPTH * Math.sin(Math.PI / 2 * Math.min(1, t / 0.6)) })
+    }
 
     const poleStyle: Record<string, unknown> = {
       color: POLE_COLOR,

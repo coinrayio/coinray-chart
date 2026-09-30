@@ -18,22 +18,24 @@
  * Two clicks pick a range of candles. `completeDrawing` copies them into
  * `extendData.pattern` (TV stores the copy too, so the pattern survives the
  * source bars scrolling out or the symbol changing) and lifts the copy 5% of
- * the pane above the source. The copy is drawn from point 0's bar onwards, one
- * bar per row, and can be dragged anywhere:
+ * the pane above the source. The copy is stretched between the two points
+ * (first bar at point 0, last at point 1) and can be dragged anywhere:
  *
  *   0 anchor — the bar the copy starts at; the first bar's price sits here
- *   1 end    — sets the vertical scale: the last bar's price maps here
+ *   1 end    — the last bar sits here horizontally; its price sets the vertical scale
  *
  * extendData: `{ pattern: [open, high, low, close][], mode = 'bars', mirrored,
  * flipped }`. Modes follow TV: bars (OHLC bars), candles (open-close bodies),
  * line (close), lineOpen, lineHigh, lineLow, lineHl2. `mirrored` reverses the
  * copy in time, `flipped` turns it upside down.
- * Properties: lineColor, backgroundColor (candle body).
+ * Properties: lineColor. Drawn as TV does: `bars` (HL bars) and `candles` (OC
+ * bars) are 2px sticks, high to low and open to close, and the line modes a 2px
+ * line, all in the colour at 90% opacity.
  */
 
 import type ChartImp from '../../../../Chart'
 import type { ProOverlayTemplate } from '../../types'
-import { barFigures, barIndex, barRange, propertyStore } from './common'
+import { barIndex, barRange, propertyStore, scaleAlpha } from './common'
 import type { Figure, Ohlc } from './common'
 
 export type BarsPatternMode = 'bars' | 'candles' | 'line' | 'lineOpen' | 'lineHigh' | 'lineLow' | 'lineHl2'
@@ -143,18 +145,24 @@ export const barsPattern = (): ProOverlayTemplate => {
       const factor = typeof v1 === 'number' && last !== first ? (v1 - v0) / (last - first) : 1
       const y = (price: number): number => yAxis.convertToPixel(v0 + (price - first) * factor)
       const chartStore = chart.getChartStore()
+      // TV stretches the pattern horizontally: the first bar sits at point 0, the last at point 1.
+      const n = bars.length
+      const x0 = coordinates[0].x
+      const x1 = coordinates.length > 1 ? coordinates[1].x : chartStore.dataIndexToCoordinate(i0 + n - 1)
+      const xAt = (k: number): number => (n > 1 ? x0 + ((x1 - x0) * k) / (n - 1) : x0)
       const half = Math.max(1, chartStore.getBarSpace().bar * 0.35)
-      const fill = props.backgroundColor ?? FILL
+      const solid = scaleAlpha(color, 0.9)
 
       const figures: Figure[] = []
       if (mode === 'bars' || mode === 'candles') {
         bars.forEach((bar, k) => {
-          const x = chartStore.dataIndexToCoordinate(i0 + k)
+          const x = xAt(k)
           if (x < -half || x > bounding.width + half) return
-          figures.push(...barFigures(mode === 'bars' ? 'bar' : 'candle', `bar_${k}`, x, half, bar, y, color, fill))
+          const [a, b] = mode === 'bars' ? [y(bar.high), y(bar.low)] : [y(bar.open), y(bar.close)]
+          figures.push({ type: 'rect', key: `bar_${k}`, attrs: { x: Math.round(x) - 1, y: Math.min(a, b), width: 2, height: Math.max(1, Math.abs(b - a)) }, styles: { style: 'fill', color: solid, borderSize: 0 } })
         })
       } else {
-        figures.push({ type: 'line', key: 'line', attrs: { coordinates: bars.map((bar, k) => ({ x: chartStore.dataIndexToCoordinate(i0 + k), y: y(patternPrice(bar, mode)) })) }, styles: { color, size: 2, style: 'solid' } })
+        figures.push({ type: 'line', key: 'line', attrs: { coordinates: bars.map((bar, k) => ({ x: xAt(k), y: y(patternPrice(bar, mode)) })) }, styles: { color: solid, size: 2, style: 'solid' } })
       }
       return figures
     },

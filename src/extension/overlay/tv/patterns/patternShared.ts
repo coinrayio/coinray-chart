@@ -32,9 +32,6 @@ export interface PatternDefaults {
   background: string
 }
 
-/** TV's dotted connector pattern (`LINESTYLE_DOTTED`). */
-const DOTTED = [1, 3]
-
 export interface PatternProperties {
   setProperties: (next: DeepPartial<OverlayProperties>, id: string) => void
   getProperties: (id: string) => DeepPartial<OverlayProperties>
@@ -67,9 +64,10 @@ export function patternProperties (defaults: PatternDefaults, defaultWidth = 2):
       size: get(id).lineWidth ?? defaultWidth,
       color: color(id)
     }),
-    dotted: (id: string, size = 1): Partial<LineStyle> => ({ style: 'dashed', dashedValue: DOTTED, size, color: color(id) }),
-    /** A transparent `backgroundColor` is how the fill is switched off. */
-    fill: (id: string): Partial<PolygonStyle> => ({ style: 'fill', color: get(id).backgroundColor ?? defaults.background }),
+    /** TV's `LINESTYLE_DOTTED`: a dot `size` long, then a gap of twice that (measured at widths 1, 2 and 4). */
+    dotted: (id: string, size = 1): Partial<LineStyle> => ({ style: 'dashed', dashedValue: [size, size * 2], size, color: color(id) }),
+    /** A transparent `backgroundColor`, or `style: 'stroke'` (the dialog's Background checkbox), switches the fill off. */
+    fill: (id: string): Partial<PolygonStyle> => ({ style: 'fill', color: get(id).style === 'stroke' ? 'transparent' : get(id).backgroundColor ?? defaults.background }),
     /** The pill: text over a rounded box in the outline colour. */
     label: (id: string): DeepPartial<TextStyle> => {
       const p = get(id)

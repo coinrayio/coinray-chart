@@ -75,13 +75,16 @@ export function elliottLabelFigures (c: Coordinate[], labelSets: string[][], deg
   return figures
 }
 
-function elliottWave (name: string, letters: string, points: number, defaultColor: string): () => ProOverlayTemplate {
-  const labelSets = sets(letters)
+/**
+ * A wave overlay: a polyline plus TV's degree-styled labels. `sets(n)` gives the five label
+ * sets for `n` points. Shared by the combo waves here and the plain wave tools (fiveWaves ...).
+ */
+export function waveTemplate (name: string, totalStep: number, sets: (points: number) => string[][], defaultColor: string): () => ProOverlayTemplate {
   return () => {
     const store = patternProperties({ color: defaultColor, background: 'transparent' })
     return {
       name,
-      totalStep: points + 1,
+      totalStep,
       needDefaultPointFigure: true,
       needDefaultXAxisFigure: true,
       needDefaultYAxisFigure: true,
@@ -92,7 +95,7 @@ function elliottWave (name: string, letters: string, points: number, defaultColo
         const color = store.color(id)
         const figures: OverlayFigure[] = []
         if (ext.showWave !== false) figures.push({ type: 'line', key: 'main', attrs: { coordinates: c }, styles: store.line(id) })
-        figures.push(...elliottLabelFigures(c, labelSets, degree, color))
+        figures.push(...elliottLabelFigures(c, sets(c.length), degree, color))
         return figures
       },
       setProperties: store.setProperties,
@@ -100,6 +103,9 @@ function elliottWave (name: string, letters: string, points: number, defaultColo
     }
   }
 }
+
+const elliottWave = (name: string, letters: string, points: number, defaultColor: string): (() => ProOverlayTemplate) =>
+  waveTemplate(name, points + 1, () => sets(letters), defaultColor)
 
 // Point counts include TV's unlabelled starting point 0 ahead of the letters.
 export const elliottTriangle = elliottWave('elliottTriangleWave', 'ABCDE', 6, '#FF9800')

@@ -3,7 +3,7 @@ import type { KLineData } from '../common/Data'
 import { predictionArc, projectionWedge } from '../extension/overlay/tv/forecastData/forecast'
 import { vwapSeries } from '../extension/overlay/tv/forecastData/anchoredVwap'
 import { buildProfile } from '../extension/overlay/tv/forecastData/volumeProfile'
-import { linearRegression } from '../extension/overlay/tv/forecastData/regressionTrend'
+import { linearRegression, regressionFills } from '../extension/overlay/tv/forecastData/regressionTrend'
 import { orientPattern, patternEnds } from '../extension/overlay/tv/forecastData/barsPattern'
 import { ghostBar, ghostCandles } from '../extension/overlay/tv/forecastData/ghostFeed'
 
@@ -44,12 +44,23 @@ describe('anchored vwap', () => {
     // Two prices 10 (w1) and 20 (w3): mean 17.5, variance 18.75.
     expect(sd[1]).toBeCloseTo(Math.sqrt(18.75), 9)
   })
+  it('restarts at each new session when given one, as TV does on intraday charts', () => {
+    const bars = [bar(10, 10, 10, 10, 1, 1), bar(20, 20, 20, 20, 1, 2), bar(30, 30, 30, 30, 1, 11), bar(50, 50, 50, 50, 1, 12)]
+    const day = (ts: number): string => String(Math.floor(ts / 10))
+    expect(vwapSeries(bars, 0, 'close', day).vwap).toEqual([10, 15, 30, 40])
+    expect(vwapSeries(bars, 0, 'close').vwap).toEqual([10, 15, 20, 27.5])
+  })
   it('is NaN without volume rather than a wrong line', () => {
     expect(vwapSeries([bar(1, 1, 1, 1, 0)], 0, 'close').vwap[0]).toBeNaN()
   })
 })
 
 describe('volume profile', () => {
+  it('splits a row into up and down volume by each bar\'s close against its open', () => {
+    const p = buildProfile([bar(1, 2, 1, 2, 10), bar(2, 2, 1, 1, 4)], 0, 1, 1, 70)!
+    expect(p.rows[0].up).toBeCloseTo(10)
+    expect(p.rows[0].down).toBeCloseTo(4)
+  })
   const bars = [bar(0, 10, 0, 10, 100), bar(10, 10, 0, 0, 100), bar(4, 6, 4, 5, 50)]
   it('spreads volume over the rows a bar covers, split by direction', () => {
     const p = buildProfile(bars, 0, 2, 10, 70)!
@@ -67,7 +78,7 @@ describe('volume profile', () => {
     expect(p.poc).toBe(4) // the small bar sits on rows 4-5, first max wins
     const total = p.rows.reduce((a, r) => a + r.up + r.down, 0)
     const inside = p.rows.slice(p.vaFrom, p.vaTo + 1).reduce((a, r) => a + r.up + r.down, 0)
-    expect(inside / total).toBeGreaterThanOrEqual(0.7)
+    expect(inside / total).toBeLessThanOrEqual(0.7) // TV stops before the row that would pass the share
     expect(p.vaFrom).toBeLessThanOrEqual(p.poc)
     expect(p.vaTo).toBeGreaterThanOrEqual(p.poc)
   })
@@ -120,5 +131,22 @@ describe('ghost feed', () => {
     expect(ghostCandles(path, 2, 50, 7)).toEqual(candles)
     // The line is 10 per bar; candles stay within the generator's reach of it.
     expect(Math.abs((candles[1].bar.low + candles[1].bar.high) / 2 - 110)).toBeLessThan(4)
+  })
+})
+
+describe('regression trend fills', () => {
+  const edge = (y: number) => [{ x: 0, y }, { x: 10, y }]
+  const colours = { base: '#F23645', lower: '#0000FF', upper: '#00FF00' } as Record<string, string>
+  const fills = (base: boolean, lower: boolean, upper: boolean) => regressionFills(
+    [['base', base ? edge(1) : null], ['lower', lower ? edge(2) : null], ['upper', upper ? edge(3) : null]], (n) => colours[n]
+  ).map((f) => (f.styles as { color: string }).color)
+  it('fills each channel in the colour of its outer line, base red for the lower one', () => {
+    expect(fills(true, true, true)).toEqual(['rgba(242, 54, 69, 0.3)', 'rgba(0, 255, 0, 0.3)'])
+  })
+  it('recolours when a line is off', () => {
+    expect(fills(true, false, true)).toEqual(['rgba(242, 54, 69, 0.3)'])
+    expect(fills(true, true, false)).toEqual(['rgba(242, 54, 69, 0.3)'])
+    expect(fills(false, true, true)).toEqual(['rgba(0, 0, 255, 0.3)'])
+    expect(fills(true, false, false)).toEqual([])
   })
 })

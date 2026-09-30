@@ -30,11 +30,12 @@ export type ArrowDirection = 'up' | 'down' | 'left' | 'right'
 
 const NAMES: Record<ArrowDirection, string> = { up: 'arrowMarkUp', down: 'arrowMarkDown', left: 'arrowMarkLeft', right: 'arrowMarkRight' }
 // TV's default colours per direction.
-const COLORS: Record<ArrowDirection, string> = { up: '#089981', down: '#F23645', left: '#2962FF', right: '#2962FF' }
-const HEAD = 11 // head length, px
-const HALF = 8 // head half-width
-const SHAFT_HALF = 3
-const SHAFT = 11
+const COLORS: Record<ArrowDirection, string> = { up: '#089981', down: '#CC2F3C', left: '#2962FF', right: '#2962FF' }
+// Measured off TV's arrow_up: 21 px across the head, 11 across the shaft, 22 tall.
+const HEAD = 12 // head length, px
+const HALF = 10.5 // head half-width
+const SHAFT_HALF = 5.5
+const SHAFT = 10
 const LABEL_GAP = 4
 
 export const arrowMark = (direction: ArrowDirection) => (): ProOverlayTemplate => {
@@ -47,7 +48,9 @@ export const arrowMark = (direction: ArrowDirection) => (): ProOverlayTemplate =
     merge(newProps, _properties)
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  // TV's defaults, as explicit properties so the settings dialog reads what is drawn.
+  const look: DeepPartial<OverlayProperties> = { backgroundColor: COLORS[direction], textColor: COLORS[direction], textFontSize: 14 }
+  const getProperties = (id: string): DeepPartial<OverlayProperties> => ({ ...look, ...(properties.get(id) ?? {}) })
 
   return {
     name: NAMES[direction],
@@ -57,7 +60,7 @@ export const arrowMark = (direction: ArrowDirection) => (): ProOverlayTemplate =
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, overlay }) => {
       if (coordinates.length === 0) return []
-      const props = properties.get(overlay.id) ?? {}
+      const props = getProperties(overlay.id)
       const tip = coordinates[0]
       // Perpendicular for the widths.
       const px = -uy
@@ -68,7 +71,7 @@ export const arrowMark = (direction: ArrowDirection) => (): ProOverlayTemplate =
         at(0, 0), at(HEAD, HALF), at(HEAD, SHAFT_HALF), at(HEAD + SHAFT, SHAFT_HALF),
         at(HEAD + SHAFT, -SHAFT_HALF), at(HEAD, -SHAFT_HALF), at(HEAD, -HALF)
       ]
-      const color = props.backgroundColor ?? COLORS[direction]
+      const color = props.backgroundColor
       const tail = at(HEAD + SHAFT + LABEL_GAP, 0)
       const vertical = direction === 'up' || direction === 'down'
       return [
@@ -83,7 +86,7 @@ export const arrowMark = (direction: ArrowDirection) => (): ProOverlayTemplate =
             align: vertical ? 'center' : direction === 'left' ? 'left' : 'right',
             baseline: direction === 'up' ? 'top' : direction === 'down' ? 'bottom' : 'middle'
           },
-          styles: { color: props.textColor ?? color, size: props.textFontSize ?? 14, weight: props.textFontWeight ?? 'normal', backgroundColor: 'transparent' }
+          styles: { color: props.textColor, size: props.textFontSize, weight: props.textFontWeight ?? 'normal', fontStyle: props.textFontStyle, backgroundColor: 'transparent' }
         }
       ]
     },

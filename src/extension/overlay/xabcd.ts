@@ -12,74 +12,32 @@
  * limitations under the License.
  */
 
-import type DeepPartial from '../../common/DeepPartial'
-import type { LineStyle, TextStyle, PolygonStyle } from '../../common/Styles'
-import { merge, clone } from '../../common/utils/typeChecks'
-import type { OverlayProperties, ProOverlayTemplate } from './types'
-import type { LineAttrs } from '../figure/line'
-import type { TextAttrs } from '../figure/text'
-import type { PolygonAttrs } from '../figure/polygon'
+import type Coordinate from '../../common/Coordinate'
+import type { ProOverlayTemplate } from './types'
+import { centredLabel, labelAbove, midpoint, patternProperties, pointLabel, ratio } from './tv/patterns/patternShared'
+
+/** [from, to, ratio] for each connector that has all its points. */
+export function xabcdConnectors (v: number[]): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  if (v.length >= 3) out.push([0, 2, ratio(v[0], v[1], v[2], 3)])
+  if (v.length >= 4) out.push([1, 3, ratio(v[1], v[2], v[3], 3)])
+  if (v.length >= 5) {
+    out.push([2, 4, ratio(v[2], v[3], v[4], 3)])
+    out.push([0, 4, Math.round(Math.abs((v[4] - v[1]) / (v[0] - v[1])) * 1000) / 1000])
+  }
+  return out
+}
 
 /**
  * XABCD overlay - XABCD harmonic pattern
- * 5 points with labels: (X), (A), (B), (C), (D)
- * Includes dashed lines connecting X-B, A-C, B-D
- * Includes filled polygons for triangular regions
+ * 5 points labelled X, A, B, C, D, styled like TV's `xabcd_pattern`: a border
+ * line through the points, dotted connectors X-B, A-C and B-D, and the
+ * triangles X-A-B and B-C-D filled, with TV's pill labels. The connectors (and
+ * X-D) carry pills with the ratios AB/XA, BC/AB, CD/BC and AD/XA at their midpoints.
  */
 const xabcd = (): ProOverlayTemplate => {
-  const properties = new Map<string, DeepPartial<OverlayProperties>>()
-
+  const store = patternProperties({ color: '#2962FF', background: 'rgba(41, 98, 255, 0.15)' })
   const tags = ['X', 'A', 'B', 'C', 'D']
-
-  const polygonStyle = (id: string): DeepPartial<PolygonStyle> => {
-    const props = properties.get(id) ?? {}
-    return {
-      style: props.style ?? 'fill',
-      color: props.backgroundColor ?? 'rgba(22, 119, 255, 0.15)',
-      borderColor: props.lineColor ?? props.borderColor,
-      borderSize: props.borderWidth,
-      borderStyle: props.borderStyle ?? props.lineStyle
-    }
-  }
-
-  const lineStyle = (id: string): DeepPartial<LineStyle> => {
-    const props = properties.get(id) ?? {}
-    return {
-      style: props.lineStyle,
-      size: props.lineWidth,
-      color: props.lineColor ?? props.borderColor,
-      dashedValue: props.lineDashedValue
-    }
-  }
-
-  const dashedLineStyle = (id: string): DeepPartial<LineStyle> => ({
-    ...lineStyle(id),
-    style: 'dashed'
-  })
-
-  const textStyle = (id: string): DeepPartial<TextStyle> => {
-    const props = properties.get(id) ?? {}
-    return {
-      color: props.textColor,
-      family: props.textFont,
-      size: props.textFontSize,
-      weight: props.textFontWeight,
-      backgroundColor: props.textBackgroundColor,
-      paddingLeft: props.textPaddingLeft,
-      paddingRight: props.textPaddingRight,
-      paddingTop: props.textPaddingTop,
-      paddingBottom: props.textPaddingBottom
-    }
-  }
-
-  const setProperties = (_properties: DeepPartial<OverlayProperties>, id: string): void => {
-    const current = properties.get(id) ?? {}
-    const newProps = clone(current) as Record<string, unknown>
-    merge(newProps, _properties)
-    properties.set(id, newProps as DeepPartial<OverlayProperties>)
-  }
-
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
 
   return {
     name: 'xabcd',
@@ -87,63 +45,29 @@ const xabcd = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    styles: {
-      polygon: {
-        color: 'rgba(22, 119, 255, 0.15)'
-      }
-    },
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates: c, overlay }) => {
       const id = overlay.id
-      const dashedLines: LineAttrs[] = []
-      const polygons: PolygonAttrs[] = []
-
-      const texts: TextAttrs[] = coordinates.map((coordinate, i) => ({
-        x: coordinate.x,
-        y: coordinate.y,
-        baseline: 'bottom',
-        text: `(${tags[i]})`
-      }))
-
-      if (coordinates.length > 2) {
-        dashedLines.push({ key: 'connector_xb', coordinates: [coordinates[0], coordinates[2]] })
-        polygons.push({ key: 'tri_xab', coordinates: [coordinates[0], coordinates[1], coordinates[2]] })
-        if (coordinates.length > 3) {
-          dashedLines.push({ key: 'connector_ac', coordinates: [coordinates[1], coordinates[3]] })
-          if (coordinates.length > 4) {
-            dashedLines.push({ key: 'connector_bd', coordinates: [coordinates[2], coordinates[4]] })
-            polygons.push({ key: 'tri_bcd', coordinates: [coordinates[2], coordinates[3], coordinates[4]] })
-          }
-        }
-      }
-
+      const connectors = xabcdConnectors(overlay.points.map((p) => p.value ?? NaN))
+      const triangles: Coordinate[][] = []
+      if (c.length > 2) triangles.push([c[0], c[1], c[2]])
+      if (c.length > 4) triangles.push([c[2], c[3], c[4]])
       return [
-        {
-          type: 'line',
-          key: 'main',
-          attrs: { coordinates },
-          styles: lineStyle(id)
-        },
-        {
-          type: 'line',
-          attrs: dashedLines,
-          styles: dashedLineStyle(id)
-        },
-        {
-          type: 'polygon',
-          ignoreEvent: true,
-          attrs: polygons,
-          styles: polygonStyle(id)
-        },
+        { type: 'polygon', key: 'fill', ignoreEvent: true, attrs: triangles.map((coordinates) => ({ coordinates })), styles: store.fill(id) },
+        { type: 'line', key: 'main', attrs: { coordinates: c }, styles: store.line(id) },
+        { type: 'line', key: 'connectors', ignoreEvent: true, attrs: connectors.map(([a, b]) => ({ coordinates: [c[a], c[b]] })), styles: store.dotted(id) },
         {
           type: 'text',
           ignoreEvent: true,
-          attrs: texts,
-          styles: textStyle(id)
+          attrs: [
+            ...connectors.map(([a, b, r], i) => centredLabel(midpoint(c[a], c[b]), String(r), `ratio_${i}`)),
+            ...c.map((p, i) => pointLabel(p, tags[i], labelAbove(c, i), `label_${i}`))
+          ],
+          styles: store.label(id)
         }
       ]
     },
-    setProperties,
-    getProperties
+    setProperties: store.setProperties,
+    getProperties: store.getProperties
   }
 }
 

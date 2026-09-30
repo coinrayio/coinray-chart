@@ -24,7 +24,7 @@ import type { LineStyle } from '../../../../common/Styles'
 import { merge, clone } from '../../../../common/utils/typeChecks'
 import type ChartImp from '../../../../Chart'
 import type { OverlayProperties, FigureLevel } from '../../types'
-import { withAlpha } from '../../fibonacciShared'
+import { fibOneColor, withAlpha } from '../../fibonacciShared'
 
 // TV palette (its `color-*-500` tokens), named as the level tables read them.
 export const GREY = '#787b86'
@@ -35,7 +35,7 @@ export const LIGHT_GREEN = '#81c784'
 export const TEAL = '#089981'
 export const SKY = '#00bcd4'
 export const BLUE = '#2962ff'
-export const DEEP_BLUE = '#651fff'
+export const DEEP_BLUE = '#673ab7'
 export const PINK = '#e91e63'
 export const PURPLE = '#9c27b0'
 export const TREND_GREY = '#808080'
@@ -72,11 +72,12 @@ export function barIndex (chart: unknown, p: { timestamp?: number, dataIndex?: n
 export interface Level { coeff: number, color: string, lineStyle?: LineStyle['style'], lineWidth?: number, lineDashedValue?: number[] }
 
 /** The enabled levels: the user's list when they have one, else TV's defaults. */
-export function enabledLevels (props: DeepPartial<OverlayProperties>, defaults: FigureLevel[]): Level[] {
+export function enabledLevels (props: DeepPartial<OverlayProperties>, defaults: FigureLevel[], extendData?: unknown): Level[] {
   const own = (props.figureLevels ?? []) as FigureLevel[]
+  const oneColor = fibOneColor(extendData)
   return (own.length > 0 ? own : defaults)
     .filter((l) => l.enabled)
-    .map((l) => ({ coeff: l.value, color: l.color ?? props.lineColor ?? GREY, lineStyle: l.lineStyle, lineWidth: l.lineWidth, lineDashedValue: l.lineDashedValue }))
+    .map((l) => ({ coeff: l.value, color: oneColor ?? l.color ?? props.lineColor ?? GREY, lineStyle: l.lineStyle, lineWidth: l.lineWidth, lineDashedValue: l.lineDashedValue }))
 }
 
 export interface TrendDefaults { color: string, width: number, dashed: boolean }

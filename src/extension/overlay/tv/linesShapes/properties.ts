@@ -32,7 +32,7 @@ export interface ToolProperties {
   getProperties: (id: string) => DeepPartial<OverlayProperties>
 }
 
-export function createToolProperties (): ToolProperties {
+export function createToolProperties (defaults: { lineWidth?: number } = {}): ToolProperties {
   const store = new Map<string, DeepPartial<OverlayProperties>>()
   const props = (id: string): DeepPartial<OverlayProperties> => store.get(id) ?? {}
   return {
@@ -42,7 +42,7 @@ export function createToolProperties (): ToolProperties {
       return {
         style: p.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
         color: p.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-        size: p.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
+        size: p.lineWidth ?? defaults.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
         dashedValue: p.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
       }
     },

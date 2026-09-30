@@ -40,6 +40,7 @@ const priceChannelLine = (): ProOverlayTemplate => {
       color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
       weight: props.textFontWeight ?? DEFAULT_OVERLAY_PROPERTIES.textFontWeight,
+      fontStyle: props.textFontStyle ?? DEFAULT_OVERLAY_PROPERTIES.textFontStyle,
       family: props.textFont ?? DEFAULT_OVERLAY_PROPERTIES.textFont,
       paddingLeft: props.textPaddingLeft ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingLeft,
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,

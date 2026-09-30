@@ -93,7 +93,7 @@ const fibTime = (kind: Kind) => (): ProOverlayTemplate => {
       const origin = kind.points === 2 ? idx[0] : idx[2]
       const interval = kind.points === 2 ? (idx.length > 1 ? idx[1] - idx[0] : 1) : idx[1] - idx[0]
 
-      const levels: Array<Level & { x: number }> = enabledLevels(props, kind.levels)
+      const levels: Array<Level & { x: number }> = enabledLevels(props, kind.levels, overlay.extendData)
         .map((l) => ({ ...l, x: store.dataIndexToCoordinate(timeLevelIndex(origin, interval, l.coeff)) }))
 
       if (settings.showBackground) {

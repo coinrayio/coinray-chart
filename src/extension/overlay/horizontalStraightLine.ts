@@ -17,28 +17,30 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { computeTextPosition } from './textUtils'
-import { anchorPriceAxisLabel } from './horizontalRayLine'
+import { TV_BLUE, horizontalLineText, lineAroundText, tvDashedValue } from './tvLine'
+import { HORIZONTAL_DEFAULT_WIDTH, priceAxisLabelUnlessOff } from './horizontalRayLine'
 
 const horizontalStraightLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
   const lineStyle = (id: string): Partial<LineStyle> => {
     const props = properties.get(id) ?? {}
+    const size = props.lineWidth ?? HORIZONTAL_DEFAULT_WIDTH
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
-      dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
+      color: props.lineColor ?? TV_BLUE,
+      size,
+      dashedValue: tvDashedValue(props.lineDashedValue, size)
     }
   }
 
   const textStyle = (id: string): Partial<TextStyle> => {
     const props = properties.get(id) ?? {}
     return {
-      color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
+      color: props.textColor ?? TV_BLUE,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
       weight: props.textFontWeight ?? DEFAULT_OVERLAY_PROPERTIES.textFontWeight,
+      fontStyle: props.textFontStyle ?? DEFAULT_OVERLAY_PROPERTIES.textFontStyle,
       family: props.textFont ?? DEFAULT_OVERLAY_PROPERTIES.textFont,
       paddingLeft: props.textPaddingLeft ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingLeft,
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
@@ -66,34 +68,27 @@ const horizontalStraightLine = (): ProOverlayTemplate => {
     createPointFigures: ({ coordinates, bounding, overlay }) => {
       const id = overlay.id
 
+      const line = [{ x: 0, y: coordinates[0].y }, { x: bounding.width, y: coordinates[0].y }]
       const figures: Array<{
         type: string
         attrs: unknown
         styles?: Partial<LineStyle> | Partial<TextStyle>
-      }> = [
-        {
-          type: 'line',
-          attrs: {
-            coordinates: [
-              { x: 0, y: coordinates[0].y },
-              { x: bounding.width, y: coordinates[0].y }
-            ]
-          },
-          styles: lineStyle(id)
-        }
-      ]
+      }> = [{ type: 'line', attrs: { coordinates: line }, styles: lineStyle(id) }]
 
       const props = properties.get(id) ?? {}
       const text = props.text ?? ''
-      figures.push({
-        type: 'editableText',
-        attrs: { ...computeTextPosition(coordinates[0].x, coordinates[0].y, props, bounding.width, 'center', 'top'), text },
-        styles: textStyle(id)
-      })
+      // Left, centre and right are along the pane, not the anchor: TV's default is on the line.
+      const place = horizontalLineText(coordinates[0].y, 0, bounding.width, props, { horizontal: 'center', vertical: 'middle' })
+      const style = textStyle(id)
+      // On the line, the text leaves a gap in it, as in TV.
+      if (place.baseline === 'middle') {
+        figures[0] = { ...figures[0], attrs: lineAroundText(line, place, text, style).map((coordinates) => ({ coordinates })) }
+      }
+      figures.push({ type: 'editableText', attrs: { ...place, text }, styles: style })
 
       return figures
     },
-    createYAxisFigures: anchorPriceAxisLabel,
+    createYAxisFigures: (params) => priceAxisLabelUnlessOff(params, lineStyle(params.overlay.id).color),
     setProperties,
     getProperties
   }

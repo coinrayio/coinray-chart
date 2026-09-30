@@ -26,7 +26,8 @@
  *                to a crest), repeating both ways
  *
  * Styling: lineColor / lineWidth / lineStyle. Time cycles also read
- * backgroundColor and `extendData.{showBackground, backgroundOpacity}`.
+ * backgroundColor (with its alpha), `style: 'stroke'` to hide the fill, and the older
+ * `extendData.{showBackground, backgroundOpacity}`.
  */
 
 import type Coordinate from '../../../../common/Coordinate'
@@ -39,8 +40,8 @@ import type { Figure } from './shared'
 
 const CYCLE_COLOR = '#80ccdb'
 const TEAL_LINE = '#159980'
-/** TV's fill: `rgba(106, 168, 79, 0.5)` at 50 % transparency. */
-const CYCLE_FILL = '#6aa84f'
+/** TV's fill, alpha included. */
+const CYCLE_FILL = 'rgba(106, 168, 79, 0.5)'
 
 /** Sine y at `dx` px from a trough that sits at `y0`; `width` px per half period, `height` = crest - trough. */
 export const sineY = (y0: number, height: number, width: number, dx: number): number =>
@@ -54,11 +55,21 @@ export function sineSamples (x0: number, span: number, width: number): number[] 
   return out
 }
 
+/**
+ * TV scales its dash pattern with the line width: dotted is a dot then twice as long a gap,
+ * dashed 5 widths on and 6 off (measured at widths 1, 2, 4). The dialog's Dotted arrives as a
+ * dash starting at 1 or less, its Dashed as anything longer.
+ */
+export function cycleDash (props: DeepPartial<OverlayProperties>): number[] {
+  const w = props.lineWidth ?? 2
+  return (props.lineDashedValue?.[0] ?? 5) <= 1 ? [w, w * 2] : [w * 5, w * 6]
+}
+
 const lineOf = (props: DeepPartial<OverlayProperties>, color: string): Partial<LineStyle> => ({
   style: props.lineStyle ?? 'solid',
   size: props.lineWidth ?? 2,
   color: props.lineColor ?? color,
-  dashedValue: props.lineDashedValue ?? [5, 2]
+  dashedValue: cycleDash(props)
 })
 
 const base = (name: string): Pick<ProOverlayTemplate, 'name' | 'totalStep' | 'needDefaultPointFigure' | 'needDefaultXAxisFigure' | 'needDefaultYAxisFigure'> =>
@@ -110,6 +121,12 @@ export const timeCycles = (): ProOverlayTemplate => {
       const first = Math.min(a, b)
       const y = coordinates[0].y
       const figures: Figure[] = []
+      // The dialog's Background checkbox writes `style`, which wins over extendData.showBackground.
+      const fillOn = props.style !== undefined ? props.style !== 'stroke' : ext.showBackground ?? true
+      // The colour carries its own alpha; only a saved `backgroundOpacity` (migrated drawings) overrides it.
+      const fill = ext.backgroundOpacity === undefined
+        ? { style: 'fill', color: props.backgroundColor ?? CYCLE_FILL }
+        : fillStyle(props.backgroundColor ?? CYCLE_FILL, ext.backgroundOpacity)
       // Every start k intervals from the first, both ways; one interval of slack on the left for circles that end on screen.
       const starts = [...cycleIndices(first, -length, lo - length, hi), ...cycleIndices(first + length, length, lo - length, hi)]
       starts.forEach((i) => {
@@ -117,8 +134,8 @@ export const timeCycles = (): ProOverlayTemplate => {
         const w = store.dataIndexToCoordinate(i + length) - x0
         const r = w / 2
         const arc = arcPoints(x0 + r, y, r, Math.PI, 2 * Math.PI)
-        if (ext.showBackground ?? true) {
-          figures.push({ type: 'polygon', key: `fill_${i}`, ignoreEvent: true, attrs: { coordinates: arc }, styles: fillStyle(props.backgroundColor ?? CYCLE_FILL, ext.backgroundOpacity ?? 50) })
+        if (fillOn) {
+          figures.push({ type: 'polygon', key: `fill_${i}`, ignoreEvent: true, attrs: { coordinates: arc }, styles: fill })
         }
         figures.push({ type: 'line', key: `cycle_${i}`, attrs: { coordinates: arc }, styles: lineOf(props, TEAL_LINE) })
       })

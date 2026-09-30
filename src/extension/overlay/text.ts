@@ -47,13 +47,24 @@ interface TextOverlayData {
   fontWeight?: number | 'normal' | 'bold'
   align?: 'left' | 'center' | 'right'
   fontStyle?: 'normal' | 'italic'
-  /** TV `drawBorder`/`borderColor`: a 1px box around the text. */
+  /** TV `drawBorder`/`borderColor`: a 1px box around the text. `borderVisible` is the settings dialog's flag for it. */
   drawBorder?: boolean
+  borderVisible?: boolean
   borderColor?: string
+  /** TV `fillBackground`/`backgroundColor`: a filled box behind the text. */
+  backgroundVisible?: boolean
+  backgroundColor?: string
   /** TV `wordWrap`/`wordWrapWidth`: wrap the text at this width (text area, excludes padding). */
   wordWrap?: boolean
   wordWrapWidth?: number
 }
+
+// TV's defaults for a new text.
+const DEFAULT_COLOR = '#2962FF'
+const DEFAULT_SIZE = 14
+const DEFAULT_BACKGROUND = 'rgba(91, 133, 191, 0.3)'
+const DEFAULT_BORDER = '#667b8b'
+const DEFAULT_WRAP_WIDTH = 200
 
 interface TextStyleLike {
   color?: string
@@ -62,6 +73,11 @@ interface TextStyleLike {
   weight?: number | string
   fontStyle?: string
   backgroundColor?: string
+}
+
+interface PolygonStyleLike {
+  color?: string
+  borderColor?: string
 }
 
 function parseExtendData (extendData: unknown): TextOverlayData {
@@ -89,50 +105,59 @@ const text: OverlayTemplate = {
 
     const data = parseExtendData(overlay.extendData)
     const styleText = (overlay.styles?.text ?? {}) as TextStyleLike
+    const stylePolygon = (overlay.styles?.polygon ?? {}) as PolygonStyleLike
 
     const textValue = data.text ?? ''
-    const color = styleText.color ?? data.textColor
-    const size = styleText.size ?? data.fontSize
+    const color = styleText.color ?? data.textColor ?? DEFAULT_COLOR
+    const size = styleText.size ?? data.fontSize ?? DEFAULT_SIZE
     const family = styleText.family
     const weight = styleText.weight ?? data.fontWeight
-    const backgroundColor = styleText.backgroundColor
+    const fillColor = styleText.backgroundColor ?? stylePolygon.color ?? data.backgroundColor
+    const lineColor = stylePolygon.borderColor ?? data.borderColor
 
     // Build figure.styles excluding undefined keys so spread-merging
     // against the engine's text-style defaults (white, 12px, Helvetica
     // Neue, etc.) doesn't get clobbered. Including `color: undefined`
     // here would override the default white and paint the text black.
     const figureStyles: Record<string, unknown> = {}
-    if (color !== undefined) figureStyles.color = color
-    if (size !== undefined) figureStyles.size = size
+    figureStyles.color = color
+    figureStyles.size = size
     if (family !== undefined) figureStyles.family = family
     if (weight !== undefined) figureStyles.weight = weight
-    if (backgroundColor !== undefined) figureStyles.backgroundColor = backgroundColor
 
     const fontStyle = styleText.fontStyle ?? data.fontStyle
     if (fontStyle !== undefined) figureStyles.fontStyle = fontStyle
 
     // TV pads a bordered or wrapped text box by fontSize / 6 and wraps at
     // `wordWrapWidth` of text area. Plain text keeps today's unpadded layout.
-    const wrap = data.wordWrap === true && typeof data.wordWrapWidth === 'number' && data.wordWrapWidth > 0
-    const border = data.drawBorder === true
-    const pad = wrap || border ? (size ?? 12) / 6 : 0
+    const wrap = data.wordWrap === true
+    const wrapWidth = typeof data.wordWrapWidth === 'number' && data.wordWrapWidth > 0 ? data.wordWrapWidth : DEFAULT_WRAP_WIDTH
+    const border = data.borderVisible ?? data.drawBorder ?? lineColor !== undefined
+    const filled = data.backgroundVisible ?? fillColor !== undefined
+    const pad = wrap || border || filled ? size / 6 : 0
     const attrs: TextAttrs = {
       x: coordinates[0].x,
       y: coordinates[0].y,
       text: textValue,
-      align: data.align ?? 'center',
-      baseline: 'middle'
+      // TV pins the box's top-left corner to the point; `align` only remains for saved charts that set it.
+      align: data.align ?? 'left',
+      baseline: 'top'
     }
     if (pad > 0) Object.assign(figureStyles, { paddingLeft: pad, paddingRight: pad, paddingTop: pad, paddingBottom: pad })
-    if (wrap) Object.assign(attrs, { width: (data.wordWrapWidth ?? 0) + 2 * pad, wrap: true })
+    if (wrap) Object.assign(attrs, { width: wrapWidth + 2 * pad, wrap: true })
 
     const figures: OverlayFigure[] = []
-    if (border && textValue !== '') {
-      // editableText forces a transparent box, so the border is its own rect.
+    if ((border || filled) && textValue !== '') {
+      // editableText forces a transparent box, so the box is its own rect.
       figures.push({
         type: 'rect',
         attrs: getTextRect(attrs, figureStyles),
-        styles: { style: backgroundColor !== undefined ? 'stroke_fill' : 'stroke', color: backgroundColor ?? 'transparent', borderColor: data.borderColor ?? color ?? '#2962FF', borderSize: 1 },
+        styles: {
+          style: border ? (filled ? 'stroke_fill' : 'stroke') : 'fill',
+          color: filled ? fillColor ?? DEFAULT_BACKGROUND : 'transparent',
+          borderColor: lineColor ?? DEFAULT_BORDER,
+          borderSize: border ? 1 : 0
+        },
         ignoreEvent: true
       })
     }

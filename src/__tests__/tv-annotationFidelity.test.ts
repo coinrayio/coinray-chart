@@ -50,10 +50,11 @@ describe('callout word wrap', () => {
 describe('anchored note tooltip', () => {
   const draw = (ch: unknown): string[] => run(anchoredNote, { text: 'note' }, [{ x: 100, y: 100 }], ch).map(f => f.type)
   it('shows only while hovered or selected', () => {
-    expect(draw(chart())).toEqual(['circle', 'polygon'])
-    expect(draw(chart('o'))).toEqual(['polygon', 'editableText', 'circle', 'polygon'])
-    expect(draw(chart(undefined, 'o'))).toHaveLength(4)
-    expect(draw(chart('other'))).toHaveLength(2)
+    // The pin: a disc, a stem, and the eye.
+    expect(draw(chart())).toEqual(['circle', 'polygon', 'circle'])
+    expect(draw(chart('o'))).toEqual(['polygon', 'editableText', 'circle', 'polygon', 'circle'])
+    expect(draw(chart(undefined, 'o'))).toHaveLength(5)
+    expect(draw(chart('other'))).toHaveLength(3)
   })
 })
 

@@ -33,7 +33,7 @@ import type { LineStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { arrowHeadCoordinates } from './utils'
+import { endCapFigures } from './endCaps'
 
 export type MultiPointKind = 'polyline' | 'path'
 
@@ -48,19 +48,25 @@ interface MultiPointExtendData {
 const SAME_VERTEX_PX = 4
 /** Pixels within which finishing on the first vertex closes a polyline. */
 const CLOSE_PX = 10
-const DEFAULT_FILL = 'rgba(41, 98, 255, 0.2)'
+/** TV's defaults per tool, held as explicit properties so the settings dialog reads what is drawn. */
+const LOOK: Record<MultiPointKind, DeepPartial<OverlayProperties>> = {
+  polyline: { lineColor: '#00BCD4', lineWidth: 2, backgroundColor: 'rgba(0, 188, 212, 0.2)', style: 'stroke_fill' },
+  path: { lineColor: '#2962FF', lineWidth: 2 }
+}
 
 interface Figure { type: string, key?: string, attrs: unknown, styles?: unknown }
 
 export const multiPoint = (kind: MultiPointKind) => (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
+  const withLook = (id: string): DeepPartial<OverlayProperties> => ({ ...LOOK[kind], ...(properties.get(id) ?? {}) })
+
   const lineStyle = (id: string): Partial<LineStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
+      color: props.lineColor,
+      size: props.lineWidth,
       dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
     }
   }
@@ -70,7 +76,7 @@ export const multiPoint = (kind: MultiPointKind) => (): ProOverlayTemplate => {
     merge(newProps, _properties)
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  const getProperties = withLook
 
   return {
     name: kind,
@@ -100,15 +106,16 @@ export const multiPoint = (kind: MultiPointKind) => (): ProOverlayTemplate => {
       const ext = (overlay.extendData ?? {}) as MultiPointExtendData
       const style = lineStyle(id)
       if (kind === 'polyline' && ext.closed === true) {
-        const props = properties.get(id) ?? {}
-        const filled = ext.showBackground !== false
+        const props = withLook(id)
+        // The Background checkbox writes `style`; `showBackground` is the older switch.
+        const filled = ext.showBackground !== false && props.style !== 'stroke'
         return [{
           type: 'polygon',
           key: 'shape',
           attrs: { coordinates },
           styles: {
             style: filled ? 'stroke_fill' : 'stroke',
-            color: props.backgroundColor ?? DEFAULT_FILL,
+            color: props.backgroundColor,
             borderColor: style.color,
             borderSize: style.size,
             borderStyle: style.style,
@@ -117,13 +124,8 @@ export const multiPoint = (kind: MultiPointKind) => (): ProOverlayTemplate => {
         }]
       }
       const figures: Figure[] = [{ type: 'line', key: 'line', attrs: { coordinates }, styles: style }]
-      if (kind === 'path') {
-        const head = 6 + 2 * (style.size ?? 1)
-        const fill = { style: 'fill', color: style.color }
-        const last = coordinates.length - 1
-        if (ext.endCapRight !== 'normal') figures.push({ type: 'polygon', key: 'head_end', attrs: { coordinates: arrowHeadCoordinates(coordinates[last - 1], coordinates[last], head) }, styles: fill })
-        if (ext.endCapLeft === 'arrow') figures.push({ type: 'polygon', key: 'head_start', attrs: { coordinates: arrowHeadCoordinates(coordinates[1], coordinates[0], head) }, styles: fill })
-      }
+      // Path: TV's line ends, an arrow on the last vertex unless `endCapRight` says otherwise.
+      if (kind === 'path') figures.push(...endCapFigures(coordinates, { endCapRight: 'arrow', ...ext }, style.color, style.size, 1))
       return figures
     },
     setProperties,

@@ -55,12 +55,12 @@ import { formatFibRatio, levelLineStyle, resolveFibSettings, withAlpha } from '.
  *  matching time line at a glance. */
 const FAN_DEFAULT_COLOURS: Record<string, string> = {
   0: '#787b86',
-  0.25: '#f44336',
-  0.382: '#ff9800',
-  0.5: '#fdd835',
-  0.618: '#4caf50',
-  0.75: '#009688',
-  1: '#2196f3'
+  0.25: '#ff9800',
+  0.382: '#00bcd4',
+  0.5: '#4caf50',
+  0.618: '#089981',
+  0.75: '#2962ff',
+  1: '#787b86'
 }
 
 const withDefaults = (): FigureLevel[] => [
@@ -99,7 +99,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
 
   const baseLineStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
     style: props.lineStyle ?? 'solid',
-    size: props.lineWidth,
+    size: props.lineWidth ?? 2,
     dashedValue: props.lineDashedValue
   })
 
@@ -135,18 +135,27 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
         showBottomLabels?: boolean
         showGrid?: boolean
         gridColor?: string
+        gridWidth?: number
+        gridStyle?: LineStyle['style']
+        gridDashedValue?: number[]
       }
-      const priceLevels = resolveLevels(ext.fanPriceLevels).filter(l => l.enabled)
-      const timeLevels = resolveLevels(ext.fanTimeLevels).filter(l => l.enabled)
+      const paint = (l: FigureLevel): FigureLevel => settings.oneColor === undefined ? l : { ...l, color: settings.oneColor }
+      const priceLevels = resolveLevels(ext.fanPriceLevels).filter(l => l.enabled).map(paint)
+      const timeLevels = resolveLevels(ext.fanTimeLevels).filter(l => l.enabled).map(paint)
       const showLeftLabels = ext.showLeftLabels !== false
       const showRightLabels = ext.showRightLabels !== false
       const showTopLabels = ext.showTopLabels !== false
       const showBottomLabels = ext.showBottomLabels !== false
       const showGrid = ext.showGrid !== false
-      const gridColour = ext.gridColor ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+      // TV's grid: 1px, solid, a translucent navy.
+      const gridColour = ext.gridColor ?? 'rgba(21, 56, 153, 0.8)'
 
-      const origin = settings.reverse ? coordinates[1] : coordinates[0]
-      const extent = settings.reverse ? coordinates[0] : coordinates[1]
+      // The fan always radiates from the first anchor. TV measures the levels
+      // from the second anchor (ratio 0 there, 1 back at the origin); Reverse
+      // measures them from the first.
+      const origin = coordinates[0]
+      const extent = coordinates[1]
+      const at = (ratio: number): number => settings.reverse ? ratio : 1 - ratio
       const xDistance = extent.x - origin.x
       const yDistance = extent.y - origin.y
 
@@ -174,7 +183,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
         // if dx > 0 the right edge, dx < 0 the left. A vertical
         // drag (dx == 0) falls back to a vertical clamp.
         const rayFarEndpoint = (p: number): { x: number, y: number } => {
-          const targetY = origin.y + yDistance * p
+          const targetY = origin.y + yDistance * at(p)
           const dx = extent.x - origin.x
           const dy = targetY - origin.y
           if (dx === 0) {
@@ -213,7 +222,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
       // lies vertically).
       if (settings.showBackground && timeLevels.length >= 2) {
         const timeRayFarEndpoint = (p: number): { x: number, y: number } => {
-          const targetX = origin.x + xDistance * p
+          const targetX = origin.x + xDistance * at(p)
           const dx = targetX - origin.x
           const dy = extent.y - origin.y
           if (dy === 0) {
@@ -250,18 +259,19 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
       // grid colour picker; toggles off cleanly.
       if (showGrid) {
         const gridLines: LineAttrs[] = []
+        // Price levels are horizontal lines, time levels vertical ones.
         priceLevels.forEach(l => {
-          const x = origin.x + xDistance * l.value
-          gridLines.push({ key: `grid_price_${l.value}`, coordinates: [{ x, y: origin.y }, { x, y: extent.y }] })
+          const y = origin.y + yDistance * at(l.value)
+          gridLines.push({ key: `grid_price_${l.value}`, coordinates: [{ x: origin.x, y }, { x: extent.x, y }] })
         })
         timeLevels.forEach(l => {
-          const y = origin.y + yDistance * l.value
-          gridLines.push({ key: `grid_time_${l.value}`, coordinates: [{ x: origin.x, y }, { x: extent.x, y }] })
+          const x = origin.x + xDistance * at(l.value)
+          gridLines.push({ key: `grid_time_${l.value}`, coordinates: [{ x, y: origin.y }, { x, y: extent.y }] })
         })
         figures.push({
           type: 'line',
           attrs: gridLines,
-          styles: { ...baseLineStyle(props), color: gridColour }
+          styles: { style: ext.gridStyle ?? 'solid', size: ext.gridWidth ?? 1, dashedValue: ext.gridDashedValue ?? [4, 4], color: gridColour }
         })
       }
 
@@ -270,7 +280,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
       // level recoloured in the Levels section paints
       // consistently across ray + labels.
       priceLevels.forEach(l => {
-        const targetY = origin.y + yDistance * l.value
+        const targetY = origin.y + yDistance * at(l.value)
         const rayPieces = getRayLine([origin, { x: extent.x, y: targetY }], bounding)
         const rays = Array.isArray(rayPieces) ? rayPieces : [rayPieces]
         rays.forEach((r, i) => {
@@ -330,7 +340,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
       // price rays but fanning toward the horizontal line at
       // Y = extent.y.
       timeLevels.forEach(l => {
-        const targetX = origin.x + xDistance * l.value
+        const targetX = origin.x + xDistance * at(l.value)
         const rayPieces = getRayLine([origin, { x: targetX, y: extent.y }], bounding)
         const rays = Array.isArray(rayPieces) ? rayPieces : [rayPieces]
         rays.forEach((r, i) => {

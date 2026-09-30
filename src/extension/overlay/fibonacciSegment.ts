@@ -21,10 +21,9 @@ import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 
 import type { LineAttrs } from '../figure/line'
-import type { TextAttrs } from '../figure/text'
 
 import { FIBONACCI_RETRACEMENT_LEVELS } from './fibonacciLine'
-import { fibLevelPosition, levelLineStyle } from './fibonacciShared'
+import { buildLevelLabels, diagonalStroke, fibLevelPosition, fibOneColor, levelLineStyle, resolveFibSettings } from './fibonacciShared'
 
 /** Coerce any CSS colour string to `rgba(r, g, b, alpha)` with
  *  the given alpha (0-1), overriding whatever alpha the input
@@ -74,7 +73,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
 
   const fbLinesStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
     style: props.lineStyle ?? 'solid',
-    size: props.lineWidth,
+    size: props.lineWidth ?? 2,
     color: props.lineColor ?? props.borderColor,
     dashedValue: props.lineDashedValue
   })
@@ -122,6 +121,8 @@ const fibonacciSegment = (): ProOverlayTemplate => {
         showLevels?: boolean
         levelFormat?: 'values' | 'percent'
         showText?: boolean
+        levelTextAlignHorizontal?: 'left' | 'center' | 'right'
+        levelTextAlignVertical?: 'top' | 'middle' | 'bottom'
         logScale?: boolean
       }
       const extendLeft = ext.extendLeft === true
@@ -137,11 +138,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
       // circle family and the shared `resolveFibSettings`
       // defaults. Explicit `false` in extendData opts out.
       const showBackground = ext.showBackground !== false
-      const backgroundOpacity = typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 10
-      const showPrices = ext.showPrices !== false
-      const showLevels = ext.showLevels !== false
-      const levelFormat = ext.levelFormat === 'values' ? 'values' : 'percent'
-      const showText = ext.showText !== false
+      const backgroundOpacity = typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 20
 
       const figures: Array<{
         type: string
@@ -181,7 +178,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
       const valueFar = reverse ? (overlay.points[0]?.value ?? 0) : (overlay.points[1]?.value ?? 0)
       const valueNear = reverse ? (overlay.points[1]?.value ?? 0) : (overlay.points[0]?.value ?? 0)
       // TV `fibLevelsBasedOnLogScale`: interpolate the price in log space.
-      const logToY = ext.logScale === true && yAxis != null
+      const logToY = ext.logScale === true && yAxis?.name === 'logarithm'
         ? (price: number) => yAxis.convertToPixel(price)
         : undefined
 
@@ -200,8 +197,8 @@ const fibonacciSegment = (): ProOverlayTemplate => {
           const percent = level.value ?? 0
           const { y, value } = fibLevelPosition(percent, anchorFar, anchorNear, valueFar, valueNear, logToY)
           const price = decimalFold.format(thousandsSeparator.format(value.toFixed(precision)))
-          const color = level.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-          return { percent, y, price, color, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
+          const color = fibOneColor(overlay.extendData) ?? level.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+          return { percent, y, price, color, text: level.text, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
         })
         .sort((a, b) => a.y - b.y)
 
@@ -251,53 +248,8 @@ const fibonacciSegment = (): ProOverlayTemplate => {
         })
       })
 
-      // Level labels — only emitted when the master `showText`
-      // is on AND at least one of the ratio / price toggles is
-      // on (empty labels would be noise). Ratio format follows
-      // `levelFormat`; horizontal / vertical alignment follow
-      // `textAlignHorizontal` / `textAlignVertical`.
-      //
-      // hAlign 'left' / 'right' render the text OUTSIDE the fib
-      // (past the left / right anchor), not inside. Anchor x
-      // stays at the endpoint; the CANVAS text-align flips so
-      // the glyphs run AWAY from the fib. `center` keeps the
-      // natural centred behaviour inside the fib width.
-      if (showText && (showLevels || showPrices)) {
-        const hAlign = props.textAlignHorizontal ?? 'left'
-        const vAlign = props.textAlignVertical ?? 'top'
-        const textX = hAlign === 'right' ? rightX : hAlign === 'center' ? (leftX + rightX) / 2 : leftX
-        let canvasAlign: CanvasTextAlign = 'center'
-        // Extended sides put the label inside the chart edge, as TV does.
-        if (hAlign === 'left') canvasAlign = extendLeft ? 'left' : 'right'
-        else if (hAlign === 'right') canvasAlign = extendRight ? 'right' : 'left'
-        const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'bottom' ? 'top' : 'bottom'
-
-        const texts: TextAttrs[] = enrichedLevels.map(l => {
-          let content = ''
-          if (showLevels) {
-            content = levelFormat === 'percent'
-              ? `${(l.percent * 100).toFixed(1)}%`
-              : l.percent.toFixed(3)
-          }
-          if (showPrices) {
-            content = content.length > 0 ? `${content} (${l.price})` : `(${l.price})`
-          }
-          return {
-            key: `level_${l.percent}_text`,
-            x: textX,
-            y: l.y,
-            text: content,
-            align: canvasAlign,
-            baseline
-          }
-        })
-        figures.push({
-          type: 'text',
-          isCheckEvent: false,
-          attrs: texts,
-          styles: textStyle(props)
-        })
-      }
+      // Level labels: shared with the extension, each in its level's colour.
+      figures.push(...buildLevelLabels(enrichedLevels, leftX, rightX, resolveFibSettings(ext), props, textStyle(props)))
 
       // Diagonal — the two-anchor trend line, rendered on top of
       // levels + labels so it stays visible when they cluster.
@@ -307,30 +259,11 @@ const fibonacciSegment = (): ProOverlayTemplate => {
       // extendData and falls back only to the engine default.
       // Changing lineColor never bleeds into the diagonal.
       if (showDiagonal) {
-        // Diagonal reads its stroke fields off extendData — no
-        // fallback to `props.lineColor` / `props.lineWidth` /
-        // etc. The Style-tab Trend Line row's colour picker
-        // line variant is the ONLY input; changing the general
-        // Line row's picker never bleeds into the diagonal.
-        // Defaults resolve to engine constants so a picker the
-        // user has never opened still produces a sane stroke.
-        const dColor = ext.diagonalColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-        const dWidth = ext.diagonalWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth
-        // extendData carries `diagonalStyle` as a plain string
-        // (that's what the modal writes); coerce to the LineType
-        // enum shape LineStyle expects at the boundary.
-        const dStyle = (ext.diagonalStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle) as LineStyle['style']
-        const dDashed = ext.diagonalDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
         figures.push({
           type: 'line',
           key: 'diagonal',
           attrs: { coordinates: [coordinates[0], coordinates[1]] },
-          styles: {
-            style: dStyle,
-            size: dWidth,
-            color: dColor,
-            dashedValue: dDashed
-          }
+          styles: diagonalStroke(resolveFibSettings(ext))
         })
       }
 

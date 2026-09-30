@@ -33,6 +33,8 @@ import type { LineStyle, LineType, PolygonStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { channelText } from './tv/linesShapes/channelText'
+import { TV_BLUE, tvDashedValue } from './tvLine'
 
 interface ChannelExtendData {
   extendLeft?: boolean
@@ -58,11 +60,12 @@ const parallelChannel = (): ProOverlayTemplate => {
 
   const lineStyle = (id: string): Partial<LineStyle> => {
     const props = properties.get(id) ?? {}
+    const size = props.lineWidth ?? 2
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
-      dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
+      color: props.lineColor ?? TV_BLUE,
+      size,
+      dashedValue: tvDashedValue(props.lineDashedValue, size)
     }
   }
 
@@ -107,21 +110,24 @@ const parallelChannel = (): ProOverlayTemplate => {
       }
       if (ext.showMidline !== false) {
         const mid = base.map((p) => ({ x: p.x, y: p.y + offset / 2 }))
+        // TV's middle line is its own: blue, 1px, dashed, whatever colour the channel is.
+        const midSize = ext.midlineWidth ?? 1
         figures.push({
           type: 'line',
           key: 'midline',
           attrs: { coordinates: mid },
           styles: {
             ...style,
-            color: ext.midlineColor ?? style.color,
-            size: ext.midlineWidth ?? style.size,
+            color: ext.midlineColor ?? TV_BLUE,
+            size: midSize,
             style: ext.midlineStyle ?? 'dashed',
-            dashedValue: ext.midlineDashedValue ?? [5, 2]
+            dashedValue: tvDashedValue(ext.midlineDashedValue, midSize)
           }
         })
       }
       figures.push({ type: 'line', key: 'line_0', attrs: { coordinates: base }, styles: style })
       figures.push({ type: 'line', key: 'line_1', attrs: { coordinates: parallel }, styles: style })
+      figures.push(channelText(properties.get(id) ?? {}, base, parallel))
       return figures
     },
     setProperties,

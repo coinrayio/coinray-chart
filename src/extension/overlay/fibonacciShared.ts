@@ -38,25 +38,42 @@ export const FIB_ANCHOR_GREY = '#787b86'
 
 /** Default colour per fib ratio, shared by every line-based fib
  *  family (retracement / channel / segment / extension). Same
- *  ratio → same colour across families so a user reading a
- *  0.618 retracement and a 0.618 extension on the same chart
- *  sees the same yellow, matching how the circle family paints
- *  its 0.618 ring. Unlisted ratios (user-added or non-default)
- *  fall back to `props.lineColor`. */
+ *  ratio -> same colour across families. These are TradingView's
+ *  own defaults. Unlisted ratios (user-added) fall back to
+ *  `props.lineColor`. */
 export const FIB_LEVEL_COLOURS: Record<string, string> = {
   0: FIB_ANCHOR_GREY,
-  0.236: '#f44336',
+  0.236: '#f23645',
   0.382: '#ff9800',
-  0.5: '#ffc107',
-  0.618: '#fdd835',
-  0.786: '#cddc39',
+  0.5: '#4caf50',
+  0.618: '#089981',
+  0.786: '#00bcd4',
   1: FIB_ANCHOR_GREY,
-  1.618: '#4caf50',
-  2.618: '#00bcd4',
-  3.618: '#2196f3',
-  4.236: '#5c6bc0',
-  4.618: '#9c27b0'
+  1.272: '#ff9800',
+  1.414: '#f23645',
+  1.618: '#2962ff',
+  2: '#089981',
+  2.272: '#ff9800',
+  2.414: '#4caf50',
+  2.618: '#f23645',
+  3: '#00bcd4',
+  3.272: FIB_ANCHOR_GREY,
+  3.414: '#2962ff',
+  3.618: '#9c27b0',
+  4: '#f23645',
+  4.236: '#e91e63',
+  4.272: '#9c27b0',
+  4.414: '#e91e63',
+  4.618: '#ff9800',
+  4.764: '#089981'
 }
+
+/** TradingView's level list for the line-based fibs, in its order: the
+ *  first eleven draw by default, the rest are opt-in. */
+export const FIB_TV_LEVELS: FigureLevel[] = [
+  0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.618, 2.618, 3.618, 4.236,
+  1.272, 1.414, 2.272, 2.414, 2, 3, 3.272, 3.414, 4, 4.272, 4.414, 4.618, 4.764
+].map((value, i) => ({ value, enabled: i < 11, color: FIB_LEVEL_COLOURS[value] }))
 
 /** Lookup a default fib-level colour by ratio. Extracted so
  *  the various family `LEVELS` constants can build with a
@@ -82,7 +99,11 @@ export interface FibExtendData {
   showPrices?: boolean
   showLevels?: boolean
   levelFormat?: 'values' | 'percent'
+  /** TV's "Text" row: whether the per-level custom text (`FigureLevel.text`) shows. */
   showText?: boolean
+  /** Where the custom text sits, TV's `horzTextAlign` / `vertTextAlign`. Default center / middle. */
+  levelTextAlignHorizontal?: 'left' | 'center' | 'right'
+  levelTextAlignVertical?: 'top' | 'middle' | 'bottom'
   /** TV `fibLevelsBasedOnLogScale`: level prices interpolate in log space. */
   logScale?: boolean
 }
@@ -102,7 +123,10 @@ export interface ResolvedFibSettings {
   showLevels: boolean
   levelFormat: 'values' | 'percent'
   showText: boolean
+  levelTextAlignHorizontal: 'left' | 'center' | 'right'
+  levelTextAlignVertical: 'top' | 'middle' | 'bottom'
   logScale: boolean
+  oneColor?: string
   diagonalColor?: string
   diagonalWidth?: number
   diagonalStyle?: string
@@ -123,19 +147,38 @@ export const resolveFibSettings = (extendData: unknown): ResolvedFibSettings => 
     // grouping right after drop. Same opt-out pattern as
     // showDiagonal so an explicit `false` in extendData wins.
     showBackground: ext.showBackground !== false,
-    backgroundOpacity: typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 10,
+    backgroundOpacity: typeof ext.backgroundOpacity === 'number' ? ext.backgroundOpacity : 20,
     reverse: ext.reverse === true,
     showPrices: ext.showPrices !== false,
     showLevels: ext.showLevels !== false,
-    levelFormat: ext.levelFormat === 'values' ? 'values' : 'percent',
+    levelFormat: ext.levelFormat === 'percent' ? 'percent' : 'values',
     showText: ext.showText !== false,
+    levelTextAlignHorizontal: ext.levelTextAlignHorizontal ?? 'center',
+    levelTextAlignVertical: ext.levelTextAlignVertical ?? 'middle',
     logScale: ext.logScale === true,
+    oneColor: fibOneColor(extendData),
     diagonalColor: ext.diagonalColor,
     diagonalWidth: ext.diagonalWidth,
     diagonalStyle: ext.diagonalStyle,
     diagonalDashedValue: ext.diagonalDashedValue
   }
 }
+
+/** TV's "Use one color": the colour every level draws in, when the box is
+ *  ticked (`useOneColor`); undefined otherwise. */
+export const fibOneColor = (extendData: unknown): string | undefined => {
+  const ext = (extendData ?? {}) as { useOneColor?: boolean, oneColor?: string }
+  return ext.useOneColor === true ? ext.oneColor ?? FIB_ANCHOR_GREY : undefined
+}
+
+/** Stroke of the trend line (`diagonal`) every fib draws between its anchors.
+ *  Reads only the diagonal fields; defaults are TV's: grey, 2px, dashed. */
+export const diagonalStroke = (s: Pick<ResolvedFibSettings, 'diagonalColor' | 'diagonalWidth' | 'diagonalStyle' | 'diagonalDashedValue'>): Partial<LineStyle> => ({
+  style: (s.diagonalStyle ?? 'dashed') as LineStyle['style'],
+  size: s.diagonalWidth ?? 2,
+  color: s.diagonalColor ?? FIB_ANCHOR_GREY,
+  dashedValue: s.diagonalDashedValue ?? [4, 4]
+})
 
 /** Coerce any CSS colour string to `rgba(r, g, b, alpha)` with
  *  the given alpha (0-1), overriding whatever alpha the input
@@ -169,6 +212,7 @@ export interface EnrichedFibLevel {
   y: number
   price: string
   color: string
+  text?: string
   lineStyle?: FigureLevel['lineStyle']
   lineWidth?: number
   lineDashedValue?: number[]
@@ -221,8 +265,10 @@ export const buildEnrichedLevels = (opts: {
   reverse: boolean
   /** Set to price → y to place levels in log space (`logScale`). */
   logToY?: (price: number) => number
+  /** Paints every level in this colour (`fibOneColor`). */
+  oneColor?: string
 }): EnrichedFibLevel[] => {
-  const { levels, anchorFar, anchorNear, valueFar, valueNear, precision, chart, lineColour, reverse, logToY } = opts
+  const { levels, anchorFar, anchorNear, valueFar, valueNear, precision, chart, lineColour, reverse, logToY, oneColor } = opts
   const swap = reverse
   const near = swap ? anchorFar : anchorNear
   const far = swap ? anchorNear : anchorFar
@@ -235,8 +281,8 @@ export const buildEnrichedLevels = (opts: {
       const percent = level.value
       const { y, value } = fibLevelPosition(percent, far, near, farVal, nearVal, logToY)
       const price = decimalFold.format(thousandsSeparator.format(value.toFixed(precision)))
-      const color = level.color ?? lineColour
-      return { percent, y, price, color, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
+      const color = oneColor ?? level.color ?? lineColour
+      return { percent, y, price, color, text: level.text, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
     })
     .sort((a, b) => a.y - b.y)
 }
@@ -315,15 +361,35 @@ export const buildLevelLines = (
 /** Ratio text — percent or decimal, per `levelFormat`. Extracted
  *  so the label-composer stays declarative. */
 export const formatFibRatio = (percent: number, levelFormat: 'values' | 'percent'): string =>
-  levelFormat === 'percent' ? `${(percent * 100).toFixed(1)}%` : percent.toFixed(3)
+  levelFormat === 'percent' ? `${(percent * 100).toFixed(2)}%` : String(+percent.toFixed(3))
 
-/** Level labels — one text figure per enriched level, emitted
- *  only when `showText` AND at least one of `showLevels` /
- *  `showPrices` is on (empty labels would be noise).
+/** Where a label sits: the x it anchors to and the canvas alignment that keeps
+ *  the glyphs off the fib. 'left' / 'right' put the text OUTSIDE the fib width
+ *  (past the left / right anchor) unless the fib is extended that way, then
+ *  it runs inward; 'center' is centred inside. */
+const labelPlacement = (
+  hAlign: string,
+  vAlign: string,
+  leftX: number,
+  rightX: number,
+  settings: Pick<ResolvedFibSettings, 'extendLeft' | 'extendRight'>
+): { x: number, align: CanvasTextAlign, baseline: CanvasTextBaseline } => {
+  let align: CanvasTextAlign = 'center'
+  if (hAlign === 'left') align = settings.extendLeft ? 'left' : 'right'
+  else if (hAlign === 'right') align = settings.extendRight ? 'right' : 'left'
+  return {
+    x: hAlign === 'right' ? rightX : hAlign === 'center' ? (leftX + rightX) / 2 : leftX,
+    align,
+    baseline: vAlign === 'middle' ? 'middle' : vAlign === 'top' ? 'top' : 'bottom'
+  }
+}
+
+/** Level labels — one text figure per enriched level, emitted when at least one
+ *  of `showLevels` / `showPrices` is on (empty labels would be noise).
  *
- *  `textAlignHorizontal` picks the x anchor from the level
- *  segment's leftX / midpoint / rightX; `textAlignVertical`
- *  maps to canvas baseline. */
+ *  A level's custom text (TV's "Text" row: `showText`, `FigureLevel.text`) is
+ *  placed by `levelTextAlign*`; where that is the same spot as the label the
+ *  two share a figure, "0.236 · text", as TradingView draws them. */
 export const buildLevelLabels = (
   enriched: EnrichedFibLevel[],
   leftX: number,
@@ -331,38 +397,38 @@ export const buildLevelLabels = (
   settings: ResolvedFibSettings,
   props: DeepPartial<OverlayProperties>,
   labelStyles: Partial<TextStyle>
-): FibFigureSpec | null => {
-  if (!settings.showText || (!settings.showLevels && !settings.showPrices)) return null
+): FibFigureSpec[] => {
   const hAlign = props.textAlignHorizontal ?? 'left'
-  const vAlign = props.textAlignVertical ?? 'top'
-  const textX = hAlign === 'right' ? rightX : hAlign === 'center' ? (leftX + rightX) / 2 : leftX
-  // 'left' / 'right' put the text OUTSIDE the fib width (past
-  // the left / right anchor). The anchor stays at the endpoint;
-  // canvas text-align flips so glyphs run AWAY from the fib.
-  // 'center' keeps the natural centred behaviour inside.
-  let canvasAlign: CanvasTextAlign = 'center'
-  if (hAlign === 'left') canvasAlign = settings.extendLeft ? 'left' : 'right'
-  else if (hAlign === 'right') canvasAlign = settings.extendRight ? 'right' : 'left'
-  const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'bottom' ? 'top' : 'bottom'
-  const texts = enriched.map(l => {
+  const vAlign = props.textAlignVertical ?? 'middle'
+  const withLabel = settings.showLevels || settings.showPrices
+  const label = labelPlacement(hAlign, vAlign, leftX, rightX, settings)
+  const custom = labelPlacement(settings.levelTextAlignHorizontal, settings.levelTextAlignVertical, leftX, rightX, settings)
+  const sameSpot = hAlign === settings.levelTextAlignHorizontal && vAlign === settings.levelTextAlignVertical
+  const figures: FibFigureSpec[] = []
+  // One figure per label: TV paints each label in its own level's colour
+  // (an explicit `textColor` still wins).
+  const push = (key: string, l: EnrichedFibLevel, text: string, at: typeof label): void => {
+    figures.push({
+      type: 'text',
+      key,
+      isCheckEvent: false,
+      attrs: { key, x: at.x, y: l.y, text, align: at.align, baseline: at.baseline },
+      styles: { ...labelStyles, color: labelStyles.color ?? l.color }
+    })
+  }
+  for (const l of enriched) {
     let content = ''
     if (settings.showLevels) content = formatFibRatio(l.percent, settings.levelFormat)
     if (settings.showPrices) content = content.length > 0 ? `${content} (${l.price})` : `(${l.price})`
-    return {
-      key: `level_${l.percent}_text`,
-      x: textX,
-      y: l.y,
-      text: content,
-      align: canvasAlign,
-      baseline
+    const text = settings.showText ? l.text ?? '' : ''
+    if (withLabel && text !== '' && sameSpot) {
+      push(`level_${l.percent}_text`, l, `${content} · ${text}`, label)
+      continue
     }
-  })
-  return {
-    type: 'text',
-    isCheckEvent: false,
-    attrs: texts,
-    styles: labelStyles
+    if (withLabel) push(`level_${l.percent}_text`, l, content, label)
+    if (text !== '') push(`level_${l.percent}_custom`, l, text, custom)
   }
+  return figures
 }
 
 /** Diagonal line from `start` to `end`. Stroke reads only from
@@ -375,14 +441,10 @@ export const buildDiagonal = (
   settings: ResolvedFibSettings
 ): FibFigureSpec | null => {
   if (!settings.showDiagonal) return null
-  const dColor = settings.diagonalColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-  const dWidth = settings.diagonalWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth
-  const dStyle = (settings.diagonalStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle) as LineStyle['style']
-  const dDashed = settings.diagonalDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
   return {
     type: 'line',
     key: 'diagonal',
     attrs: { coordinates: [start, end] },
-    styles: { style: dStyle, size: dWidth, color: dColor, dashedValue: dDashed }
+    styles: diagonalStroke(settings)
   }
 }

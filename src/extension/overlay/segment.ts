@@ -14,44 +14,29 @@
 
 import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
-import type { Chart } from '../../Chart'
 import type ChartImp from '../../Chart'
 import { isNumber, merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { getLinearSlopeIntercept, getLinearYFromCoordinates } from '../figure/line'
+import { getLinearYFromCoordinates } from '../figure/line'
 import { computeTextPosition } from './textUtils'
-import { getRotateCoordinate } from './utils'
+import { lineEndCoordinates } from './endCaps'
+import { getTextRect } from '../figure/text'
+import { statsIconFigures } from './statsIcons'
+import type { StatsIcon } from './statsIcons'
 import { formatPrecision } from '../../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
+import { TV_BLUE, axisLabelStyles, lineAroundText, tvDashedValue } from './tvLine'
 
 /** End-cap kind for either anchor of a segment. */
 type EndCap = 'normal' | 'arrow'
 
-/** Where the stats label sits along the segment. `auto` mirrors
- *  TradingView: pick the side least likely to overlap the price
- *  action (the anchor with the smaller y — i.e. the higher price
- *  on screen). Falls back to center if the two anchors' y match. */
+/** Where the stats box sits: its left edge at the left anchor, the middle or the right
+ *  anchor. TV's Auto lands in the middle here. */
 type StatsPos = 'left' | 'center' | 'right' | 'auto'
 
-/** Stat keys the Style-tab Stats multi-select surfaces. The order
- *  here is the row order the spec asks for — index 0..2 sit on
- *  row 1, 3..5 on row 2, 6+ on row 3. Callers pick a subset in
- *  any order; the renderer preserves this canonical row layout
- *  so two overlays with the same subset produce identical labels. */
-// row 1: priceRange / percentRange / pipsChange
-// row 2: barsRange / timeRange / distance
-// row 3: angle
-const STAT_KEYS = [
-  'priceRange',
-  'percentRange',
-  'pipsChange',
-  'barsRange',
-  'timeRange',
-  'distance',
-  'angle'
-] as const
-type StatKey = typeof STAT_KEYS[number]
+/** Stat keys the Style-tab Stats multi-select surfaces, in the order they are laid out in the box. */
+type StatKey = 'priceRange' | 'percentRange' | 'pipsChange' | 'barsRange' | 'timeRange' | 'distance' | 'angle'
 
 /** Duration string like "3d 4h 12m". Zero-slots collapse so short
  *  ranges don't render as "0d 0h 3m". Anchors on ms — pass a
@@ -68,91 +53,40 @@ const formatDuration = (ms: number): string => {
   return parts.join(' ')
 }
 
-/**
- * Build the three points that make up an arrowhead polygon anchored at
- * `anchor`, pointing away from `away`. The 30° spread (`arrowAngle`)
- * and the `arrowSize` ratio are the same shape the dedicated `arrow`
- * overlay uses, so a segment with `endCapRight: 'arrow'` and a plain
- * arrow overlay look identical at equal line widths.
- */
-const buildArrowhead = (
-  anchor: { x: number; y: number },
-  away: { x: number; y: number },
-  arrowSize: number
-): Array<{ x: number; y: number }> => {
-  const kb = getLinearSlopeIntercept(away, anchor)
-  let angle = 0
-  if (kb !== null) {
-    angle = Math.atan(kb[0])
-    if (anchor.x < away.x) {
-      angle += Math.PI
-    }
-  } else {
-    angle = anchor.y > away.y ? Math.PI / 2 : -Math.PI / 2
-  }
-  const arrowAngle = Math.PI / 6
-  const p1 = getRotateCoordinate(
-    { x: anchor.x - arrowSize, y: anchor.y },
-    anchor,
-    angle + arrowAngle
-  )
-  const p2 = getRotateCoordinate(
-    { x: anchor.x - arrowSize, y: anchor.y },
-    anchor,
-    angle - arrowAngle
-  )
-  return [anchor, p1, p2]
-}
+/** TradingView's trend line thickness and label size, where ours were 1 and 12. */
+export const SEGMENT_DEFAULT_WIDTH = 2
+export const SEGMENT_DEFAULT_TEXT_SIZE = 14
 
 const segment = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
   const lineStyle = (id: string): Partial<LineStyle> => {
     const props = properties.get(id) ?? {}
+    const size = props.lineWidth ?? SEGMENT_DEFAULT_WIDTH
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
-      dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
+      color: props.lineColor ?? TV_BLUE,
+      size,
+      dashedValue: tvDashedValue(props.lineDashedValue, size)
     }
   }
 
-  // Arrowheads always render as a filled solid triangle in the
-  // line colour — regardless of whether the line itself is dashed
-  // or dotted, because a dashed arrowhead reads as noise. Matches
-  // the dedicated `arrow` overlay's treatment.
-  const arrowheadStyle = (id: string): Partial<PolygonStyle> => {
+  // Arrowheads are solid strokes in the line colour and width, even on a dashed line:
+  // a dashed arrowhead reads as noise.
+  const arrowheadStyle = (id: string): Partial<LineStyle> => {
     const props = properties.get(id) ?? {}
     return {
-      style: 'fill',
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      borderColor: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      borderSize: 0,
-      borderStyle: 'solid',
-      borderDashedValue: [2, 2]
+      style: 'solid',
+      color: props.lineColor ?? TV_BLUE,
+      size: props.lineWidth ?? SEGMENT_DEFAULT_WIDTH
     }
   }
 
-  /**
-   * The chart's own background colour, read off the container. Used as the
-   * label's fill when the text sits ON the line, so it knocks a hole in the
-   * stroke instead of overprinting it (TradingView does the same).
-   */
-  const chartBackground = (chart: Chart): string => {
-    const dom = chart.getDom()
-    if (dom === null) return '#000000'
-    const computed = window.getComputedStyle(dom).backgroundColor
-    return (computed !== '' && computed !== 'transparent' && computed !== 'rgba(0, 0, 0, 0)')
-      ? computed
-      : '#000000'
-  }
-
-  const textStyle = (id: string, knockoutColor?: string, overrides?: Partial<TextStyle>): Partial<TextStyle> => {
+  const textStyle = (id: string, overrides?: Partial<TextStyle>): Partial<TextStyle> => {
     const props = properties.get(id) ?? {}
-    const background = props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor
     return {
-      color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
-      size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
+      color: props.textColor ?? TV_BLUE,
+      size: props.textFontSize ?? SEGMENT_DEFAULT_TEXT_SIZE,
       weight: props.textFontWeight ?? DEFAULT_OVERLAY_PROPERTIES.textFontWeight,
       // Italic flows through `fontStyle`. The shared textStyle
       // builder previously dropped this, so toggling Italic in
@@ -163,11 +97,7 @@ const segment = (): ProOverlayTemplate => {
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
       paddingTop: props.textPaddingTop ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingTop,
       paddingBottom: props.textPaddingBottom ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingBottom,
-      // A user-chosen background always wins; the knockout only fills in for
-      // the default transparent one.
-      backgroundColor: background === 'transparent' && knockoutColor !== undefined
-        ? knockoutColor
-        : background,
+      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor,
       ...overrides
     }
   }
@@ -212,7 +142,7 @@ const segment = (): ProOverlayTemplate => {
       const endCapRight: EndCap = ext?.endCapRight ?? 'normal'
       const showMidPoint = ext?.showMidPoint === true
       const statsSelected: StatKey[] = Array.isArray(ext?.stats) ? ext.stats : []
-      const statsPosition: StatsPos = ext?.statsPosition ?? 'auto'
+      const statsPosition: StatsPos = ext?.statsPosition ?? 'right'
 
       // `lineCoordinates` is always sorted so [0] is the visually
       // left (or top, for vertical) end and [1] is the right
@@ -258,40 +188,42 @@ const segment = (): ProOverlayTemplate => {
         }
       ]
 
-      // Arrowhead size mirrors `arrow.ts`: scales with line width
-      // with an 8 px floor so a 1 px line still has a visible head.
-      const lineWidth = properties.get(id)?.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth
-      const arrowSize = Math.max(8, lineWidth * 4)
+      // TV's arrowhead is two strokes at the end, open, sized by the line width.
+      const lineWidth = properties.get(id)?.lineWidth ?? SEGMENT_DEFAULT_WIDTH
       if (endCapRight === 'arrow') {
         figures.push({
-          type: 'polygon',
-          attrs: { coordinates: buildArrowhead(lineCoordinates[1], lineCoordinates[0], arrowSize) },
+          type: 'line',
+          attrs: { coordinates: lineEndCoordinates(lineCoordinates[0], lineCoordinates[1], lineWidth) },
           styles: arrowheadStyle(id)
         })
       }
       if (endCapLeft === 'arrow') {
         figures.push({
-          type: 'polygon',
-          attrs: { coordinates: buildArrowhead(lineCoordinates[0], lineCoordinates[1], arrowSize) },
+          type: 'line',
+          attrs: { coordinates: lineEndCoordinates(lineCoordinates[1], lineCoordinates[0], lineWidth) },
           styles: arrowheadStyle(id)
         })
       }
 
+      // Like TV, the middle point and the stats are for a line you are pointing at.
+      const chartStore = (chart as ChartImp).getChartStore()
+      const pointedAt = chartStore.getHoverOverlayInfo().overlay?.id === id ||
+        chartStore.getClickOverlayInfo().overlay?.id === id
+
       const props = properties.get(id) ?? {}
       const text = props.text ?? ''
-      const midX = (lineCoordinates[0].x + lineCoordinates[1].x) / 2
-      const midY = (lineCoordinates[0].y + lineCoordinates[1].y) / 2
+      const midX = (coordinates[0].x + coordinates[1].x) / 2
+      const midY = (coordinates[0].y + coordinates[1].y) / 2
 
       // Middle-point marker — a stroke-mode ring matching the
       // visual language of the default anchor point figures
       // (`OverlayPointStyle.mode: 'stroke'`, line-colour border,
       // bg-coloured fill), just at ~⅔ the radius so the user
       // reads it as a derived/midpoint marker rather than a
-      // draggable anchor. Stays painted whether the overlay is
-      // selected or not so the user sees the midpoint at a
-      // glance from the rest of the chart's overlays.
-      if (showMidPoint) {
-        const midColor = props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
+      // draggable anchor. Painted while the line is hovered or
+      // selected, as TV does.
+      if (showMidPoint && pointedAt) {
+        const midColor = props.lineColor ?? TV_BLUE
         figures.push({
           type: 'circle',
           attrs: { x: midX, y: midY, r: 4 },
@@ -354,7 +286,7 @@ const segment = (): ProOverlayTemplate => {
         // the "top" side in screen terms; CCW to "bottom".
         if (vAlign !== 'middle') {
           if (len > 0) {
-            const fontSize = props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize
+            const fontSize = props.textFontSize ?? SEGMENT_DEFAULT_TEXT_SIZE
             const offsetMag = fontSize * 0.6 + 6
             const sign = vAlign === 'top' ? 1 : -1
             ax += sign * (dy / len) * offsetMag
@@ -362,6 +294,11 @@ const segment = (): ProOverlayTemplate => {
           }
         }
 
+        const labelStyle = textStyle(id, boxPadding)
+        // Sitting on the line, the label leaves a gap in the stroke, as in TV.
+        if (vAlign === 'middle') {
+          figures[0] = { ...figures[0], attrs: lineAroundText(lineCoordinates, { x: ax, y: ay, align, angle }, text, labelStyle).map((coordinates) => ({ coordinates })) }
+        }
         figures.push({
           type: 'editableText',
           attrs: {
@@ -372,23 +309,13 @@ const segment = (): ProOverlayTemplate => {
             baseline: 'middle',
             angle
           },
-          // Sitting on the line, the label paints over the stroke — fill it
-          // with the chart background so the line breaks around the text.
-          styles: textStyle(id, vAlign === 'middle' ? chartBackground(chart) : undefined, boxPadding)
+          styles: labelStyle
         })
       }
 
-      // Stats label. Each selected key contributes one snippet;
-      // snippets are grouped into three rows per spec (row 1:
-      // price / percent / pips, row 2: bars / time / distance,
-      // row 3: angle). Rows separated by `\n` — the `text` figure
-      // splits on newlines and stacks the lines.
-      // `statsOnSelect`: TV shows the stats only while the line is hovered or
-      // selected; same store read as pin's tooltip.
-      const chartStore = (chart as ChartImp).getChartStore()
-      const active = ext?.statsOnSelect !== true ||
-        chartStore.getHoverOverlayInfo().overlay?.id === id ||
-        chartStore.getClickOverlayInfo().overlay?.id === id
+      // Stats: TV's grey box of up to three rows (price / percent / pips, then bars / time / distance,
+      // then angle), shown while the line is pointed at unless "Always show stats" is on.
+      const active = ext?.statsOnSelect === false || pointedAt
       if (active && statsSelected.length > 0 && overlay.points.length === 2) {
         const p0 = overlay.points[0]
         const p1 = overlay.points[1]
@@ -396,142 +323,82 @@ const segment = (): ProOverlayTemplate => {
         const v1 = p1.value
         const priceDiff = (isNumber(v0) && isNumber(v1)) ? (v1 - v0) : null
         const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
+        const thousands = chart.getThousandsSeparator()
+        // TV signs with a true minus, except on the angle.
+        const signed = (value: number, text: string): string => (value < 0 ? '\u2212' : '') + text
 
-        // Pip conversion — TV convention: 1 pip = the last-but-one
-        // decimal for FX-like symbols. Falls back to the smallest
-        // representable unit at the current precision when the
-        // symbol doesn't expose a distinct pip.
-        const pipMultiplier = Math.pow(10, Math.max(0, precision - 1))
-
-        const snippetFor = (key: StatKey): string | null => {
-          switch (key) {
-            case 'priceRange':
-              return priceDiff !== null ? formatPrecision(Math.abs(priceDiff), precision) : null
-            case 'percentRange':
-              if (priceDiff === null || v0 === 0 || !isNumber(v0)) return null
-              return `${((priceDiff / v0) * 100).toFixed(2)}%`
-            case 'pipsChange':
-              return priceDiff !== null ? `${Math.round(priceDiff * pipMultiplier)} pips` : null
-            case 'barsRange': {
-              const i0 = p0.dataIndex
-              const i1 = p1.dataIndex
-              if (!isNumber(i0) || !isNumber(i1)) return null
-              return `${Math.abs(i1 - i0)} bars`
-            }
-            case 'timeRange': {
-              const t0 = p0.timestamp
-              const t1 = p1.timestamp
-              if (!isNumber(t0) || !isNumber(t1)) return null
-              return formatDuration(t1 - t0)
-            }
-            case 'distance':
-              // Screen-pixel Euclidean distance between the two
-              // rendered anchors. Not a chart-domain metric — but
-              // TV surfaces the same and it's what users expect
-              // "distance" to mean visually.
-              return `${Math.round(Math.hypot(dx, dy))}px`
-            case 'angle': {
-              // Chart-domain angle: dy is inverted because canvas
-              // y grows downward. Report degrees so the user gets
-              // a familiar number.
-              const deg = Math.atan2(-dy, dx) * 180 / Math.PI
-              return `${deg.toFixed(1)}°`
-            }
-          }
+        const price = (): string | null => priceDiff !== null
+          ? signed(priceDiff, thousands.format(formatPrecision(Math.abs(priceDiff), precision)))
+          : null
+        const percent = (): string | null => {
+          if (priceDiff === null || v0 === 0 || !isNumber(v0)) return null
+          const pct = (priceDiff / v0) * 100
+          return signed(pct, `${Math.abs(pct).toFixed(2)}%`)
         }
-
-        const row1: string[] = []
-        const row2: string[] = []
-        const row3: string[] = []
-        for (const key of STAT_KEYS) {
-          if (!statsSelected.includes(key)) continue
-          const snippet = snippetFor(key)
-          if (snippet === null) continue
-          const idx = STAT_KEYS.indexOf(key)
-          if (idx < 3) row1.push(snippet)
-          else if (idx < 6) row2.push(snippet)
-          else row3.push(snippet)
+        // A pip here is the smallest price step, so it is the difference in units of the last decimal.
+        const pips = (): string | null => {
+          if (priceDiff === null) return null
+          const n = Math.round(priceDiff * Math.pow(10, precision))
+          return signed(n, thousands.format(String(Math.abs(n))))
         }
-        const rows = [row1, row2, row3].filter(r => r.length > 0).map(r => r.join(' | '))
+        const bars = (): string | null => isNumber(p0.dataIndex) && isNumber(p1.dataIndex) ? `${Math.abs(p1.dataIndex - p0.dataIndex)} bars` : null
+        const time = (): string | null => isNumber(p0.timestamp) && isNumber(p1.timestamp) ? formatDuration(p1.timestamp - p0.timestamp) : null
+        // Both are of the line between the anchors, not of the part of it that is drawn when it is extended.
+        const [leftEnd, rightEnd] = coordinates[0].x <= coordinates[1].x ? [coordinates[0], coordinates[1]] : [coordinates[1], coordinates[0]]
+        const distance = (): string => `distance: ${Math.round(Math.hypot(rightEnd.x - leftEnd.x, rightEnd.y - leftEnd.y))} px`
+        const angle = (): string => `${Math.round(Math.atan2(leftEnd.y - rightEnd.y, rightEnd.x - leftEnd.x) * 180 / Math.PI)}\u00B0`
+
+        const wanted = (key: StatKey): boolean => statsSelected.includes(key)
+        const pick = (key: StatKey, make: () => string | null): string | null => wanted(key) ? make() : null
+        const joined = (parts: Array<string | null>, separator: string): string => parts.filter((part): part is string => part !== null).join(separator)
+
+        // 17.63 (11.32%), 1,763 -- the percent sits in brackets after the price, when both are shown.
+        const priceText = pick('priceRange', price)
+        const percentText = pick('percentRange', percent)
+        const main = priceText !== null && percentText !== null ? `${priceText} (${percentText})` : priceText ?? percentText
+        // 75 bars (107d), distance: 511 px
+        const barsText = pick('barsRange', bars)
+        const timeText = pick('timeRange', time)
+        const span = barsText !== null && timeText !== null ? `${barsText} (${timeText})` : barsText ?? timeText
+        const rows: Array<{ icon: StatsIcon, text: string }> = [
+          { icon: 'price' as const, text: joined([main, pick('pipsChange', pips)], ', ') },
+          { icon: 'bars' as const, text: joined([span, wanted('distance') ? distance() : null], ', ') },
+          { icon: 'angle' as const, text: wanted('angle') ? angle() : '' }
+        ].filter((row) => row.text !== '')
+
         if (rows.length > 0) {
-          // Anchor along the line. Auto puts the label at the
-          // higher-price side of the segment (anchor with smaller
-          // y in screen terms) to stay clear of price action;
-          // ties fall back to center.
-          let posT = 0.5
-          if (statsPosition === 'left') {
-            posT = 0.1
-          } else if (statsPosition === 'right') {
-            posT = 0.9
-          } else if (statsPosition === 'auto') {
-            if (lineCoordinates[0].y < lineCoordinates[1].y) {
-              posT = 0.1
-            } else if (lineCoordinates[0].y > lineCoordinates[1].y) {
-              posT = 0.9
-            } else {
-              posT = 0.5
-            }
+          // Left, centre and right put the box's left edge at the left anchor, the middle, or the right anchor.
+          // It sits on the empty side of the line: under a rising one, over a falling one.
+          const [leftPt, rightPt] = coordinates[0].x <= coordinates[1].x ? [coordinates[0], coordinates[1]] : [coordinates[1], coordinates[0]]
+          const t = statsPosition === 'left' ? 0 : statsPosition === 'right' ? 1 : 0.5
+          const sx = leftPt.x + (rightPt.x - leftPt.x) * t
+          const sy = leftPt.y + (rightPt.y - leftPt.y) * t
+          const rising = rightPt.y < leftPt.y
+          const boxAttrs = {
+            x: sx,
+            y: rising ? sy + 10 : sy - 10,
+            text: rows.map((row) => row.text).join('\n'),
+            align: 'left' as const,
+            baseline: rising ? 'top' as const : 'bottom' as const
           }
-          const sx = lineCoordinates[0].x + dx * posT
-          const sy = lineCoordinates[0].y + dy * posT
-
-          // Offset perpendicular to the line so the chip doesn't
-          // sit on top of the line. Reuse the same CW-perpendicular
-          // math as the text label (top side); the stats label is
-          // always above so it's consistent with TV.
-          //
-          // We used to scale the offset with the chip's half-width
-          // to keep it clear at tilt (because `align: 'center'`
-          // means both left and right edges project onto the
-          // line's perpendicular by W·|sin θ|). That worked but
-          // pushed the chip far from the line at intermediate
-          // angles.
-          //
-          // Simpler fix: pick `align` dynamically so the chip
-          // extends *away* from the line horizontally. Then only
-          // the vertical extension matters, and a small constant
-          // perpendicular offset (~10 px) hugs the line at every
-          // angle without overlap.
-          //
-          //   * Line going up-right (dy < 0, perp is up-left):
-          //     use `align: 'right'` — chip anchor is its right
-          //     edge, chip extends left.
-          //   * Line going down-right (dy > 0, perp is up-right):
-          //     use `align: 'left'` — chip anchor is its left
-          //     edge, chip extends right.
-          //   * Near-horizontal: `align: 'center'` — either side
-          //     works so the chip stays centred on the anchor.
-          const lenRaw = Math.hypot(dx, dy)
-          const len = lenRaw === 0 ? 1 : lenRaw
-          const offsetMag = 10
-          const labelX = sx + (dy / len) * offsetMag
-          const labelY = sy + (-dx / len) * offsetMag
-          const flatnessThreshold = 0.15
-          const statsAlign: CanvasTextAlign = Math.abs(dy) / len < flatnessThreshold
-            ? 'center'
-            : dy < 0 ? 'right' : 'left'
-
-          const statsColor = props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-          figures.push({
-            type: 'text',
-            attrs: {
-              x: labelX,
-              y: labelY,
-              text: rows.join('\n'),
-              align: statsAlign,
-              baseline: 'bottom'
-            },
-            styles: {
-              color: '#FFFFFF',
-              size: 11,
-              paddingLeft: 10,
-              paddingRight: 10,
-              paddingTop: 7,
-              paddingBottom: 7,
-              backgroundColor: statsColor,
-              borderColor: statsColor,
-              borderRadius: 3
-            }
+          const boxStyles = {
+            color: '#FFFFFF',
+            size: 13,
+            weight: 500,
+            lineHeight: 2,
+            // Room on the left for the row icons.
+            paddingLeft: 36,
+            paddingRight: 12,
+            paddingTop: 7,
+            paddingBottom: 7,
+            backgroundColor: 'rgba(67, 70, 81, 0.9)',
+            borderSize: 0,
+            borderRadius: 4
+          }
+          figures.push({ type: 'text', attrs: boxAttrs, styles: boxStyles })
+          const box = getTextRect(boxAttrs, boxStyles)
+          rows.forEach((row, i) => {
+            figures.push(...statsIconFigures(row.icon, box.x + 17, box.y + boxStyles.paddingTop + i * boxStyles.size * boxStyles.lineHeight + boxStyles.size / 2 + 1))
           })
         }
       }
@@ -584,6 +451,8 @@ const segment = (): ProOverlayTemplate => {
             align: textAlign,
             baseline: 'middle' as CanvasTextBaseline
           },
+          // TV's axis label is white on the line's colour.
+          styles: axisLabelStyles(lineStyle(overlay.id).color ?? TV_BLUE),
           ignoreEvent: true
         }
       })

@@ -31,8 +31,9 @@
 
 import type ChartImp from '../../../../Chart'
 import type { ProOverlayTemplate } from '../../types'
-import { barIndex, barRange, dataKey, propertyStore } from './common'
+import { barIndex, barRange, dataKey, propertyStore, withAlpha } from './common'
 import type { Figure } from './common'
+import { tvDashedValue } from '../../tvLine'
 import { sourcePrice } from './anchoredVwap'
 import type { VwapSource } from './anchoredVwap'
 
@@ -44,14 +45,15 @@ export interface RegressionExtendData {
   useLower?: boolean
   extendRight?: boolean
   showPearsons?: boolean
+  showBase?: boolean
+  // Per-line style, set from the dialog: `${line}Color/Width/Style/DashedValue` for base, upper, lower.
+  [style: string]: unknown
 }
 
 // TV's defaults: blue up/down lines, a red dashed base line; each channel is filled with its
 // outer line's colour at 30% (the lower one takes the base line's red).
 const COLOR = '#2962FF'
-const FILL = 'rgba(41, 98, 255, 0.3)'
 const BASE_COLOR = '#F23645'
-const BASE_FILL = 'rgba(242, 54, 69, 0.3)'
 
 export interface Regression { intercept: number, slope: number, stdDev: number, pearsons: number }
 
@@ -81,6 +83,26 @@ export function linearRegression (y: number[]): Regression {
     // Pearson's R of price against bar index: signed, so a falling trend is negative.
     pearsons: syy === 0 || sxx === 0 ? 0 : sxy / Math.sqrt(sxx * syy)
   }
+}
+
+type Edge = Array<{ x: number, y: number }>
+
+/**
+ * TV's fills: the visible lines, taken in the order base, lower, upper, are re-ordered as
+ * [second, first, third] and each neighbouring pair is filled in the colour of the later one.
+ * So all three give lower|base in the base colour and base|upper in the upper's; with the lower or
+ * upper line off, one fill between base and the other stays, in the base colour; with the base line
+ * off, one fill spans lower|upper in the lower's colour; with one line left, none.
+ */
+export function regressionFills (lines: ReadonlyArray<readonly [string, Edge | null]>, colorOf: (name: string) => string, override?: string): Figure[] {
+  const visible = lines.flatMap(([name, edge]) => edge === null ? [] : [{ name, edge }])
+  const ordered = [1, 0, 2].flatMap((i) => i < visible.length ? [visible[i]] : [])
+  const figures: Figure[] = []
+  for (let i = 1; i < ordered.length; i++) {
+    const [a, b] = [ordered[i - 1].edge, ordered[i].edge]
+    figures.push({ type: 'polygon', key: `fill_${i}`, attrs: { coordinates: [a[0], a[1], b[1], b[0]] }, styles: { style: 'fill', color: override ?? withAlpha(colorOf(ordered[i].name), 0.3) }, ignoreEvent: true })
+  }
+  return figures
 }
 
 interface Cached { key: string, fit: Regression, count: number }
@@ -117,6 +139,17 @@ export const regressionTrend = (): ProOverlayTemplate => {
 
       const props = store.get(overlay.id)
       const color = props.lineColor ?? COLOR
+      // One line's style: the dialog's per-line value, else the drawing's, else TV's default.
+      const styleOf = (line: 'base' | 'upper' | 'lower', fallback: { color: string, size: number, style: string, dashedValue?: number[] }): object => {
+        const size = (ext[`${line}Width`] ?? fallback.size) as number
+        return {
+          color: ext[`${line}Color`] ?? fallback.color,
+          size,
+          style: ext[`${line}Style`] ?? fallback.style,
+          // Dashes scale with the stroke, as in TV.
+          dashedValue: tvDashedValue((ext[`${line}DashedValue`] ?? fallback.dashedValue) as number[] | undefined, size)
+        }
+      }
       const size = props.lineWidth ?? 2
       const xa = Math.min(coordinates[0].x, coordinates[1].x)
       const xb = ext.extendRight === true ? bounding.width : Math.max(coordinates[0].x, coordinates[1].x)
@@ -128,18 +161,17 @@ export const regressionTrend = (): ProOverlayTemplate => {
       const base = at(0)
       const upper = ext.useUpper === false ? null : at(fit.stdDev * (ext.upperDeviation ?? 2))
       const lower = ext.useLower === false ? null : at(fit.stdDev * (ext.lowerDeviation ?? -2))
-      const fill = props.backgroundColor ?? FILL
-      const lowerFill = props.backgroundColor ?? (props.lineColor === undefined ? BASE_FILL : FILL)
-      const figures: Figure[] = []
-      for (const [name, edge, edgeFill] of [['upper', upper, fill], ['lower', lower, lowerFill]] as const) {
-        if (edge !== null) figures.push({ type: 'polygon', key: `${name}_fill`, attrs: { coordinates: [base[0], base[1], edge[1], edge[0]] }, styles: { style: 'fill', color: edgeFill }, ignoreEvent: true })
-      }
-      figures.push({ type: 'line', key: 'base', attrs: { coordinates: base }, styles: { color: props.lineColor ?? BASE_COLOR, size: 1, style: 'dashed', dashedValue: [4, 4] } })
-      if (upper !== null) figures.push({ type: 'line', key: 'upper', attrs: { coordinates: upper }, styles: { color, size, style: 'solid' } })
-      if (lower !== null) figures.push({ type: 'line', key: 'lower', attrs: { coordinates: lower }, styles: { color, size, style: 'solid' } })
+      const figures: Figure[] = regressionFills(
+        [['base', ext.showBase === false ? null : base], ['lower', lower], ['upper', upper]],
+        (name) => (ext[`${name}Color`] ?? (name === 'base' ? props.lineColor ?? BASE_COLOR : color)) as string,
+        props.backgroundColor
+      )
+      if (ext.showBase !== false) figures.push({ type: 'line', key: 'base', attrs: { coordinates: base }, styles: styleOf('base', { color: props.lineColor ?? BASE_COLOR, size: 1, style: 'dashed', dashedValue: [4, 4] }) })
+      if (upper !== null) figures.push({ type: 'line', key: 'upper', attrs: { coordinates: upper }, styles: styleOf('upper', { color, size, style: 'solid' }) })
+      if (lower !== null) figures.push({ type: 'line', key: 'lower', attrs: { coordinates: lower }, styles: styleOf('lower', { color, size, style: 'solid' }) })
       if (ext.showPearsons !== false) {
         const anchor = lower ?? base
-        figures.push({ type: 'text', key: 'pearsons', attrs: { x: xa, y: anchor[0].y + 4, text: fit.pearsons.toFixed(3), align: 'center', baseline: 'top' }, styles: { color, size: 12, family: 'Helvetica Neue', weight: 'normal', backgroundColor: 'transparent', borderSize: 0 }, ignoreEvent: true })
+        figures.push({ type: 'text', key: 'pearsons', attrs: { x: xa, y: anchor[0].y + 4, text: String(fit.pearsons), align: 'center', baseline: 'top' }, styles: { color, size: 12, family: 'Helvetica Neue', weight: 'normal', backgroundColor: 'transparent', borderSize: 0 }, ignoreEvent: true })
       }
       return figures
     },

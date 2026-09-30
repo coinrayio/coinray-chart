@@ -25,9 +25,22 @@ import { computeTextPosition } from './textUtils'
  */
 const triangle = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
+  // TradingView's Triangle defaults, held as explicit properties so the settings
+  // dialog reads exactly what is drawn.
+  const look: DeepPartial<OverlayProperties> = {
+    style: 'stroke_fill',
+    borderColor: '#089981',
+    borderWidth: 2,
+    backgroundColor: 'rgba(8, 153, 129, 0.2)',
+    textColor: '#089981',
+    textFontSize: 14,
+    textAlignHorizontal: 'center',
+    textAlignVertical: 'middle'
+  }
+  const withLook = (id: string): DeepPartial<OverlayProperties> => ({ ...look, ...(properties.get(id) ?? {}) })
 
   const triangleStyle = (id: string): Partial<PolygonStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       // An explicitly-set fill colour implies the shape is filled. Without
       // this, picking a fill colour does nothing until the separate 'Fill
@@ -42,7 +55,7 @@ const triangle = (): ProOverlayTemplate => {
   }
 
   const textStyle = (id: string): Partial<TextStyle> => {
-    const props = properties.get(id) ?? {}
+    const props = withLook(id)
     return {
       color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
@@ -52,7 +65,8 @@ const triangle = (): ProOverlayTemplate => {
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
       paddingTop: props.textPaddingTop ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingTop,
       paddingBottom: props.textPaddingBottom ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingBottom,
-      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor
+      backgroundColor: props.textBackgroundColor ?? DEFAULT_OVERLAY_PROPERTIES.textBackgroundColor,
+      fontStyle: props.textFontStyle
     }
   }
 
@@ -63,7 +77,7 @@ const triangle = (): ProOverlayTemplate => {
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
 
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  const getProperties = withLook
 
   return {
     name: 'triangle',
@@ -104,7 +118,7 @@ const triangle = (): ProOverlayTemplate => {
         }
       ]
 
-      const props = properties.get(id) ?? {}
+      const props = withLook(id)
       const text = props.text ?? ''
       figures.push({
         type: 'editableText',

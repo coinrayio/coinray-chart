@@ -60,23 +60,27 @@ interface CalloutOverlayData {
   fontSize?: number
   textColor?: string
   fontWeight?: number | 'normal' | 'bold'
+  fontStyle?: 'normal' | 'italic'
   fontFamily?: string
   backgroundColor?: string
   borderColor?: string
+  borderWidth?: number
   /** TV `wordWrap`/`wordWrapWidth`: wrap at this text width (excludes padding). */
   wordWrap?: boolean
   wordWrapWidth?: number
 }
 
 interface OverlayStyleSlice {
-  polygon?: { color?: string, borderColor?: string }
-  text?: { color?: string, size?: number, family?: string, weight?: number | string, backgroundColor?: string }
+  polygon?: { color?: string, borderColor?: string, borderSize?: number }
+  text?: { color?: string, size?: number, family?: string, weight?: number | string, fontStyle?: string, backgroundColor?: string }
 }
 
 // Visual defaults — chosen to match TradingView's Callout tool.
-const DEFAULT_FILL = 'rgba(30, 33, 41, 0.95)'
-const DEFAULT_BORDER = DEFAULT_FILL
-const BORDER_WIDTH = 1
+const DEFAULT_FILL = 'rgba(0, 151, 167, 0.7)'
+const DEFAULT_BORDER = 'rgba(0, 151, 167, 1)'
+const DEFAULT_TEXT_COLOR = '#ffffff'
+const BORDER_WIDTH = 2
+const DEFAULT_WRAP_WIDTH = 200
 const LABEL_PADDING_H = 8
 const LABEL_PADDING_V = 14
 const LABEL_BORDER_RADIUS = 7
@@ -326,7 +330,8 @@ const callout: OverlayTemplate = {
     const fontSize = styles.text?.size ?? data.fontSize ?? DEFAULT_FONT_SIZE
     const fontWeight = styles.text?.weight ?? data.fontWeight ?? 'normal'
     const fontFamily = styles.text?.family ?? data.fontFamily ?? DEFAULT_FONT_FAMILY
-    const textColor = styles.text?.color ?? data.textColor
+    const textColor = styles.text?.color ?? data.textColor ?? DEFAULT_TEXT_COLOR
+    const fontStyle = styles.text?.fontStyle ?? data.fontStyle
 
     const fill = styles.polygon?.color ?? data.backgroundColor ?? DEFAULT_FILL
     const border = styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_BORDER
@@ -336,12 +341,13 @@ const callout: OverlayTemplate = {
     // the placeholder so the bubble doesn't collapse before the user
     // starts typing.
     const sizingText = textValue.length > 0 ? textValue : '+ Add text'
-    const wrap = data.wordWrap === true && typeof data.wordWrapWidth === 'number' && data.wordWrapWidth > 0
+    const wrap = data.wordWrap === true
+    const wrapWidth = typeof data.wordWrapWidth === 'number' && data.wordWrapWidth > 0 ? data.wordWrapWidth : DEFAULT_WRAP_WIDTH
     const lines = wrap
-      ? wrapText(sizingText, data.wordWrapWidth ?? 0, fontSize, fontWeight, fontFamily)
+      ? wrapText(sizingText, wrapWidth, fontSize, fontWeight, fontFamily)
       : sizingText.split('\n')
     const maxLineWidth = wrap
-      ? data.wordWrapWidth ?? 0
+      ? wrapWidth
       : Math.max(...lines.map(l => calcTextWidth(l, fontSize, fontWeight, fontFamily)))
     const bubbleWidth = Math.max(maxLineWidth + LABEL_PADDING_H * 2, MIN_BUBBLE_WIDTH)
     const bubbleHeight = lines.length * fontSize + LABEL_PADDING_V * 2
@@ -362,7 +368,7 @@ const callout: OverlayTemplate = {
       style: 'stroke_fill',
       color: fill,
       borderColor: border,
-      borderSize: BORDER_WIDTH
+      borderSize: styles.polygon?.borderSize ?? data.borderWidth ?? BORDER_WIDTH
     }
 
     // EditableText carries the bubble's fill / radius / padding so
@@ -384,7 +390,8 @@ const callout: OverlayTemplate = {
       paddingTop: LABEL_PADDING_V,
       paddingBottom: LABEL_PADDING_V
     }
-    if (textColor !== undefined) editableTextStyle.color = textColor
+    editableTextStyle.color = textColor
+    if (fontStyle !== undefined) editableTextStyle.fontStyle = fontStyle
 
     const figures: OverlayFigure[] = [
       {

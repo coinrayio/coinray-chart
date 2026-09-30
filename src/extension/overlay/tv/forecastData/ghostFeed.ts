@@ -24,15 +24,18 @@
  * a seeded generator (`extendData.seed`, chosen when drawing finishes) so a
  * reload draws the same candles. TV's stored candles are not carried over.
  *
- * extendData: `{ averageHL, variance = 50, seed, upColor, downColor }`.
- * averageHL is TV's unit (price × 10^pricePrecision); absent, it is the
- * chart's mean high-low range, as TV's default.
+ * extendData: `{ averageHL, variance = 50, seed, upColor, downColor,
+ * transparency = 50 (%, of the candles as a whole: body, border and wick), borderVisible = true, borderUpColor,
+ * borderDownColor, wickVisible = true, wickColor }`.
+ * averageHL is TV's unit (price × 10^pricePrecision); finishing the drawing
+ * sets it to the chart's mean high-low range, as TV does, and absent it is
+ * that same mean, taken live.
  */
 
 import type Coordinate from '../../../../common/Coordinate'
 import type ChartImp from '../../../../Chart'
 import type { ProOverlayTemplate } from '../../types'
-import { barFigures, barIndex, propertyStore } from './common'
+import { barFigures, barIndex, propertyStore, scaleAlpha } from './common'
 import type { Figure, Ohlc } from './common'
 
 export interface GhostFeedExtendData {
@@ -41,10 +44,21 @@ export interface GhostFeedExtendData {
   seed?: number
   upColor?: string
   downColor?: string
+  transparency?: number
+  borderVisible?: boolean
+  borderUpColor?: string
+  borderDownColor?: string
+  wickVisible?: boolean
+  wickColor?: string
 }
 
-const UP = '#089981'
-const DOWN = '#F23645'
+// TV's candleStyle defaults: light bodies, coloured borders, grey wicks and path.
+const UP = '#ACE5DC'
+const DOWN = '#FAA1A4'
+const BORDER_UP = '#089981'
+const BORDER_DOWN = '#F23645'
+const WICK = '#787B86'
+const PATH = '#787B86'
 const SAME_VERTEX_PX = 4
 
 /** Deterministic PRNG (mulberry32), so a ghost feed draws the same candles every frame. */
@@ -114,10 +128,17 @@ export const ghostFeed = (): ProOverlayTemplate => {
         }
       }
       const ext = (overlay.extendData ?? {}) as GhostFeedExtendData
-      if (ext.seed === undefined) overlay.extendData = { ...ext, seed: Math.floor(Math.random() * 2 ** 31) }
+      const data = (chart as ChartImp).getDataList()
+      const precision = (chart as ChartImp).getChartStore().getSymbol()?.pricePrecision ?? 2
+      const mean = data.length > 0 ? data.reduce((sum, d) => sum + (d.high - d.low), 0) / data.length : 0
+      overlay.extendData = {
+        ...ext,
+        seed: ext.seed ?? Math.floor(Math.random() * 2 ** 31),
+        averageHL: ext.averageHL ?? Math.max(1, Math.round(mean * 10 ** precision))
+      }
     },
     createPointFigures: (params) => {
-      const { chart, overlay, yAxis, bounding } = params as typeof params & { chart: ChartImp }
+      const { chart, overlay, yAxis, bounding, coordinates } = params as typeof params & { chart: ChartImp }
       if (yAxis === null || overlay.points.length < 2) return []
       const data = chart.getDataList()
       if (data.length === 0) return []
@@ -146,13 +167,17 @@ export const ghostFeed = (): ProOverlayTemplate => {
       const chartStore = chart.getChartStore()
       const half = Math.max(1, chartStore.getBarSpace().bar * 0.35)
       const y = (price: number): number => yAxis.convertToPixel(price)
-      const figures: Figure[] = []
+      // TV draws the path itself as a thin grey line under the candles.
+      const figures: Figure[] = [{ type: 'line', key: 'path', attrs: { coordinates }, styles: { color: PATH, size: 1, style: 'solid' } }]
+      const alpha = 1 - (ext.transparency ?? 50) / 100
       for (const { index, bar } of cached.candles) {
         const x = chartStore.dataIndexToCoordinate(index)
         if (x < -half || x > bounding.width + half) continue
         const up = bar.close >= bar.open
         const solid = up ? (ext.upColor ?? UP) : (ext.downColor ?? DOWN)
-        figures.push(...barFigures('candle', `c_${index}`, x, half, bar, y, solid, solid.length === 7 ? `${solid}80` : solid))
+        const border = ext.borderVisible === false ? null : scaleAlpha(up ? (ext.borderUpColor ?? BORDER_UP) : (ext.borderDownColor ?? BORDER_DOWN), alpha)
+        const wick = ext.wickVisible === false ? null : scaleAlpha(ext.wickColor ?? WICK, alpha)
+        figures.push(...barFigures('candle', `c_${index}`, x, half, bar, y, solid, scaleAlpha(solid, alpha), border, wick))
       }
       return figures
     },

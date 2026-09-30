@@ -17,9 +17,9 @@ describe('pitchfork geometry', () => {
     expect({ x: b.x - a.x, y: b.y - a.y }).toEqual({ x: 50, y: -60 })
     expect(g.level(1, -1)[0]).toEqual(p1)
   })
-  it('schiff starts the median at the midpoint of 0-1; modified keeps point 0 x', () => {
-    expect(pitchforkGeometry('schiff', p0, p1, p2).median[0]).toEqual({ x: 20, y: 60 })
-    expect(pitchforkGeometry('modified', p0, p1, p2).median[0]).toEqual({ x: 0, y: 60 })
+  it('schiff keeps point 0 x at the 0-1 price midpoint; modified starts at the full midpoint', () => {
+    expect(pitchforkGeometry('schiff', p0, p1, p2).median[0]).toEqual({ x: 0, y: 60 })
+    expect(pitchforkGeometry('modified', p0, p1, p2).median[0]).toEqual({ x: 20, y: 60 })
   })
   it('inside: center line through the midpoint parallel to base to point 2', () => {
     const g = pitchforkGeometry('inside', p0, p1, p2)
@@ -74,5 +74,14 @@ describe('shared', () => {
   it('resolveLevels drops disabled levels and sorts', () => {
     const l = resolveLevels([{ value: 2, enabled: true, color: 'a' }, { value: 1, enabled: true, color: 'b' }, { value: 3, enabled: false }], [])
     expect(l.map((x) => x.value)).toEqual([1, 2])
+  })
+})
+
+describe('gann square range labels', () => {
+  it('reads like TV: price span, bars, and price per bar to 7 decimals', async () => {
+    const { gannRangeTexts } = await import('../extension/overlay/tv/pitchforkGann/gannSquare')
+    expect(gannRangeTexts(-7, 16, 2)).toEqual({ price: '7.00', bars: '16', ratio: '0.4375' })
+    expect(gannRangeTexts(1, 3, 2).ratio).toBe('0.3333333')
+    expect(gannRangeTexts(10, -4, 2)).toEqual({ price: '10.00', bars: '4', ratio: '2.5' })
   })
 })

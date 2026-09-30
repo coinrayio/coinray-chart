@@ -18,7 +18,7 @@ import { isNumber, merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import type { OverlayCreateFiguresCallback } from '../../component/Overlay'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { computeTextPosition } from './textUtils'
+import { TV_BLUE, axisLabelStyles, horizontalLineText, lineAroundText, tvDashedValue } from './tvLine'
 import { formatPrecision } from '../../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 
@@ -32,7 +32,7 @@ type RayDirection = 'left' | 'right'
  * ∘ `thousandsSeparator` ∘ `formatPrecision`) so every Y-axis label source in
  * the chart reads identically. Shared by the horizontal line and ray.
  */
-export const anchorPriceAxisLabel: OverlayCreateFiguresCallback<unknown> = ({ chart, overlay, coordinates, bounding, yAxis }) => {
+export const anchorPriceAxisLabel = ({ chart, overlay, coordinates, bounding, yAxis }: Parameters<OverlayCreateFiguresCallback<unknown>>[0], color?: string): ReturnType<OverlayCreateFiguresCallback<unknown>> => {
   const ext = overlay.extendData as { showPriceLabels?: boolean } | undefined
   if (ext?.showPriceLabels !== true) return []
   if (coordinates.length === 0) return []
@@ -56,27 +56,41 @@ export const anchorPriceAxisLabel: OverlayCreateFiguresCallback<unknown> = ({ ch
       text: labelText,
       align: textAlign,
       baseline: 'middle' as CanvasTextBaseline
-    }
+    },
+    // TV's label is white on the line's colour.
+    ...(color !== undefined ? { styles: axisLabelStyles(color) } : {}),
+    ignoreEvent: true
   }]
 }
+
+/** TV's horizontal lines show the price label unless it is switched off (`anchorPriceAxisLabel` is opt-in). */
+export const priceAxisLabelUnlessOff = (params: Parameters<OverlayCreateFiguresCallback<unknown>>[0], color?: string): ReturnType<OverlayCreateFiguresCallback<unknown>> => {
+  const ext = params.overlay.extendData as { showPriceLabels?: boolean } | undefined
+  if (ext?.showPriceLabels === false) return []
+  return anchorPriceAxisLabel({ ...params, overlay: { ...params.overlay, extendData: { showPriceLabels: true } } }, color)
+}
+
+/** TV's horizontal lines are 2px where ours were 1. */
+export const HORIZONTAL_DEFAULT_WIDTH = 2
 
 const horizontalRayLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
   const lineStyle = (id: string): Partial<LineStyle> => {
     const props = properties.get(id) ?? {}
+    const size = props.lineWidth ?? HORIZONTAL_DEFAULT_WIDTH
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
-      dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
+      color: props.lineColor ?? TV_BLUE,
+      size,
+      dashedValue: tvDashedValue(props.lineDashedValue, size)
     }
   }
 
   const textStyle = (id: string): Partial<TextStyle> => {
     const props = properties.get(id) ?? {}
     return {
-      color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
+      color: props.textColor ?? TV_BLUE,
       size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
       weight: props.textFontWeight ?? DEFAULT_OVERLAY_PROPERTIES.textFontWeight,
       // Italic flows through `fontStyle` — matching the same
@@ -140,11 +154,15 @@ const horizontalRayLine = (): ProOverlayTemplate => {
 
       const props = properties.get(id) ?? {}
       const text = props.text ?? ''
-      figures.push({
-        type: 'editableText',
-        attrs: { ...computeTextPosition(coordinates[0].x, coordinates[0].y, props, bounding.width, 'center', 'top'), text },
-        styles: textStyle(id)
-      })
+      // Left, centre and right are along the ray itself; TV's default is below the line.
+      const span: [number, number] = direction === 'left' ? [0, coordinates[0].x] : [coordinates[0].x, bounding.width]
+      const place = horizontalLineText(coordinates[0].y, span[0], span[1], props, { horizontal: 'center', vertical: 'bottom' })
+      const style = textStyle(id)
+      // On the line, the text leaves a gap in it, as in TV.
+      if (place.baseline === 'middle') {
+        figures[0] = { ...figures[0], attrs: lineAroundText([coordinates[0], rayEnd], place, text, style).map((line) => ({ coordinates: line })) }
+      }
+      figures.push({ type: 'editableText', attrs: { ...place, text }, styles: style })
 
       return figures
     },
@@ -153,7 +171,7 @@ const horizontalRayLine = (): ProOverlayTemplate => {
     // `createYAxisFigures` — same format chain (`decimalFold`
     // ∘ `thousandsSeparator` ∘ `formatPrecision`) so every
     // Y-axis label source in the chart reads identically.
-    createYAxisFigures: anchorPriceAxisLabel,
+    createYAxisFigures: (params) => priceAxisLabelUnlessOff(params, lineStyle(params.overlay.id).color),
     performEventPressedMove: ({ points, performPoint }) => {
       // Anchor is one point now, but the engine's move handler
       // still stamps both slots so legacy saved overlays with

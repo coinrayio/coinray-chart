@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { timeLevelIndex, FIB_TIME_ZONE_LEVELS, TREND_BASED_FIB_TIME_LEVELS } from '../extension/overlay/tv/fibCycles/fibTime'
 import { angleOf, wedgeSpan } from '../extension/overlay/tv/fibCycles/fanArcs'
-import { sineY, sineSamples } from '../extension/overlay/tv/fibCycles/cycles'
+import { cycleDash, sineY, sineSamples } from '../extension/overlay/tv/fibCycles/cycles'
 import { arcPoints, bandPoints, cycleIndices } from '../extension/overlay/tv/fibCycles/shared'
 
 describe('fib time levels', () => {
@@ -71,5 +71,13 @@ describe('sine', () => {
     const s = sineSamples(0, 90, 60)
     expect(s[1] - s[0]).toBeCloseTo(2)
     expect(sineSamples(0, 10, 6)[1]).toBe(1)
+  })
+})
+
+describe('cycle line dashes', () => {
+  it('scale with the width like TV: dotted is w on, 2w off; dashed 5w on, 6w off', () => {
+    expect(cycleDash({ lineWidth: 2, lineDashedValue: [1, 3] })).toEqual([2, 4])
+    expect(cycleDash({ lineWidth: 4, lineDashedValue: [4, 4] })).toEqual([20, 24])
+    expect(cycleDash({})).toEqual([10, 12])
   })
 })

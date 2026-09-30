@@ -37,6 +37,7 @@ import type DrawPane from '../pane/DrawPane'
 
 import type { TextAttrs } from '../extension/figure/text'
 import { getTextRect } from '../extension/figure/text'
+import { scaleDialogDashes } from '../extension/overlay/tvLine'
 
 import View from './View'
 
@@ -380,6 +381,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     input.style.transform = angle !== undefined && angle !== 0
       ? `rotate(${angle}rad)`
       : 'none'
+    // Rotate about the label's anchor, as the canvas does. For centred text
+    // that is the box centre; for left/right-aligned text along a sloped line
+    // it is the box's end, and rotating about the centre put the editor off
+    // to one side.
+    input.style.transformOrigin = `${figureAttrs.x - effectiveLeft}px ${figureAttrs.y - rect.y}px`
   }
 
   private _stopTextEdit (commit: boolean): void {
@@ -593,6 +599,10 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     }
 
     this._activeTextEditor = { input, overlay, figure, cleanup }
+    // Place it the way every later redraw does. The initial styles above take
+    // the raw text rect, which is off by half the 120px width floor for
+    // centred text, so the editor sat beside its label until the mouse moved.
+    this._repositionTextEditor(sizingAttrs, styles)
 
     container.appendChild(input)
     input.focus()
@@ -1287,8 +1297,8 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         // figureStyles override inline styles so per-figure customization always wins
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
         // @ts-expect-error
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-        const ss = { ...defaultStyles[type], ...overlay.styles?.[type], ...styles, ...keyedStyles }
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- ignore
+        const ss = scaleDialogDashes({ ...defaultStyles[type], ...overlay.styles?.[type], ...styles, ...keyedStyles })
         // Skip drawing editableText figures while the overlay is
         // being edited. The live-resize path replaces figure objects
         // each render, so a `figure === figure` identity check would

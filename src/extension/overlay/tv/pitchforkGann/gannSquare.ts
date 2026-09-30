@@ -24,7 +24,11 @@
  *   gannSquareFixed   the box is a pixel square five times the origin→point
  *                     distance, in the direction of the point
  *
- * Not drawn: TV's price / bar / ratio labels, the scale-ratio lock and Reverse.
+ * Reverse puts the origin on the second point and the box towards the first.
+ *
+ * Gann Square also writes TV's "Ranges and ratio" labels outside the box's corners:
+ * the price range top-left, price per bar top-right and the bar count bottom-right.
+ * Not drawn: the scale-ratio lock.
  *
  * properties.figureLevels, when set, overrides the colour and visibility of
  * those rows by position: the 6 grid levels, the 11 fan lines, the 11 arcs.
@@ -39,7 +43,7 @@ import type Coordinate from '../../../../common/Coordinate'
 import type { LineStyle } from '../../../../common/Styles'
 import type { OverlayTemplate } from '../../../../component/Overlay'
 import type { ProOverlayTemplate } from '../../types'
-import { withAlpha } from '../../fibonacciShared'
+import { fibOneColor, withAlpha } from '../../fibonacciShared'
 import { propertyStore } from './shared'
 
 export interface GannRow { color: string, width?: number, visible: boolean, x?: number, y?: number }
@@ -74,6 +78,9 @@ interface GannSquareExtendData {
   arcs?: GannRow[]
   showBackground?: boolean
   backgroundOpacity?: number
+  reverse?: boolean
+  /** TV's "Ranges and ratio" labels; Gann Square only, on unless false. */
+  showRanges?: boolean
 }
 
 /** The box a Fixed square draws: pixel-square, 5x the origin→point distance. */
@@ -144,6 +151,16 @@ const overrideRows = (rows: GannRow[], custom: Array<{ color?: string, enabled?:
       return c === undefined ? r : { ...r, color: c.color ?? r.color, visible: c.enabled ?? r.visible }
     })
 
+/** Gap between a range label and the box corner it sits outside. */
+const LABEL_GAP = 12
+
+/** TV's range labels: the price span, the bar count and price per bar (to 7 decimals, trailing zeros dropped). */
+export function gannRangeTexts (priceDiff: number, barDiff: number, precision: number): { price: string, bars: string, ratio: string } {
+  const bars = Math.abs(barDiff)
+  const price = Math.abs(priceDiff)
+  return { price: price.toFixed(precision), bars: String(bars), ratio: bars === 0 ? '' : String(Number((price / bars).toFixed(7))) }
+}
+
 const gannSquare = (name: string, fixed: boolean) => (): ProOverlayTemplate => {
   const store = propertyStore()
 
@@ -153,21 +170,23 @@ const gannSquare = (name: string, fixed: boolean) => (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       if (coordinates.length < 2) return []
       const props = store.get(overlay.id)
       const ext = (overlay.extendData ?? {}) as GannSquareExtendData
-      const origin = coordinates[0]
-      const end = fixed ? fixedBoxEnd(origin, coordinates[1]) : coordinates[1]
+      const [origin, far] = ext.reverse === true ? [coordinates[1], coordinates[0]] : coordinates
+      const end = fixed ? fixedBoxEnd(origin, far) : far
       const dx = end.x - origin.x
       const dy = end.y - origin.y
       const line = (row: GannRow): Partial<LineStyle> => ({ style: 'solid', size: row.width ?? props.lineWidth ?? 2, color: row.color })
       const figures: Array<{ type: string, key: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }> = []
 
       // Fill first so the lines sit on top of it.
-      const levels = overrideRows(ext.levels ?? GANN_LEVELS, props.figureLevels, 0)
-      const fanLines = overrideRows(ext.fanLines ?? GANN_FAN_LINES, props.figureLevels, GANN_LEVELS.length)
-      const arcs = overrideRows(ext.arcs ?? GANN_ARCS, props.figureLevels, GANN_LEVELS.length + GANN_FAN_LINES.length).filter((a) => a.visible)
+      const oneColor = fibOneColor(overlay.extendData)
+      const paint = (rows: GannRow[]): GannRow[] => oneColor === undefined ? rows : rows.map((r) => ({ ...r, color: oneColor }))
+      const levels = paint(overrideRows(ext.levels ?? GANN_LEVELS, props.figureLevels, 0))
+      const fanLines = paint(overrideRows(ext.fanLines ?? GANN_FAN_LINES, props.figureLevels, GANN_LEVELS.length))
+      const arcs = paint(overrideRows(ext.arcs ?? GANN_ARCS, props.figureLevels, GANN_LEVELS.length + GANN_FAN_LINES.length)).filter((a) => a.visible)
       if (ext.showBackground !== false) {
         const opacity = (ext.backgroundOpacity ?? 20) / 100
         let prev: Coordinate[] = [origin]
@@ -198,6 +217,20 @@ const gannSquare = (name: string, fixed: boolean) => (): ProOverlayTemplate => {
       for (const [i, a] of arcs.entries()) {
         for (const [j, run] of arcRuns(origin, end, a.x ?? 0, a.y ?? 0).entries()) {
           if (run.length > 1) figures.push({ type: 'line', key: `arc_${i}_${j}`, attrs: { coordinates: run }, styles: line(a) })
+        }
+      }
+      if (!fixed && ext.showRanges !== false) {
+        const [p0, p1] = overlay.points
+        if (typeof p0.value === 'number' && typeof p1.value === 'number' && typeof p0.dataIndex === 'number' && typeof p1.dataIndex === 'number') {
+          const texts = gannRangeTexts(p1.value - p0.value, p1.dataIndex - p0.dataIndex, chart.getSymbol()?.pricePrecision ?? 2)
+          const [left, right] = [Math.min(origin.x, end.x), Math.max(origin.x, end.x)]
+          const [top, bottom] = [Math.min(origin.y, end.y), Math.max(origin.y, end.y)]
+          const label = (key: string, x: number, y: number, text: string, align: 'left' | 'right', baseline: 'top' | 'bottom'): void => {
+            figures.push({ type: 'text', key, ignoreEvent: true, attrs: { x, y, text, align, baseline }, styles: { color: GREY, size: 12, backgroundColor: 'transparent', borderSize: 0, paddingLeft: 0, paddingRight: 0 } })
+          }
+          label('range_price', left - LABEL_GAP, top - LABEL_GAP, texts.price, 'right', 'bottom')
+          label('range_ratio', right + LABEL_GAP, top - LABEL_GAP, texts.ratio, 'left', 'bottom')
+          label('range_bars', right + LABEL_GAP, bottom + LABEL_GAP, texts.bars, 'left', 'top')
         }
       }
       return figures

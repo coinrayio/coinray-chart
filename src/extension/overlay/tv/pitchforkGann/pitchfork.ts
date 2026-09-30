@@ -13,16 +13,21 @@
  */
 
 /**
- * Andrews Pitchfork family — TradingView's `pitchfork`, `schiff_pitchfork`,
- * `schiff_pitchfork_modified`, `inside_pitchfork` and `pitchfan`.
+ * Andrews Pitchfork family — TradingView's `pitchfork`, Schiff,
+ * Modified Schiff, `inside_pitchfork` and `pitchfan`.
  *
  * Three points: 0 is the handle, 1 and 2 the swing high/low it forks. The
  * variants differ only in where the median line starts (mirrors TV's
  * PitchforkLinePaneView / PitchfanLinePaneView in lt-pane-views):
  *
  *   pitchfork                 the handle, point 0
- *   schiffPitchfork           midpoint of 0→1
- *   modifiedSchiffPitchfork   x of point 0, y at the midpoint of 0→1
+ *   schiffPitchfork           x of point 0, y at the midpoint of 0→1
+ *   modifiedSchiffPitchfork   midpoint of 0→1
+ *
+ * TV's naming, which is easy to get backwards: its "Schiff Pitchfork" is
+ * LineToolSchiffPitchfork2 (style Schiff2) and keeps point 0's x; its
+ * "Modified Schiff Pitchfork" is LineToolSchiffPitchfork (style Schiff) and
+ * starts at the full midpoint.
  *   insidePitchfork           midpoint of 0→1, median ends on point 2
  *   pitchfan                  rays from point 0 through the levels on 1→2
  *
@@ -40,7 +45,7 @@ import type { LineStyle } from '../../../../common/Styles'
 import type { OverlayTemplate } from '../../../../component/Overlay'
 import type { ProOverlayTemplate } from '../../types'
 import { DEFAULT_OVERLAY_PROPERTIES } from '../../types'
-import { levelLineStyle, withAlpha } from '../../fibonacciShared'
+import { fibOneColor, levelLineStyle, withAlpha } from '../../fibonacciShared'
 import { extendedLine, propertyStore, resolveLevels } from './shared'
 import type { Level } from './shared'
 
@@ -98,7 +103,7 @@ export function pitchforkGeometry (kind: PitchforkKind, p0: Coordinate, p1: Coor
   }
   const base = kind === 'original'
     ? p0
-    : kind === 'modified' ? { x: p0.x, y: (p0.y + p1.y) / 2 } : scale(add(p0, p1), 0.5)
+    : kind === 'schiff' ? { x: p0.x, y: (p0.y + p1.y) / 2 } : scale(add(p0, p1), 0.5)
   if (kind === 'inside') {
     const dir = sub(p2, base)
     return { mid, half, median: [mid, add(mid, dir)], segments: [handle, back, [base, p2]], level: (k, side) => [at(k, side), add(at(k, side), dir)] }
@@ -132,6 +137,9 @@ const pitchfork = (kind: PitchforkKind, name: string) => (): ProOverlayTemplate 
         dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
       }
       const medianStyle = { ...style, color: props.lineColor ?? MEDIAN_COLOR }
+      // TV styles the median (and the handle lines drawn with it) apart from
+      // the levels, which keep their own width and dash.
+      const levelBase: Partial<LineStyle> = { style: 'solid', size: 2, dashedValue: DEFAULT_OVERLAY_PROPERTIES.lineDashedValue }
       // Until the third click it is just the 0→1 line.
       if (coordinates.length < 3) {
         return [{ type: 'line', key: 'median', attrs: { coordinates: [coordinates[0], coordinates[1]] }, styles: medianStyle }]
@@ -139,7 +147,7 @@ const pitchfork = (kind: PitchforkKind, name: string) => (): ProOverlayTemplate 
 
       const g = pitchforkGeometry(kind, coordinates[0], coordinates[1], coordinates[2])
       const left = kind !== 'fan' && ext.extendLeft === true
-      const levels = resolveLevels(props.figureLevels, kind === 'fan' ? PITCHFAN_LEVELS : PITCHFORK_LEVELS)
+      const levels = resolveLevels(props.figureLevels, kind === 'fan' ? PITCHFAN_LEVELS : PITCHFORK_LEVELS, fibOneColor(overlay.extendData))
       const opacity = (ext.backgroundOpacity ?? DEFAULT_OPACITY) / 100
       const figures: Array<{ type: string, key: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }> = []
 
@@ -172,7 +180,7 @@ const pitchfork = (kind: PitchforkKind, name: string) => (): ProOverlayTemplate 
             type: 'line',
             key: `level_${side}_${l.value}`,
             attrs: { coordinates: extendedLine(...g.level(l.value, side), left, true, bounding) },
-            styles: levelLineStyle(style, l)
+            styles: levelLineStyle(levelBase, l)
           })
         }
       }

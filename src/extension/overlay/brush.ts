@@ -17,6 +17,7 @@ import type { LineStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { endCapFigures, type EndCaps } from './endCaps'
 
 /**
  * Brush overlay - freehand drawing tool
@@ -29,15 +30,19 @@ import { DEFAULT_OVERLAY_PROPERTIES } from './types'
  */
 const brush = (name = 'brush', defaults: DeepPartial<OverlayProperties> = {}): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
+  // TV's brush look, as explicit properties so the settings dialog reads what is drawn.
+  const look: DeepPartial<OverlayProperties> = { lineColor: '#00BCD4', lineWidth: 2, backgroundColor: 'rgba(0, 188, 212, 0.5)', style: 'stroke', ...defaults }
+  const props = (id: string): DeepPartial<OverlayProperties> => ({ ...look, ...(properties.get(id) ?? {}) })
 
   const lineStyle = (id: string): Partial<LineStyle> & { smooth?: boolean; lineCap?: CanvasLineCap; lineJoin?: CanvasLineJoin } => {
-    const props = properties.get(id) ?? {}
+    const p = props(id)
     return {
-      style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? defaults.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? defaults.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
-      dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue,
-      smooth: false,
+      style: p.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
+      color: p.lineColor,
+      size: p.lineWidth,
+      dashedValue: p.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue,
+      // TV rounds off a sparse stroke; a dense one has no corners left to round.
+      smooth: true,
       lineCap: 'round',
       lineJoin: 'round'
     }
@@ -50,7 +55,7 @@ const brush = (name = 'brush', defaults: DeepPartial<OverlayProperties> = {}): P
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
 
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  const getProperties = props
 
   return {
     name,
@@ -65,14 +70,15 @@ const brush = (name = 'brush', defaults: DeepPartial<OverlayProperties> = {}): P
       }
 
       const id = overlay.id
-
-      return [
-        {
-          type: 'line',
-          attrs: { coordinates },
-          styles: lineStyle(id)
-        }
-      ]
+      const p = props(id)
+      const style = lineStyle(id)
+      const figures: Array<{ type: string, key?: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }> = []
+      // TV's Background: the stroke's own outline, filled.
+      if (p.style === 'fill' || p.style === 'stroke_fill') {
+        figures.push({ type: 'polygon', key: 'fill', attrs: { coordinates }, styles: { style: 'fill', color: p.backgroundColor }, ignoreEvent: true })
+      }
+      figures.push({ type: 'line', attrs: { coordinates }, styles: style })
+      return [...figures, ...endCapFigures(coordinates, overlay.extendData as EndCaps | undefined, style.color, style.size)]
     },
     setProperties,
     getProperties

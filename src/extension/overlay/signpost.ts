@@ -37,6 +37,7 @@
 import type { OverlayTemplate, OverlayFigure } from '../../component/Overlay'
 import type ChartImp from '../../Chart'
 import { calcTextWidth } from '../../common/utils/canvas'
+import { wrapText } from '../figure/text'
 import { glyphFigure, ICON_SOURCE_VIEWBOX, ICON_VALUE_PREFIX } from './emojiGlyph'
 import { isNumber } from '../../common/utils/typeChecks'
 
@@ -45,6 +46,7 @@ interface SignpostOverlayData {
   fontSize?: number
   textColor?: string
   fontWeight?: number | 'normal' | 'bold'
+  fontStyle?: 'normal' | 'italic'
   fontFamily?: string
   backgroundColor?: string
   borderColor?: string
@@ -58,17 +60,23 @@ interface SignpostOverlayData {
 interface OverlayStyleSlice {
   line?: { color?: string }
   polygon?: { color?: string, borderColor?: string, borderSize?: number }
-  text?: { color?: string, size?: number, family?: string, weight?: number | string, backgroundColor?: string }
+  text?: { color?: string, size?: number, family?: string, weight?: number | string, fontStyle?: string, backgroundColor?: string }
 }
 
 // Visual defaults — same palette as Note / Price Note.
 const DEFAULT_LINE_COLOR = '#787b86'
 const DEFAULT_LABEL_BG = 'rgba(30, 33, 41, 0.95)'
-const DEFAULT_EMOJI_RING_COLOR = 'rgba(255, 255, 255, 0.55)'
-const LABEL_PADDING_H = 8
+const DEFAULT_LABEL_BORDER = '#2a2e39'
+const DEFAULT_TEXT_COLOR = '#d1d4dc'
+const DEFAULT_EMOJI_RING_COLOR = '#2962ff'
+const DEFAULT_EMOJI = '🙂'
+// TV's signpost label: centred text wrapped at ~120px, 15px between lines.
+const LABEL_PADDING_H = 15
 const LABEL_PADDING_V = 5
+const LABEL_WRAP_WIDTH = 120
+const LABEL_LINE_HEIGHT = 1.25
 const LABEL_BORDER_RADIUS = 4
-const DEFAULT_FONT_SIZE = 14
+const DEFAULT_FONT_SIZE = 12
 const DEFAULT_FONT_FAMILY = 'Helvetica Neue'
 // Gap between the line's end and the candle's high / low so the line
 // doesn't visually touch the wick.
@@ -76,12 +84,10 @@ const LINE_GAP_TO_CANDLE = 3
 const LINE_GAP_TO_PANE_EDGE = 2
 // Emoji pin geometry — circle ring + glyph centred at the midpoint
 // of the line. Size feels right against a 14-px font label.
-const EMOJI_RING_RADIUS = 11
-const EMOJI_RING_BORDER_WIDTH = 2
-const EMOJI_FONT_SIZE = 14
-// Reserve this much line-length above and below the emoji centre so
-// the ring doesn't crash into the label or the candle.
-const EMOJI_HALF_SPACE = EMOJI_RING_RADIUS + 2
+// TV's pin: a 70px disc in the plate colour, on the pole right next to the label.
+const EMOJI_RING_RADIUS = 35
+const EMOJI_FONT_SIZE = 34
+const EMOJI_LABEL_GAP = 10
 
 // Render size for the icon-mode pin glyph. ICON_SOURCE_VIEWBOX is
 // the source 24×24 grid every Tabler icon uses; shrinking to 75%
@@ -89,7 +95,7 @@ const EMOJI_HALF_SPACE = EMOJI_RING_RADIUS + 2
 // inside the ring. The shared `glyphFigure` helper handles the
 // actual path scaling + figure construction so we keep one
 // implementation across overlays.
-const ICON_RENDER_SIZE = ICON_SOURCE_VIEWBOX * 0.75
+const ICON_RENDER_SIZE = ICON_SOURCE_VIEWBOX * 1.5
 
 function parseExtendData (extendData: unknown): SignpostOverlayData {
   if (extendData !== null && typeof extendData === 'object') {
@@ -123,15 +129,15 @@ const signpost: OverlayTemplate = {
     const fontSize = styles.text?.size ?? data.fontSize ?? DEFAULT_FONT_SIZE
     const fontWeight = styles.text?.weight ?? data.fontWeight ?? 'normal'
     const fontFamily = styles.text?.family ?? data.fontFamily ?? DEFAULT_FONT_FAMILY
-    const textColor = styles.text?.color ?? data.textColor
+    const textColor = styles.text?.color ?? data.textColor ?? DEFAULT_TEXT_COLOR
 
     const lineColor = styles.line?.color ?? DEFAULT_LINE_COLOR
     const labelBg = styles.polygon?.color ?? data.backgroundColor ?? DEFAULT_LABEL_BG
-    const borderColor = styles.polygon?.borderColor ?? data.borderColor
-    const borderWidth = styles.polygon?.borderSize ?? data.borderWidth ?? 0
+    const borderColor = styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_LABEL_BORDER
+    const borderWidth = styles.polygon?.borderSize ?? data.borderWidth ?? 1
 
     const emojiEnabled = data.emojiEnabled === true
-    const emojiGlyph = data.emoji ?? ''
+    const emojiGlyph = data.emoji ?? DEFAULT_EMOJI
     const emojiRingColor = data.emojiRingColor ?? DEFAULT_EMOJI_RING_COLOR
 
     // Label sized around the typed content (or the placeholder for
@@ -139,14 +145,18 @@ const signpost: OverlayTemplate = {
     // floor wasn't used here because Signpost doesn't pin the editor
     // width — TV's Signpost label hugs its content.
     const sizingText = textValue.length > 0 ? textValue : '+ Add text'
-    const lines = sizingText.split('\n')
-    const maxLineWidth = lines.length === 1
-      ? calcTextWidth(sizingText, fontSize, fontWeight, fontFamily)
-      : Math.max(...lines.map(l => calcTextWidth(l, fontSize, fontWeight, fontFamily)))
-    const labelWidth = maxLineWidth + LABEL_PADDING_H * 2
-    const labelHeight = lines.length * fontSize + LABEL_PADDING_V * 2
+    // Wrapped at TV's width, but never inside a word: a longer one (big font) widens the label.
+    const wrapWidth = Math.max(LABEL_WRAP_WIDTH, ...sizingText.split(/\s+/).map(w => Math.ceil(calcTextWidth(w, fontSize, fontWeight, fontFamily)) + 4))
+    const lines = wrapText(sizingText, wrapWidth, fontSize, fontWeight, fontFamily)
+    const maxLineWidth = Math.max(...lines.map(l => calcTextWidth(l, fontSize, fontWeight, fontFamily)))
+    const lineStep = fontSize * LABEL_LINE_HEIGHT
+    // +1: the editor re-wraps at width minus padding, which must not come out a hair short.
+    const labelWidth = Math.ceil(maxLineWidth) + LABEL_PADDING_H * 2 + 1
+    const labelHeight = lines.length * lineStep + LABEL_PADDING_V * 2
 
-    const labelCentre = coordinates[0]
+    // TV puts the label's bottom edge on the point, with the pin above it.
+    const labelCentre = { x: coordinates[0].x, y: coordinates[0].y - labelHeight / 2 }
+    const hasPin = emojiEnabled && emojiGlyph.length > 0
     const labelRect = {
       x: labelCentre.x - labelWidth / 2,
       y: labelCentre.y - labelHeight / 2,
@@ -155,6 +165,8 @@ const signpost: OverlayTemplate = {
     }
     const labelTop = labelRect.y
     const labelBottom = labelRect.y + labelRect.height
+    // Top of everything above the pole's far end: the label, or the pin over it.
+    const stackTop = hasPin ? labelTop - EMOJI_LABEL_GAP - 2 * EMOJI_RING_RADIUS : labelTop
 
     // Determine line direction and endpoint by inspecting the candle
     // at the snapped bar — high / low get translated to screen y via
@@ -169,7 +181,6 @@ const signpost: OverlayTemplate = {
 
     let lineStart: XY | null = null
     let lineEnd: XY | null = null
-    let lineMidpoint: XY | null = null
 
     if (candle !== null && yAxis !== null) {
       const candleHighY = yAxis.convertToPixel(candle.high)
@@ -179,10 +190,10 @@ const signpost: OverlayTemplate = {
       if (labelBottom < candleHighY - LINE_GAP_TO_CANDLE) {
         lineStart = { x: labelCentre.x, y: labelBottom }
         lineEnd = { x: labelCentre.x, y: candleHighY - LINE_GAP_TO_CANDLE }
-      } else if (labelTop > candleLowY + LINE_GAP_TO_CANDLE) {
+      } else if (stackTop > candleLowY + LINE_GAP_TO_CANDLE) {
         // Label is ENTIRELY below → line up from label's top edge to
         // just below the candle's low.
-        lineStart = { x: labelCentre.x, y: labelTop }
+        lineStart = { x: labelCentre.x, y: stackTop }
         lineEnd = { x: labelCentre.x, y: candleLowY + LINE_GAP_TO_CANDLE }
       }
       // else: label overlaps candle vertically → suppress the line.
@@ -191,10 +202,6 @@ const signpost: OverlayTemplate = {
       // line down from the label to the bottom of the pane.
       lineStart = { x: labelCentre.x, y: labelBottom }
       lineEnd = { x: labelCentre.x, y: bounding.height - LINE_GAP_TO_PANE_EDGE }
-    }
-
-    if (lineStart !== null && lineEnd !== null) {
-      lineMidpoint = { x: lineStart.x, y: (lineStart.y + lineEnd.y) / 2 }
     }
 
     // Per-figure explicit styles so the engine's overlay-level merge
@@ -215,68 +222,36 @@ const signpost: OverlayTemplate = {
       borderRadius: LABEL_BORDER_RADIUS,
       paddingLeft: LABEL_PADDING_H,
       paddingRight: LABEL_PADDING_H,
-      paddingTop: LABEL_PADDING_V,
-      paddingBottom: LABEL_PADDING_V
+      // Glyphs are drawn from the top of a line step; centre them in it.
+      paddingTop: LABEL_PADDING_V + (lineStep - fontSize) / 2,
+      paddingBottom: LABEL_PADDING_V,
+      lineHeight: LABEL_LINE_HEIGHT
     }
-    if (textColor !== undefined) editableTextStyle.color = textColor
+    editableTextStyle.color = textColor
+    const fontStyle = styles.text?.fontStyle ?? data.fontStyle
+    if (fontStyle !== undefined) editableTextStyle.fontStyle = fontStyle
 
     const figures: OverlayFigure[] = []
 
-    // Draw the vertical line — split into two segments if the emoji
-    // ring sits along it, so the line doesn't visually bisect the
-    // emoji. When no emoji is shown (or the line is too short to
-    // accommodate the ring), draw a single uninterrupted line.
-    if (lineStart !== null && lineEnd !== null && lineMidpoint !== null) {
-      const lineLength = Math.abs(lineEnd.y - lineStart.y)
-      const shouldShowEmoji = emojiEnabled &&
-        emojiGlyph.length > 0 &&
-        lineLength > EMOJI_HALF_SPACE * 2 + 4
-
-      if (shouldShowEmoji) {
-        const dir = lineStart.y < lineEnd.y ? 1 : -1
-        const segATo = { x: lineMidpoint.x, y: lineMidpoint.y - EMOJI_HALF_SPACE * dir }
-        const segBFrom = { x: lineMidpoint.x, y: lineMidpoint.y + EMOJI_HALF_SPACE * dir }
-        figures.push({
-          type: 'line',
-          attrs: { coordinates: [lineStart, segATo] },
-          styles: leaderStyle
-        })
-        figures.push({
-          type: 'line',
-          attrs: { coordinates: [segBFrom, lineEnd] },
-          styles: leaderStyle
-        })
-        figures.push({
-          type: 'circle',
-          attrs: { x: lineMidpoint.x, y: lineMidpoint.y, r: EMOJI_RING_RADIUS },
-          styles: {
-            style: 'stroke',
-            color: 'transparent',
-            borderColor: emojiRingColor,
-            borderSize: EMOJI_RING_BORDER_WIDTH
-          }
-        })
-        // Glyph itself — text figure for unicode emoji, scaled
-        // path figure for `svg:` icon. The shared `glyphFigure`
-        // helper owns the prefix branch + path scaling; icon
-        // mode renders at `ICON_RENDER_SIZE` (~18 px) so it
-        // matches the ring's inner diameter, emoji renders at
-        // the configured font size.
-        figures.push(glyphFigure({
-          x: lineMidpoint.x,
-          y: lineMidpoint.y,
-          value: emojiGlyph,
-          size: emojiGlyph.startsWith(ICON_VALUE_PREFIX) ? ICON_RENDER_SIZE : EMOJI_FONT_SIZE,
-          color: emojiRingColor,
-          fontFamily: DEFAULT_FONT_FAMILY
-        }))
-      } else {
-        figures.push({
-          type: 'line',
-          attrs: { coordinates: [lineStart, lineEnd] },
-          styles: leaderStyle
-        })
-      }
+    // The pole runs from the label (or the pin above it) to the candle.
+    if (hasPin) {
+      const pin = { x: labelCentre.x, y: labelTop - EMOJI_LABEL_GAP - EMOJI_RING_RADIUS }
+      figures.push({
+        type: 'circle',
+        attrs: { x: pin.x, y: pin.y, r: EMOJI_RING_RADIUS },
+        styles: { style: 'fill', color: emojiRingColor, borderSize: 0 }
+      })
+      figures.push(glyphFigure({
+        x: pin.x,
+        y: pin.y,
+        value: emojiGlyph,
+        size: emojiGlyph.startsWith(ICON_VALUE_PREFIX) ? ICON_RENDER_SIZE : EMOJI_FONT_SIZE,
+        color: '#ffffff',
+        fontFamily: DEFAULT_FONT_FAMILY
+      }))
+    }
+    if (lineStart !== null && lineEnd !== null) {
+      figures.push({ type: 'line', attrs: { coordinates: [lineStart, lineEnd] }, styles: leaderStyle })
     }
 
     // Label rect.
@@ -286,9 +261,8 @@ const signpost: OverlayTemplate = {
       styles: labelFillStyle
     })
 
-    // Optional border around the label — same opt-in semantics as
-    // Note (set borderColor + borderWidth > 0 to show).
-    if (borderColor !== undefined && borderWidth > 0) {
+    // Border around the label: TV's 1px by default, off at width 0.
+    if (borderWidth > 0) {
       figures.push({
         type: 'rect',
         attrs: { x: labelRect.x, y: labelRect.y, width: labelRect.width, height: labelRect.height },
@@ -311,7 +285,8 @@ const signpost: OverlayTemplate = {
         height: labelHeight,
         text: textValue,
         align: 'center',
-        baseline: 'middle'
+        baseline: 'middle',
+        wrap: true
       },
       styles: editableTextStyle
     })

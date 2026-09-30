@@ -58,13 +58,14 @@ interface EmojiMarkerProperties {
 
 const defaultStyle: Required<Omit<EmojiMarkerProperties, 'angle' | 'iconFill'>> = {
   text: '⭐',
-  textFontSize: 24,
+  // TV's default `size` for an icon or emoji.
+  textFontSize: 40,
   // Medium grey — matches Signpost's default line colour and
   // reads on both dark and light themes. `#000000` (the previous
   // default) was invisible on the dark theme and the user couldn't
   // change it because the property name didn't match the schema's
   // field name.
-  textColor: '#787b86'
+  textColor: '#2962ff'
 }
 
 const emojiMarker = (): ProOverlayTemplate => {

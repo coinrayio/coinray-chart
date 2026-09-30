@@ -60,8 +60,9 @@ const fibonacciSpiral = (): ProOverlayTemplate => {
 
   const lineStyleFn = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
     style: props.lineStyle ?? 'solid',
-    size: props.lineWidth,
-    color: props.lineColor ?? props.borderColor,
+    // TV's defaults: sky blue, 2px.
+    size: props.lineWidth ?? 2,
+    color: props.lineColor ?? props.borderColor ?? '#00bcd4',
     dashedValue: props.lineDashedValue
   })
 

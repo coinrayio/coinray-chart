@@ -44,7 +44,9 @@ const SIZES = [
 
 /** A degree given as TV's index (0-14) or by name; anything else is the default. */
 export function resolveDegree (value: unknown): number {
-  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < ELLIOTT_DEGREES.length) return value
+  // The dialog's select hands the index over as a string.
+  const index = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+  if (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < ELLIOTT_DEGREES.length) return index
   const named = ELLIOTT_DEGREES.findIndex((name) => name === value)
   return named >= 0 ? named : DEFAULT_ELLIOTT_DEGREE
 }

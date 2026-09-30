@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { lineCrossesSegment, ratio } from '../extension/overlay/tv/patterns/patternShared'
+import { lineCrossesSegment, patternProperties, ratio } from '../extension/overlay/tv/patterns/patternShared'
 import { necklineEnds } from '../extension/overlay/tv/patterns/headAndShoulders'
 import { triangleWedge } from '../extension/overlay/tv/patterns/trianglePattern'
+import { xabcdConnectors } from '../extension/overlay/xabcd'
+import { abcdConnectors } from '../extension/overlay/abcd'
 import { cypherConnectors } from '../extension/overlay/tv/patterns/cypher'
 import { ELLIOTT_DEGREES, elliottGlyph, resolveDegree } from '../extension/overlay/tv/patterns/elliottDegree'
 import { labelsBelow } from '../extension/overlay/tv/patterns/elliott'
@@ -97,5 +99,25 @@ describe('Elliott label sides', () => {
   it('flips when the wave rises into point 2', () => {
     const c = [{ x: 0, y: 0 }, { x: 1, y: 10 }, { x: 2, y: 0 }]
     expect(labelsBelow(c)).toEqual([false, true, false])
+  })
+})
+
+describe('xabcd / abcd ratios', () => {
+  it('xabcd labels X-B, A-C, B-D and X-D with AB/XA, BC/AB, CD/BC and AD/XA', () => {
+    // TV's own figures for X=.65 A=.4 B=.55 C=.45 D=.625 (prices negated).
+    const byPair = Object.fromEntries(xabcdConnectors([-.65, -.4, -.55, -.45, -.625]).map(([a, b, r]) => [`${a}-${b}`, r]))
+    expect(byPair).toEqual({ '0-2': 0.6, '1-3': 0.667, '2-4': 1.75, '0-4': 0.9 })
+  })
+  it('abcd labels A-C with BC/AB and B-D with CD/BC', () => {
+    expect(abcdConnectors([.65, .4, .55, .35])).toEqual([[0, 2, 0.6], [1, 3, 1.333]])
+    expect(abcdConnectors([1, 2])).toEqual([])
+  })
+})
+
+describe('dotted connectors', () => {
+  it('scale the dash with the width, as TV does: a dot, then twice as long a gap', () => {
+    const store = patternProperties({ color: '#000', background: 'transparent' })
+    expect(store.dotted('a', 1).dashedValue).toEqual([1, 2])
+    expect(store.dotted('a', 4).dashedValue).toEqual([4, 8])
   })
 })

@@ -69,7 +69,9 @@ const arrowMarker = (): ProOverlayTemplate => {
     merge(newProps, _properties)
     properties.set(id, newProps as DeepPartial<OverlayProperties>)
   }
-  const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
+  // TV's defaults, as explicit properties so the settings dialog reads what is drawn.
+  const look: DeepPartial<OverlayProperties> = { backgroundColor: COLOR, textColor: COLOR, textFontSize: 16, textFontWeight: 'bold' }
+  const getProperties = (id: string): DeepPartial<OverlayProperties> => ({ ...look, ...(properties.get(id) ?? {}) })
 
   return {
     name: 'arrowMarker',
@@ -79,9 +81,9 @@ const arrowMarker = (): ProOverlayTemplate => {
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, overlay }) => {
       if (coordinates.length < 2) return []
-      const props = properties.get(overlay.id) ?? {}
+      const props = getProperties(overlay.id)
       const [tail, tip] = coordinates
-      const color = props.backgroundColor ?? COLOR
+      const color = props.backgroundColor
       const span = Math.hypot(tip.x - tail.x, tip.y - tail.y)
       const length = span === 0 ? 1 : span
       const ux = (tip.x - tail.x) / length
@@ -99,7 +101,7 @@ const arrowMarker = (): ProOverlayTemplate => {
             align: horizontal ? (ux > 0 ? 'right' : 'left') : 'center',
             baseline: horizontal ? 'middle' : (uy > 0 ? 'bottom' : 'top')
           },
-          styles: { color: props.textColor ?? color, size: props.textFontSize ?? 16, weight: props.textFontWeight ?? 'bold', backgroundColor: 'transparent' }
+          styles: { color: props.textColor, size: props.textFontSize, weight: props.textFontWeight, fontStyle: props.textFontStyle, backgroundColor: 'transparent' }
         }
       ]
     },

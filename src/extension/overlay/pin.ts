@@ -47,6 +47,8 @@ interface PinOverlayData {
    * Signpost uses). Defaults to off.
    */
   anchorDrawing?: boolean
+  /** The settings dialog's flag for the tooltip border (off unless a colour was set). */
+  borderVisible?: boolean
 }
 
 interface OverlayStyleSlice {
@@ -70,6 +72,7 @@ interface OverlayStyleSlice {
 const DEFAULT_PIN_COLOR = '#2196f3'
 // Tooltip defaults — dark bubble + light text. Pass 3 will route
 // these through the Text tab so the user can override per-pin.
+const DEFAULT_TOOLTIP_BORDER = '#787b86'
 const DEFAULT_TOOLTIP_BG = 'rgba(30, 33, 41, 0.95)'
 const DEFAULT_TOOLTIP_TEXT_COLOR = '#ffffff'
 const DEFAULT_FONT_SIZE = 14
@@ -179,8 +182,8 @@ const pin: OverlayTemplate = {
       const fontFamily = styles.text?.family ?? DEFAULT_FONT_FAMILY
       const textColor = styles.text?.color ?? DEFAULT_TOOLTIP_TEXT_COLOR
       const tooltipBg = styles.text?.backgroundColor ?? DEFAULT_TOOLTIP_BG
-      const tooltipBorderColor = styles.rect?.borderColor
-      const tooltipBorderSize = (tooltipBorderColor !== undefined && tooltipBorderColor !== 'transparent')
+      const tooltipBorderColor = styles.rect?.borderColor ?? DEFAULT_TOOLTIP_BORDER
+      const tooltipBorderSize = (data.borderVisible ?? (styles.rect?.borderColor !== undefined && styles.rect.borderColor !== 'transparent'))
         ? (styles.rect?.borderSize ?? 1)
         : 0
 

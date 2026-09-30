@@ -24,10 +24,15 @@
  * migration). Fill and border only draw when a colour is set.
  */
 
-import type { OverlayTemplate } from '../../../../component/Overlay'
+import type { OverlayFigure, OverlayTemplate } from '../../../../component/Overlay'
+import { getTextRect, type TextAttrs } from '../../../figure/text'
 import { anchoredHooks, anchorPixel, readData, type AnchorData } from './shared'
 
 const DEFAULT_TEXT_COLOR = '#2962FF'
+// TV's defaults for the optional box and the wrap width.
+const DEFAULT_BACKGROUND = 'rgba(155, 190, 213, 0.3)'
+const DEFAULT_BORDER = '#667b8b'
+const DEFAULT_WRAP_WIDTH = 200
 
 export interface AnchoredTextData extends AnchorData {
   text?: string
@@ -37,6 +42,10 @@ export interface AnchoredTextData extends AnchorData {
   fontStyle?: 'normal' | 'italic'
   backgroundColor?: string
   borderColor?: string
+  /** The settings dialog's flags; unset means "on when the colour is set" (saved charts). */
+  backgroundVisible?: boolean
+  borderVisible?: boolean
+  wordWrap?: boolean
   wordWrapWidth?: number
 }
 
@@ -62,37 +71,47 @@ const anchoredText: OverlayTemplate = {
     const styles = (overlay.styles ?? {}) as StyleSlice
     const at = anchorPixel(data, coordinates, bounding)
 
-    const fill = styles.text?.backgroundColor ?? styles.polygon?.color ?? data.backgroundColor
-    const border = styles.polygon?.borderColor ?? data.borderColor
+    const fillColor = styles.text?.backgroundColor ?? styles.polygon?.color ?? data.backgroundColor
+    const lineColor = styles.polygon?.borderColor ?? data.borderColor
+    const filled = data.backgroundVisible ?? fillColor !== undefined
+    const bordered = data.borderVisible ?? lineColor !== undefined
     const figureStyles: Record<string, unknown> = {
       size: styles.text?.size ?? data.fontSize ?? 14,
       paddingLeft: PADDING,
       paddingRight: PADDING,
       paddingTop: PADDING,
-      paddingBottom: PADDING
+      paddingBottom: PADDING,
+      // TV's default is its blue; without one the editable text falls back to near-black.
+      color: styles.text?.color ?? data.textColor ?? DEFAULT_TEXT_COLOR
     }
-    // TV's default is its blue; without one the editable text falls back to near-black.
-    const color = styles.text?.color ?? data.textColor ?? DEFAULT_TEXT_COLOR
     const weight = styles.text?.weight ?? data.fontWeight
     const fontStyle = styles.text?.fontStyle ?? data.fontStyle
-    figureStyles.color = color
     if (weight !== undefined) figureStyles.weight = weight
     if (fontStyle !== undefined) figureStyles.fontStyle = fontStyle
     if (styles.text?.family !== undefined) figureStyles.family = styles.text.family
-    if (fill !== undefined) figureStyles.backgroundColor = fill
-    if (border !== undefined) {
-      figureStyles.style = 'stroke_fill'
-      figureStyles.borderColor = border
-      figureStyles.borderSize = 1
-    }
 
-    const wrap = data.wordWrapWidth !== undefined
-    return [{
-      type: 'editableText',
-      attrs: { x: at.x, y: at.y, text: data.text ?? '', align: 'left', baseline: 'top', ...(wrap ? { width: data.wordWrapWidth, wrap: true } : {}) },
-      styles: figureStyles,
-      noTranslate: true
-    }]
+    const wrap = data.wordWrap ?? data.wordWrapWidth !== undefined
+    const attrs: TextAttrs & { wrap?: boolean } = { x: at.x, y: at.y, text: data.text ?? '', align: 'left', baseline: 'top' }
+    if (wrap) Object.assign(attrs, { width: data.wordWrapWidth ?? DEFAULT_WRAP_WIDTH, wrap: true })
+
+    const figures: OverlayFigure[] = []
+    if ((filled || bordered) && attrs.text !== '') {
+      // editableText forces a transparent box, so the box is its own rect.
+      figures.push({
+        type: 'rect',
+        attrs: getTextRect(attrs, figureStyles),
+        styles: {
+          style: bordered ? (filled ? 'stroke_fill' : 'stroke') : 'fill',
+          color: filled ? fillColor ?? DEFAULT_BACKGROUND : 'transparent',
+          borderColor: lineColor ?? DEFAULT_BORDER,
+          borderSize: bordered ? 1 : 0
+        },
+        ignoreEvent: true,
+        noTranslate: true
+      })
+    }
+    figures.push({ type: 'editableText', attrs, styles: figureStyles, noTranslate: true })
+    return figures
   },
 
   onTextChange: ({ overlay, text }) => {

@@ -30,7 +30,7 @@ import type { LineStyle } from '../../../../common/Styles'
 import type { OverlayTemplate } from '../../../../component/Overlay'
 import type { ProOverlayTemplate } from '../../types'
 import { DEFAULT_OVERLAY_PROPERTIES } from '../../types'
-import { withAlpha } from '../../fibonacciShared'
+import { fibOneColor, withAlpha } from '../../fibonacciShared'
 import { extendedLine, propertyStore } from './shared'
 import type { Level } from './shared'
 
@@ -86,7 +86,8 @@ const gannFan = (): ProOverlayTemplate => {
         ? custom.map((l, i) => ({ value: l.value ?? GANN_FAN_LEVELS.at(i)?.value ?? 1, color: l.color ?? GANN_FAN_LEVELS.at(i)?.color ?? '#787b86', enabled: l.enabled !== false }))
         : GANN_FAN_LEVELS
       // Position in the full ascending list decides which neighbour a band pairs with.
-      const shown = [...all].sort((a, b) => a.value - b.value).map((l, i) => ({ ...l, index: i + 1 })).filter((l) => l.enabled)
+      const oneColor = fibOneColor(overlay.extendData)
+      const shown = [...all].sort((a, b) => a.value - b.value).map((l, i) => ({ ...l, color: oneColor ?? l.color, index: i + 1 })).filter((l) => l.enabled)
       const rays = shown.map((l) => ({ ...l, end: gannFanEnd(origin, corner, l.value) }))
       const opacity = (ext.backgroundOpacity ?? 20) / 100
       const figures: Array<{ type: string, key: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }> = []

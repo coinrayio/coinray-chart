@@ -39,6 +39,10 @@ export function necklineEnds (c: Coordinate[]): { left: Coordinate | null, right
   return { left: cross(c[0], c[1]), right: c.length === 7 ? cross(c[5], c[6]) : null }
 }
 
+/** The point on the line through `a` and `b` at `x`; `a` itself when the line is vertical. */
+const atX = (a: Coordinate, b: Coordinate, x: number): Coordinate =>
+  b.x === a.x ? a : { x, y: a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x) }
+
 const headAndShoulders = (): ProOverlayTemplate => {
   const store = patternProperties({ color: '#089981', background: 'rgba(8, 153, 129, 0.15)' })
 
@@ -48,7 +52,7 @@ const headAndShoulders = (): ProOverlayTemplate => {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates: c, overlay }) => {
+    createPointFigures: ({ coordinates: c, overlay, bounding }) => {
       const id = overlay.id
       const { left, right } = necklineEnds(c)
       const wedges: Coordinate[][] = []
@@ -64,7 +68,7 @@ const headAndShoulders = (): ProOverlayTemplate => {
         figures.push({
           type: 'line',
           key: 'neckline',
-          attrs: { coordinates: [left ?? c[2], right ?? c[4]] },
+          attrs: { coordinates: [left ?? atX(c[2], c[4], 0), right ?? atX(c[2], c[4], bounding.width)] },
           styles: store.dotted(id, store.getProperties(id).lineWidth ?? 2)
         })
       }

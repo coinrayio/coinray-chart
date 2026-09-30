@@ -57,8 +57,9 @@ interface OverlayStyleSlice {
 }
 
 // Visual defaults — tuned to match TradingView's Price Label.
-const DEFAULT_FILL = 'rgba(30, 33, 41, 0.95)'
-const DEFAULT_BORDER = DEFAULT_FILL
+const DEFAULT_FILL = '#2962ff'
+const DEFAULT_BORDER = '#2962ff'
+const DEFAULT_TEXT_COLOR = '#ffffff'
 const BORDER_WIDTH = 1
 const LABEL_PADDING_H = 10
 const LABEL_PADDING_V = 9
@@ -73,7 +74,7 @@ const TAIL_LEFT_OFFSET = 10
 const BUBBLE_LEFT_OUTSET = 8
 const TAIL_BASE_WIDTH = 10
 const TAIL_HEIGHT = 14
-const DEFAULT_FONT_SIZE = 12
+const DEFAULT_FONT_SIZE = 14
 // Price Label text is bold per TV — distinguishes it from Comment /
 // Note's regular weight.
 const DEFAULT_FONT_WEIGHT = 'bold' as const
@@ -153,7 +154,7 @@ const priceLabel: OverlayTemplate = {
     const fontSize = styles.text?.size ?? data.fontSize ?? DEFAULT_FONT_SIZE
     const fontWeight = styles.text?.weight ?? data.fontWeight ?? DEFAULT_FONT_WEIGHT
     const fontFamily = styles.text?.family ?? data.fontFamily ?? DEFAULT_FONT_FAMILY
-    const textColor = styles.text?.color ?? data.textColor
+    const textColor = styles.text?.color ?? data.textColor ?? DEFAULT_TEXT_COLOR
 
     const fill = styles.polygon?.color ?? data.backgroundColor ?? DEFAULT_FILL
     const border = styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_BORDER
@@ -217,7 +218,7 @@ const priceLabel: OverlayTemplate = {
       paddingTop: 0,
       paddingBottom: 0
     }
-    if (textColor !== undefined) textStyle.color = textColor
+    textStyle.color = textColor
 
     const figures: OverlayFigure[] = [
       {

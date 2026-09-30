@@ -23,9 +23,15 @@ export function merge (target: any, source: any): void {
       const targetProp = target[key]
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- ignore
       const sourceProp = source[key]
+      // Arrays are values, not records: a new list replaces the old one.
+      // Merging them by index left stale entries behind (unchecking a trend
+      // line stat turned ['priceRange', 'percentRange'] into
+      // ['percentRange', 'percentRange']).
       if (
         isObject(sourceProp) &&
-        isObject(targetProp)
+        isObject(targetProp) &&
+        !isArray(sourceProp) &&
+        !isArray(targetProp)
       ) {
         merge(targetProp, sourceProp)
       } else {

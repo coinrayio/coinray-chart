@@ -40,7 +40,7 @@ import type { OverlayTemplate } from '../../../../component/Overlay'
 import type { ProOverlayTemplate, OverlayProperties } from '../../types'
 import type DeepPartial from '../../../../common/DeepPartial'
 import { DEFAULT_OVERLAY_PROPERTIES } from '../../types'
-import { withAlpha } from '../../fibonacciShared'
+import { fibOneColor, withAlpha } from '../../fibonacciShared'
 import { propertyStore } from './shared'
 
 export interface GannBoxLevel { value: number, color: string, visible: boolean }
@@ -111,8 +111,9 @@ const gannBox = (): ProOverlayTemplate => {
       }
       const hAll = applyLevelOverrides(ext.hLevels ?? LEVELS, props.figureLevels, 0)
       const vAll = applyLevelOverrides(ext.vLevels ?? LEVELS, props.figureLevels, 7)
-      const hs = hAll.filter((l) => l.visible).map((l) => ({ ...l, pos: levelAt(p0.y, p1.y, l.value, reverse) }))
-      const vs = vAll.filter((l) => l.visible).map((l) => ({ ...l, pos: levelAt(p0.x, p1.x, l.value, reverse) }))
+      const oneColor = fibOneColor(overlay.extendData)
+      const hs = hAll.filter((l) => l.visible).map((l) => ({ ...l, color: oneColor ?? l.color, pos: levelAt(p0.y, p1.y, l.value, reverse) }))
+      const vs = vAll.filter((l) => l.visible).map((l) => ({ ...l, color: oneColor ?? l.color, pos: levelAt(p0.x, p1.x, l.value, reverse) }))
       const figures: Array<{ type: string, key: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }> = []
       const label = (key: string, x: number, y: number, text: string, color: string, align: string, baseline: string): void => {
         figures.push({ type: 'text', key, ignoreEvent: true, attrs: { x, y, text, align, baseline }, styles: { color, size: 12, backgroundColor: 'transparent', borderSize: 0 } })

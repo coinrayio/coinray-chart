@@ -24,30 +24,19 @@ import {
   buildEnrichedLevels,
   buildLevelLabels,
   buildLevelLines,
-  fibLevelDefaultColour,
+  diagonalStroke,
+  FIB_TV_LEVELS,
   resolveFibSettings
 } from './fibonacciShared'
 
-export const FIBONACCI_EXTENSION_LEVELS: FigureLevel[] = [
-  { value: 0, enabled: true, color: fibLevelDefaultColour(0) },
-  { value: 0.236, enabled: true, color: fibLevelDefaultColour(0.236) },
-  { value: 0.382, enabled: true, color: fibLevelDefaultColour(0.382) },
-  { value: 0.5, enabled: true, color: fibLevelDefaultColour(0.5) },
-  { value: 0.618, enabled: true, color: fibLevelDefaultColour(0.618) },
-  { value: 0.786, enabled: true, color: fibLevelDefaultColour(0.786) },
-  { value: 1, enabled: true, color: fibLevelDefaultColour(1) },
-  { value: 1.618, enabled: true, color: fibLevelDefaultColour(1.618) },
-  { value: 2.618, enabled: true, color: fibLevelDefaultColour(2.618) },
-  { value: 3.618, enabled: true, color: fibLevelDefaultColour(3.618) },
-  { value: 4.236, enabled: true, color: fibLevelDefaultColour(4.236) }
-]
+export const FIBONACCI_EXTENSION_LEVELS: FigureLevel[] = FIB_TV_LEVELS
 
 const fibonacciExtension = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
   const fbLinesStyle = (props: DeepPartial<OverlayProperties>): Partial<LineStyle> => ({
     style: props.lineStyle ?? 'solid',
-    size: props.lineWidth,
+    size: props.lineWidth ?? 2,
     color: props.lineColor ?? props.borderColor,
     dashedValue: props.lineDashedValue
   })
@@ -98,15 +87,11 @@ const fibonacciExtension = (): ProOverlayTemplate => {
       // Uses the same isolated diagonal stroke every other fib
       // overlay's Trend Line row drives.
       if (settings.showDiagonal && coordinates.length >= 2) {
-        const dColor = settings.diagonalColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-        const dWidth = settings.diagonalWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth
-        const dStyle = (settings.diagonalStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle) as LineStyle['style']
-        const dDashed = settings.diagonalDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
         figures.push({
           type: 'line',
           key: 'diagonal',
           attrs: { coordinates: [...coordinates] },
-          styles: { style: dStyle, size: dWidth, color: dColor, dashedValue: dDashed }
+          styles: diagonalStroke(settings)
         })
       }
 
@@ -138,17 +123,20 @@ const fibonacciExtension = (): ProOverlayTemplate => {
       // deltas match that trend leg — the helper computes
       // yDif = near.y - far.y internally, so any anchor pair
       // with the right delta produces the right levels.
-      const yDif = coordinates[1].y - coordinates[0].y
-      const valueDif = (points[1]?.value ?? 0) - (points[0]?.value ?? 0)
+      // TV's Reverse keeps level 0 on the third anchor and grows the levels the
+      // other way, so it flips the leg instead of swapping the anchors.
+      const dir = settings.reverse ? -1 : 1
+      const yDif = (coordinates[1].y - coordinates[0].y) * dir
+      const valueDif = ((points[1]?.value ?? 0) - (points[0]?.value ?? 0)) * dir
       const virtualNear = { x: coordinates[2].x, y: coordinates[2].y + yDif }
       // Log scale: the extension leg is a ratio (p1 / p0) rather than a difference.
       const p0 = points[0]?.value ?? 0
       const p1 = points[1]?.value ?? 0
       const p2 = points[2]?.value ?? 0
-      const logToY = settings.logScale && yAxis != null && p0 > 0 && p1 > 0 && p2 > 0
+      const logToY = settings.logScale && yAxis?.name === 'logarithm' && p0 > 0 && p1 > 0 && p2 > 0
         ? (price: number) => yAxis.convertToPixel(price)
         : undefined
-      const virtualNearValue = logToY !== undefined ? p2 * (p1 / p0) : p2 + valueDif
+      const virtualNearValue = logToY !== undefined ? p2 * (p1 / p0) ** dir : p2 + valueDif
 
       const enriched = buildEnrichedLevels({
         levels: (((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_EXTENSION_LEVELS) as FigureLevel[])
@@ -160,7 +148,8 @@ const fibonacciExtension = (): ProOverlayTemplate => {
         precision,
         chart,
         lineColour: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-        reverse: settings.reverse,
+        reverse: false,
+        oneColor: settings.oneColor,
         logToY
       })
 
@@ -170,8 +159,7 @@ const fibonacciExtension = (): ProOverlayTemplate => {
 
       figures.push(...buildLevelLines(enriched, leftX, rightX, fbLinesStyle(props)))
 
-      const labels = buildLevelLabels(enriched, leftX, rightX, settings, props, textStyleFn(props))
-      if (labels !== null) figures.push(labels)
+      figures.push(...buildLevelLabels(enriched, leftX, rightX, settings, props, textStyleFn(props)))
 
       return figures
     },

@@ -39,6 +39,11 @@ export interface AnchoredNoteData extends AnchorData {
   backgroundColor?: string
   borderColor?: string
   markerColor?: string
+  /** What a saved `note` called its marker colour. */
+  lineColor?: string
+  /** The settings dialog's flags: the fill is on by default, the border off. */
+  backgroundVisible?: boolean
+  borderVisible?: boolean
 }
 
 interface StyleSlice {
@@ -50,108 +55,121 @@ interface StyleSlice {
 const TOOLTIP_WIDTH = 236
 const PADDING = 12
 const LINE_GAP = 5
-const PIN_RADIUS = 8
-const PIN_HEIGHT = 24
-const TOOLTIP_GAP = 13
+// Measured off TV's pin (23px wide, 26 tall, its tip 4px above the point) and its tooltip.
+const PIN_RADIUS = 11.5
+const PIN_HEIGHT = 30
+const PIN_TIP_GAP = 4
+const TOOLTIP_GAP = 14
 const CARET_WIDTH = 12
 const CARET_HEIGHT = 10
 
 // TV's dark-theme note defaults.
 const DEFAULT_TEXT = '#d1d4dc'
-const DEFAULT_FILL = '#1e222d'
-const DEFAULT_BORDER = '#363a45'
+const DEFAULT_FILL = '#2a2e39'
+const DEFAULT_BORDER = '#434651'
 const DEFAULT_MARKER = '#2962FF'
 
-const anchoredNote: OverlayTemplate = {
-  name: 'anchoredNote',
-  editTextOnCreate: true,
-  totalStep: 2,
-  needDefaultPointFigure: false,
-  needDefaultXAxisFigure: false,
-  needDefaultYAxisFigure: false,
-  ...anchoredHooks,
+/**
+ * The pin-and-tooltip note. `anchoredNote` pins it to the screen; `note` (TV's
+ * `LineToolNote`) is the same drawing at a bar and price, so it passes no hooks.
+ */
+export function noteTemplate (name: string, hooks: Partial<OverlayTemplate> = {}): OverlayTemplate {
+  // Only a screen-anchored note (one with hooks) keeps the engine from moving its point on drag.
+  const noTranslate = hooks.completeDrawing !== undefined
+  return {
+    name,
+    editTextOnCreate: true,
+    totalStep: 2,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    ...hooks,
 
-  createPointFigures: (params) => {
-    const { overlay, coordinates, bounding } = params
-    if (coordinates.length < 1) return []
-    const store = (params.chart as ChartImp).getChartStore()
-    const showTooltip = store.getHoverOverlayInfo().overlay?.id === overlay.id || store.getClickOverlayInfo().overlay?.id === overlay.id
-    const data = (readData(overlay.extendData) as AnchoredNoteData)
-    const styles = (overlay.styles ?? {}) as StyleSlice
-    const at = anchorPixel(data, coordinates, bounding)
+    createPointFigures: (params) => {
+      const { overlay, coordinates, bounding } = params
+      if (coordinates.length < 1) return []
+      const store = (params.chart as ChartImp).getChartStore()
+      const showTooltip = store.getHoverOverlayInfo().overlay?.id === overlay.id || store.getClickOverlayInfo().overlay?.id === overlay.id
+      const data = (readData(overlay.extendData) as AnchoredNoteData)
+      const styles = (overlay.styles ?? {}) as StyleSlice
+      const at = anchorPixel(data, coordinates, bounding)
 
-    const size = styles.text?.size ?? data.fontSize ?? 14
-    const weight = styles.text?.weight ?? data.fontWeight
-    const family = styles.text?.family
-    const text = data.text ?? ''
-    const marker = styles.line?.color ?? data.markerColor ?? DEFAULT_MARKER
+      const size = styles.text?.size ?? data.fontSize ?? 14
+      const weight = styles.text?.weight ?? data.fontWeight
+      const family = styles.text?.family
+      const text = data.text ?? ''
+      const marker = styles.line?.color ?? data.markerColor ?? data.lineColor ?? DEFAULT_MARKER
 
-    // No text yet: size to the editor's placeholder.
-    const lines = wrapText(text === '' ? '+ Add text' : text, TOOLTIP_WIDTH - 2 * PADDING, size, weight, family)
-    const width = Math.min(TOOLTIP_WIDTH, bounding.width)
-    const height = 2 * PADDING + lines.length * size + (lines.length - 1) * LINE_GAP
-    const left = Math.min(Math.max(at.x - width / 2, 0), Math.max(0, bounding.width - width))
-    const bottom = at.y - PIN_HEIGHT - TOOLTIP_GAP
-    const top = bottom - height
-    const caret = [
-      { x: at.x + CARET_WIDTH / 2, y: bottom },
-      { x: at.x, y: bottom + CARET_HEIGHT },
-      { x: at.x - CARET_WIDTH / 2, y: bottom }
-    ]
+      // No text yet: size to the editor's placeholder.
+      const lines = wrapText(text === '' ? '+ Add text' : text, TOOLTIP_WIDTH - 2 * PADDING, size, weight, family)
+      const width = Math.min(TOOLTIP_WIDTH, bounding.width)
+      const height = 2 * PADDING + lines.length * size + (lines.length - 1) * LINE_GAP
+      const left = Math.min(Math.max(at.x - width / 2, 0), Math.max(0, bounding.width - width))
+      const bottom = at.y - PIN_HEIGHT - TOOLTIP_GAP
+      const top = bottom - height
+      const caret = [
+        { x: at.x + CARET_WIDTH / 2, y: bottom },
+        { x: at.x, y: bottom + CARET_HEIGHT },
+        { x: at.x - CARET_WIDTH / 2, y: bottom }
+      ]
 
-    const textStyles: Record<string, unknown> = {
-      size,
-      color: styles.text?.color ?? data.textColor ?? DEFAULT_TEXT,
-      lineHeight: (size + LINE_GAP) / size,
-      paddingLeft: PADDING,
-      paddingRight: PADDING,
-      paddingTop: PADDING,
-      // getTextRect adds one trailing line gap that TV's box does not have.
-      paddingBottom: PADDING - LINE_GAP
-    }
-    if (weight !== undefined) textStyles.weight = weight
-    if (family !== undefined) textStyles.family = family
-    const fontStyle = styles.text?.fontStyle ?? data.fontStyle
-    if (fontStyle !== undefined) textStyles.fontStyle = fontStyle
-
-    const pinStyles = { style: 'fill', color: marker, borderSize: 0 }
-    const tooltip: OverlayFigure[] = showTooltip
-      ? [
-          {
-            type: 'polygon',
-            attrs: { coordinates: roundedBubble(left, top, width, height, 4, caret) },
-            styles: {
-              style: 'stroke_fill',
-              color: styles.polygon?.color ?? data.backgroundColor ?? DEFAULT_FILL,
-              borderColor: styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_BORDER,
-              borderSize: 1
-            },
-            noTranslate: true
-          },
-          {
-            type: 'editableText',
-            attrs: { x: left, y: top, text, width, wrap: true, align: 'left', baseline: 'top' },
-            styles: textStyles,
-            noTranslate: true
-          }
-        ]
-      : []
-    return [
-      ...tooltip,
-      // Pin: a disc on a tapering stem, tip on the anchor.
-      { type: 'circle', attrs: { x: at.x, y: at.y - PIN_HEIGHT + PIN_RADIUS, r: PIN_RADIUS }, styles: pinStyles, noTranslate: true },
-      {
-        type: 'polygon',
-        attrs: { coordinates: [{ x: at.x - PIN_RADIUS * 0.8, y: at.y - PIN_HEIGHT + PIN_RADIUS * 1.6 }, { x: at.x + PIN_RADIUS * 0.8, y: at.y - PIN_HEIGHT + PIN_RADIUS * 1.6 }, { x: at.x, y: at.y }] },
-        styles: pinStyles,
-        noTranslate: true
+      const textStyles: Record<string, unknown> = {
+        size,
+        color: styles.text?.color ?? data.textColor ?? DEFAULT_TEXT,
+        lineHeight: (size + LINE_GAP) / size,
+        paddingLeft: PADDING,
+        paddingRight: PADDING,
+        paddingTop: PADDING,
+        // getTextRect adds one trailing line gap that TV's box does not have.
+        paddingBottom: PADDING - LINE_GAP
       }
-    ]
-  },
+      if (weight !== undefined) textStyles.weight = weight
+      if (family !== undefined) textStyles.family = family
+      const fontStyle = styles.text?.fontStyle ?? data.fontStyle
+      if (fontStyle !== undefined) textStyles.fontStyle = fontStyle
 
-  onTextChange: ({ overlay, text }) => {
-    overlay.extendData = { ...(readData(overlay.extendData) as AnchoredNoteData), text }
+      const pinStyles = { style: 'fill', color: marker, borderSize: 0 }
+      const tooltip: OverlayFigure[] = showTooltip
+        ? [
+            {
+              type: 'polygon',
+              attrs: { coordinates: roundedBubble(left, top, width, height, 4, caret) },
+              styles: {
+                style: 'stroke_fill',
+                color: data.backgroundVisible === false ? 'transparent' : styles.polygon?.color ?? data.backgroundColor ?? DEFAULT_FILL,
+                borderColor: styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_BORDER,
+                borderSize: data.borderVisible ?? (styles.polygon?.borderColor ?? data.borderColor) !== undefined ? 1 : 0
+              },
+              noTranslate
+            },
+            {
+              type: 'editableText',
+              attrs: { x: left, y: top, text, width, wrap: true, align: 'left', baseline: 'top' },
+              styles: textStyles,
+              noTranslate
+            }
+          ]
+        : []
+      return [
+        ...tooltip,
+        // Pin: a disc on a tapering stem with a dark eye, tip just above the anchor.
+        { type: 'circle', attrs: { x: at.x, y: at.y - PIN_HEIGHT + PIN_RADIUS, r: PIN_RADIUS }, styles: pinStyles, noTranslate },
+        {
+          type: 'polygon',
+          attrs: { coordinates: [{ x: at.x - PIN_RADIUS * 0.85, y: at.y - PIN_HEIGHT + PIN_RADIUS * 1.3 }, { x: at.x + PIN_RADIUS * 0.85, y: at.y - PIN_HEIGHT + PIN_RADIUS * 1.3 }, { x: at.x, y: at.y - PIN_TIP_GAP }] },
+          styles: pinStyles,
+          noTranslate
+        },
+        { type: 'circle', attrs: { x: at.x, y: at.y - PIN_HEIGHT + PIN_RADIUS, r: PIN_RADIUS * 0.42 }, styles: { style: 'fill', color: 'rgba(19, 23, 34, 0.9)', borderSize: 0 }, noTranslate }
+      ]
+    },
+
+    onTextChange: ({ overlay, text }) => {
+      overlay.extendData = { ...(readData(overlay.extendData) as AnchoredNoteData), text }
+    }
   }
 }
+
+const anchoredNote = noteTemplate('anchoredNote', anchoredHooks)
 
 export default anchoredNote

@@ -17,27 +17,31 @@ import type { LineStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { computeTextPosition } from './textUtils'
+import { TV_BLUE, lineAroundText, tvDashedValue, verticalLineText } from './tvLine'
+import { HORIZONTAL_DEFAULT_WIDTH } from './horizontalRayLine'
+import { timeAxisLabel } from './crossLine'
 
 const verticalStraightLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
   const lineStyle = (id: string): Partial<LineStyle> => {
     const props = properties.get(id) ?? {}
+    const size = props.lineWidth ?? HORIZONTAL_DEFAULT_WIDTH
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
-      dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue
+      color: props.lineColor ?? TV_BLUE,
+      size,
+      dashedValue: tvDashedValue(props.lineDashedValue, size)
     }
   }
 
   const textStyle = (id: string): Partial<TextStyle> => {
     const props = properties.get(id) ?? {}
     return {
-      color: props.textColor ?? DEFAULT_OVERLAY_PROPERTIES.textColor,
-      size: props.textFontSize ?? DEFAULT_OVERLAY_PROPERTIES.textFontSize,
+      color: props.textColor ?? TV_BLUE,
+      size: props.textFontSize ?? 14,
       weight: props.textFontWeight ?? DEFAULT_OVERLAY_PROPERTIES.textFontWeight,
+      fontStyle: props.textFontStyle ?? DEFAULT_OVERLAY_PROPERTIES.textFontStyle,
       family: props.textFont ?? DEFAULT_OVERLAY_PROPERTIES.textFont,
       paddingLeft: props.textPaddingLeft ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingLeft,
       paddingRight: props.textPaddingRight ?? DEFAULT_OVERLAY_PROPERTIES.textPaddingRight,
@@ -78,15 +82,17 @@ const verticalStraightLine = (): ProOverlayTemplate => {
           styles: lineStyle(id)
         }
       ]
-      figures.push({
-        type: 'editableText',
-        attrs: {
-          ...computeTextPosition(coordinates[0].x, 20, props, bounding.width, 'center', 'bottom'), text
-        },
-        styles: textStyle(id)
-      })
+      // TV turns the text to read along the line: top/middle/bottom are along it, left/centre/right beside it.
+      const place = verticalLineText(coordinates[0].x, bounding.height, props, { horizontal: 'center', vertical: 'middle' })
+      const style = textStyle(id)
+      if (place.baseline === 'middle') {
+        const line = [{ x: coordinates[0].x, y: 0 }, { x: coordinates[0].x, y: bounding.height }]
+        figures[0] = { ...figures[0], attrs: lineAroundText(line, place, text, style).map((coordinates) => ({ coordinates })) }
+      }
+      figures.push({ type: 'editableText', attrs: { ...place, text }, styles: style })
       return figures
     },
+    createXAxisFigures: (params) => timeAxisLabel(params, lineStyle(params.overlay.id).color),
     setProperties,
     getProperties
   }

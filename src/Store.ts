@@ -1725,7 +1725,11 @@ export default class StoreImp implements Store {
       (forceInvalidate ?? false)
     ) {
       if (isValid(kLineData) && !(notExecuteAction ?? false) && this.hasAction('onCrosshairChange') && isString(this._crosshair.paneId)) {
-        this.executeAction('onCrosshairChange', crosshair)
+        // The resolved bar (kLineData, dataIndex, timestamp) with the pointer's
+        // own x/y: the raw input carries no bar, so a legend listening here
+        // could only ever show the last one, and the resolved x/y may be
+        // magnet-snapped.
+        this.executeAction('onCrosshairChange', { ...this._crosshair, ...cr })
       }
       if (!(notInvalidate ?? false)) {
         this._chart.updatePane(UpdateLevel.Overlay)

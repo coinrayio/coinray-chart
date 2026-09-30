@@ -44,10 +44,22 @@ import { calcTextWidth } from '../../common/utils/canvas'
 import { formatPrecision } from '../../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 import { isNumber } from '../../common/utils/typeChecks'
+import { lineAroundText } from './tvLine'
 
 interface PriceNoteOverlayData {
   /** Inline-editable annotation rendered along the leader line. */
   lineText?: string
+  /** TV's `showLabel`: the annotation only draws while this is on (off by default). */
+  lineTextVisible?: boolean
+  /** The line text's own style (the label above has fontSize / textColor / fontWeight). */
+  lineTextColor?: string
+  lineTextSize?: number
+  lineTextBold?: boolean
+  lineTextItalic?: boolean
+  /** TV's Text tab alignment; `bottom` (below the line) and `center` by default. */
+  lineTextAlignHorizontal?: 'left' | 'center' | 'right'
+  lineTextAlignVertical?: 'top' | 'middle' | 'bottom'
+  fontStyle?: 'normal' | 'italic'
   fontSize?: number
   textColor?: string
   fontWeight?: number | 'normal' | 'bold'
@@ -61,19 +73,24 @@ interface PriceNoteOverlayData {
 interface OverlayStyleSlice {
   line?: { color?: string }
   polygon?: { color?: string, borderColor?: string, borderSize?: number }
-  text?: { color?: string, size?: number, family?: string, weight?: number | string, backgroundColor?: string }
+  text?: { color?: string, size?: number, family?: string, weight?: number | string, fontStyle?: string, backgroundColor?: string }
 }
 
 // Visual defaults — same palette as Note.
-const DEFAULT_LINE_COLOR = '#787b86'
-const DEFAULT_LABEL_BG = 'rgba(30, 33, 41, 0.95)'
-const DEFAULT_RING_COLOR = 'rgba(255, 255, 255, 0.35)'
-const ANCHOR_DOT_RADIUS = 3
-const ANCHOR_RING_RADIUS = 6
-const LABEL_PADDING_H = 8
-const LABEL_PADDING_V = 5
+const DEFAULT_LINE_COLOR = '#2962ff'
+const DEFAULT_LABEL_BG = '#2962ff'
+const DEFAULT_BORDER_COLOR = '#2962ff'
+const DEFAULT_LABEL_TEXT_COLOR = '#ffffff'
+const DEFAULT_LINE_TEXT_COLOR = '#2962ff'
+const DEFAULT_LINE_TEXT_SIZE = 14
+// TV draws the price label at both points, its left edge just right of the point (which
+// keeps a small ring), and the line runs from label centre to label centre beneath them.
+const ANCHOR_RING_RADIUS = 3
+const LABEL_INSET = 6
+const LABEL_PADDING_H = 11
+const LABEL_PADDING_V = 7
 const LABEL_BORDER_RADIUS = 4
-const DEFAULT_FONT_SIZE = 14
+const DEFAULT_FONT_SIZE = 12
 const DEFAULT_FONT_FAMILY = 'Helvetica Neue'
 
 function parseExtendData (extendData: unknown): PriceNoteOverlayData {
@@ -84,36 +101,6 @@ function parseExtendData (extendData: unknown): PriceNoteOverlayData {
 }
 
 interface XY { x: number, y: number }
-
-/**
- * Return the midpoint of the label-rect edge closest to `anchor` —
- * same nearest-edge picker as Note.
- */
-function nearestMidpoint (
-  anchor: XY,
-  rect: { x: number, y: number, width: number, height: number }
-): XY {
-  const midX = rect.x + rect.width / 2
-  const midY = rect.y + rect.height / 2
-  const midpoints: XY[] = [
-    { x: rect.x, y: midY },
-    { x: rect.x + rect.width, y: midY },
-    { x: midX, y: rect.y },
-    { x: midX, y: rect.y + rect.height }
-  ]
-  let best = midpoints[0]
-  let bestDist = Infinity
-  for (const p of midpoints) {
-    const dx = p.x - anchor.x
-    const dy = p.y - anchor.y
-    const d2 = dx * dx + dy * dy
-    if (d2 < bestDist) {
-      bestDist = d2
-      best = p
-    }
-  }
-  return best
-}
 
 const priceNote: OverlayTemplate = {
   name: 'priceNote',
@@ -132,12 +119,14 @@ const priceNote: OverlayTemplate = {
     const fontSize = styles.text?.size ?? data.fontSize ?? DEFAULT_FONT_SIZE
     const fontWeight = styles.text?.weight ?? data.fontWeight ?? 'normal'
     const fontFamily = styles.text?.family ?? data.fontFamily ?? DEFAULT_FONT_FAMILY
-    const textColor = styles.text?.color ?? data.textColor
+    const textColor = styles.text?.color ?? data.textColor ?? DEFAULT_LABEL_TEXT_COLOR
+    const fontStyle = styles.text?.fontStyle ?? data.fontStyle
+    const lineTextSize = data.lineTextSize ?? DEFAULT_LINE_TEXT_SIZE
 
     const lineColor = styles.line?.color ?? data.lineColor ?? DEFAULT_LINE_COLOR
     const labelBg = styles.polygon?.color ?? data.backgroundColor ?? DEFAULT_LABEL_BG
-    const borderColor = styles.polygon?.borderColor ?? data.borderColor
-    const borderWidth = styles.polygon?.borderSize ?? data.borderWidth ?? 0
+    const borderColor = styles.polygon?.borderColor ?? data.borderColor ?? DEFAULT_BORDER_COLOR
+    const borderWidth = styles.polygon?.borderSize ?? data.borderWidth ?? 1
 
     // Label text is the formatted price at the anchor's y-value —
     // read-only. Falls back to '0.00' for sizing only when no price
@@ -153,13 +142,12 @@ const priceNote: OverlayTemplate = {
 
     const anchor = coordinates[0]
     const labelCentre = coordinates[1]
-    const labelRect = {
-      x: labelCentre.x - labelWidth / 2,
-      y: labelCentre.y - labelHeight / 2,
-      width: labelWidth,
-      height: labelHeight
-    }
-    const connectionPoint = nearestMidpoint(anchor, labelRect)
+    const rectAt = (p: XY): { x: number, y: number, width: number, height: number } =>
+      ({ x: p.x + LABEL_INSET, y: p.y - labelHeight / 2, width: labelWidth, height: labelHeight })
+    const anchorRect = rectAt(anchor)
+    const labelRect = rectAt(labelCentre)
+    const anchorCentre = { x: anchorRect.x + labelWidth / 2, y: anchor.y }
+    const noteCentre = { x: labelRect.x + labelWidth / 2, y: labelCentre.y }
 
     // Per-figure styles — explicit so the engine's overlay-level
     // merge can't paint a user-set polygon colour onto the anchor
@@ -171,15 +159,10 @@ const priceNote: OverlayTemplate = {
       borderRadius: LABEL_BORDER_RADIUS,
       borderSize: 0
     }
-    const anchorDotStyle: Record<string, unknown> = {
-      style: 'fill',
-      color: lineColor,
-      borderSize: 0
-    }
     const anchorRingStyle: Record<string, unknown> = {
       style: 'stroke',
       color: 'transparent',
-      borderColor: DEFAULT_RING_COLOR,
+      borderColor: lineColor,
       borderSize: 1
     }
     // Label price text — plain canvas text, no editor mounting.
@@ -193,116 +176,88 @@ const priceNote: OverlayTemplate = {
       paddingLeft: 0,
       paddingRight: 0,
       paddingTop: 0,
-      paddingBottom: 0
+      paddingBottom: 0,
+      color: textColor
     }
-    if (textColor !== undefined) labelTextStyle.color = textColor
+    if (fontStyle !== undefined) labelTextStyle.fontStyle = fontStyle
     // Editable text on the leader line — inherits Note's editor look
     // (transparent bg / no border) so it reads as a free-floating
     // annotation rather than a second bubble.
     const lineEditableStyle: Record<string, unknown> = {
-      size: fontSize,
-      weight: fontWeight,
-      family: fontFamily
+      size: lineTextSize,
+      weight: data.lineTextBold === true ? 'bold' : 'normal',
+      family: fontFamily,
+      color: data.lineTextColor ?? DEFAULT_LINE_TEXT_COLOR
     }
-    if (textColor !== undefined) lineEditableStyle.color = textColor
+    if (data.lineTextItalic === true) lineEditableStyle.fontStyle = 'italic'
 
-    // Drag scoping — matches Note's TV semantics:
-    //   * Drag the leader line   → whole overlay translates.
-    //   * Drag the anchor        → only point 0 moves.
-    //   * Drag the label / text  → only point 1 moves.
-    // No `ignoreEvent` on any figure so hover / click route through
-    // for highlight + selection.
-    const figures: OverlayFigure[] = [
-      {
-        type: 'line',
-        attrs: { coordinates: [anchor, connectionPoint] },
-        styles: leaderStyle
-      },
-      {
+    // Drag scoping: the line moves the whole overlay, the ring and the first
+    // label move point 0, the second label point 1. No `ignoreEvent`, so hover
+    // and click route through for highlight and selection.
+    const label = (rect: { x: number, y: number, width: number, height: number }, pointIndex: number): OverlayFigure[] => {
+      const figs: OverlayFigure[] = [{
         type: 'rect',
-        attrs: { x: labelRect.x, y: labelRect.y, width: labelRect.width, height: labelRect.height },
+        attrs: { ...rect },
         styles: labelFillStyle,
-        pointIndex: 1
+        pointIndex
+      }]
+      // The border draws whenever it has width; it defaults to TV's 1px.
+      if (borderWidth > 0) {
+        figs.push({
+          type: 'rect',
+          attrs: { ...rect },
+          styles: { style: 'stroke', color: 'transparent', borderColor, borderSize: borderWidth, borderRadius: LABEL_BORDER_RADIUS },
+          pointIndex
+        })
       }
+      figs.push({
+        type: 'text',
+        attrs: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, text: priceText, align: 'center', baseline: 'middle' },
+        styles: labelTextStyle,
+        pointIndex
+      })
+      return figs
+    }
+
+    const figures: OverlayFigure[] = [
+      { type: 'line', attrs: { coordinates: [anchorCentre, noteCentre] }, styles: leaderStyle },
+      ...label(anchorRect, 0),
+      ...label(labelRect, 1)
     ]
 
-    // Optional border rect — only when the user sets a distinct
-    // colour + non-zero width. Same gate as Note.
-    if (borderColor !== undefined && borderWidth > 0) {
+    // The line's own text, TV's `showLabel`. It runs along the line, reading left to right.
+    // Horizontal alignment moves it along the line (left = at the start, right = at the end),
+    // vertical puts it above (`top`), on or below (`bottom`, TV's default) the line.
+    if (data.lineTextVisible === true) {
+      const [from, to] = noteCentre.x < anchorCentre.x || (noteCentre.x === anchorCentre.x && noteCentre.y < anchorCentre.y)
+        ? [noteCentre, anchorCentre]
+        : [anchorCentre, noteCentre]
+      const dx = to.x - from.x
+      const dy = to.y - from.y
+      const len = Math.hypot(dx, dy)
+      const angle = Math.atan2(dy, dx)
+      const h = data.lineTextAlignHorizontal ?? 'center'
+      const v = data.lineTextAlignVertical ?? 'bottom'
+      const t = h === 'left' ? 0 : h === 'right' ? 1 : 0.5
+      let x = from.x + dx * t
+      let y = from.y + dy * t
+      // Perpendicular to the line: (dy, -dx) / len points to its top side once the line is sorted left to right.
+      if (v !== 'middle' && len > 0) {
+        const gap = (lineTextSize / 2 + 4) * (v === 'top' ? 1 : -1)
+        x += (dy / len) * gap
+        y += (-dx / len) * gap
+      }
+      const align = h === 'left' ? 'start' : h === 'right' ? 'end' : 'center'
+      // On the line, the text leaves a gap in it, as in TV.
+      if (v === 'middle') {
+        figures[0] = { ...figures[0], attrs: lineAroundText([anchorCentre, noteCentre], { x, y, align, angle }, data.lineText ?? '', { size: lineTextSize, weight: lineEditableStyle.weight as string, family: fontFamily }).map((coordinates) => ({ coordinates })) }
+      }
       figures.push({
-        type: 'rect',
-        attrs: { x: labelRect.x, y: labelRect.y, width: labelRect.width, height: labelRect.height },
-        styles: {
-          style: 'stroke',
-          color: 'transparent',
-          borderColor,
-          borderSize: borderWidth,
-          borderRadius: LABEL_BORDER_RADIUS
-        },
-        pointIndex: 1
+        type: 'editableText',
+        attrs: { x, y, text: data.lineText ?? '', align, baseline: 'middle', angle },
+        styles: lineEditableStyle
       })
     }
-
-    figures.push({
-      type: 'text',
-      attrs: {
-        x: labelCentre.x,
-        y: labelCentre.y,
-        text: priceText,
-        align: 'center',
-        baseline: 'middle'
-      },
-      styles: labelTextStyle,
-      pointIndex: 1
-    })
-
-    // Editable annotation parallel to the leader line, sitting just
-    // above it (perpendicular offset toward the visually-upper side).
-    //
-    // Rotation:
-    //   1. Compute the line's angle. If it points "leftward" (outside
-    //      [-π/2, π/2]) the text would render upside-down, so flip by
-    //      π — now the angle reads left-to-right.
-    //   2. The perpendicular toward the visually-upper side of the
-    //      ORIGINAL line is (sin α, -cos α); when we flip α by π, that
-    //      perpendicular also flips. So we recompute the perpendicular
-    //      from the FLIPPED angle, which gives us the consistent
-    //      "above" side after the flip — preventing the text from
-    //      ending up below the line at certain orientations.
-    const dx = connectionPoint.x - anchor.x
-    const dy = connectionPoint.y - anchor.y
-    let lineAngle = Math.atan2(dy, dx)
-    if (lineAngle > Math.PI / 2 || lineAngle < -Math.PI / 2) {
-      lineAngle += lineAngle > 0 ? -Math.PI : Math.PI
-    }
-    // Perpendicular pointing "up" relative to the (post-flip) reading
-    // direction. Canvas y is down, so the upper side has negative y.
-    const perpDx = Math.sin(lineAngle)
-    const perpDy = -Math.cos(lineAngle)
-    // Distance from the line: half the text height + a small margin
-    // so descenders don't visually touch the line.
-    const perpDistance = fontSize / 2 + 4
-    const lineMidX = (anchor.x + connectionPoint.x) / 2 + perpDx * perpDistance
-    const lineMidY = (anchor.y + connectionPoint.y) / 2 + perpDy * perpDistance
-    figures.push({
-      type: 'editableText',
-      attrs: {
-        x: lineMidX,
-        y: lineMidY,
-        text: data.lineText ?? '',
-        align: 'center',
-        baseline: 'middle',
-        angle: lineAngle
-      },
-      styles: lineEditableStyle
-    })
-
-    figures.push({
-      type: 'circle',
-      attrs: { x: anchor.x, y: anchor.y, r: ANCHOR_DOT_RADIUS },
-      styles: anchorDotStyle,
-      pointIndex: 0
-    })
 
     figures.push({
       type: 'circle',
@@ -319,7 +274,7 @@ const priceNote: OverlayTemplate = {
   // label.
   onTextChange: ({ overlay, text: newText }) => {
     const current = parseExtendData(overlay.extendData)
-    overlay.extendData = { ...current, lineText: newText }
+    overlay.extendData = { ...current, lineText: newText, lineTextVisible: true }
   }
 }
 
