@@ -313,6 +313,26 @@ export default class StoreImp implements Store {
    */
   private _periodSwitchPending = false
 
+  /** Safety net for `_periodSwitchPending`: a data loader whose `getBars`
+   *  never calls back (a failed request, a host that swallows the error)
+   *  would otherwise hide every overlay for the rest of the session. */
+  private _periodSwitchTimer: ReturnType<typeof setTimeout> | null = null
+
+  private _setPeriodSwitchPending (pending: boolean): void {
+    if (this._periodSwitchTimer !== null) {
+      clearTimeout(this._periodSwitchTimer)
+      this._periodSwitchTimer = null
+    }
+    this._periodSwitchPending = pending
+    if (pending) {
+      this._periodSwitchTimer = setTimeout(() => {
+        this._periodSwitchTimer = null
+        this._periodSwitchPending = false
+        this._chart.updatePane(UpdateLevel.Overlay)
+      }, 10000)
+    }
+  }
+
   /**
    * Init-type load specifically — distinct from `_loading` because only
    * init resets scroll offset (`_addData` case 'init') and consumers gate
@@ -689,7 +709,7 @@ export default class StoreImp implements Store {
   }
 
   setPeriod (period: Period): void {
-    this._periodSwitchPending = true
+    this._setPeriodSwitchPending(true)
     if (this._replayEngine.isInReplay()) {
       // Playback mode: delegate to engine which handles period change logic
       this._replayEngine.handlePeriodChange(period, () => {
@@ -827,7 +847,7 @@ export default class StoreImp implements Store {
           this.setOffsetRightDistance(this._offsetRightDistance)
           adjustFlag = true
           this._initLoadInFlight = false
-          this._periodSwitchPending = false
+          this._setPeriodSwitchPending(false)
           this.executeAction('onInitLoadComplete', undefined)
           break
         }
@@ -1116,7 +1136,7 @@ export default class StoreImp implements Store {
       // Nothing is actually going to load (no data loader configured yet,
       // already loading, ...) — don't leave overlays hidden forever waiting
       // for an init that never resolves.
-      this._periodSwitchPending = false
+      this._setPeriodSwitchPending(false)
     }
   }
 
