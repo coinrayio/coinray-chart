@@ -16,6 +16,7 @@ import type Bounding from '../common/Bounding'
 import { isFunction, isNumber, isString, isValid, merge } from '../common/utils/typeChecks'
 import { index10, getPrecision, nice, round } from '../common/utils/number'
 import { calcTextWidth } from '../common/utils/canvas'
+import { isLineSeriesType } from '../common/Styles'
 import { formatPrecision } from '../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../common/SymbolInfo'
 
@@ -116,9 +117,12 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     }
     const visibleRangeDataList = chartStore.getVisibleRangeDataList()
     const candleStyles = chart.getStyles().candle
-    const isArea = candleStyles.type === 'area'
-    const areaValueKey = candleStyles.area.value
-    const shouldCompareHighLow = (inCandle && !isArea) || (!inCandle && shouldOhlc)
+    const candleType = candleStyles.type
+    // Close-only series must not stretch the range to wicks they never draw.
+    const usesHighLow = candleType === 'hlc_area' || candleType === 'high_low' ||
+      !(candleType === 'area' || candleType === 'column' || isLineSeriesType(candleType))
+    const areaValueKey = candleType === 'area' ? candleStyles.area.value : 'close'
+    const shouldCompareHighLow = (inCandle && usesHighLow) || (!inCandle && shouldOhlc)
     visibleRangeDataList.forEach((visibleData) => {
       const dataIndex = visibleData.dataIndex
       const data = visibleData.data.current
@@ -127,7 +131,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
           min = Math.min(min, data.low)
           max = Math.max(max, data.high)
         }
-        if (inCandle && isArea) {
+        if (inCandle && !usesHighLow) {
           const value = data[areaValueKey]
           if (isNumber(value)) {
             min = Math.min(min, value)

@@ -215,6 +215,35 @@ export interface CandleAreaStyle {
   point: CandleAreaPointStyle
 }
 
+/** Shared by `line`, `line_markers` and `step_line`. */
+export interface CandleLineStyle {
+  color: string
+  size: number
+  /** Radius of the close dot drawn by `line_markers`. */
+  markerRadius: number
+}
+
+export interface CandleBaselineStyle {
+  /** Base level as a percentage (0-100) of the visible price range. */
+  level: number
+  lineSize: number
+  topLineColor: string
+  bottomLineColor: string
+  topFillColor: string
+  bottomFillColor: string
+}
+
+export interface CandleHlcAreaStyle {
+  lineSize: number
+  highLineColor: string
+  lowLineColor: string
+  closeLineColor: string
+  /** Fill between high and close. */
+  upFillColor: string
+  /** Fill between close and low. */
+  downFillColor: string
+}
+
 export interface CandleHighLowPriceMarkStyle {
   show: boolean
   color: string
@@ -261,7 +290,16 @@ export interface CandleTooltipStyle extends TooltipStyle {
   rect: CandleTooltipRectStyle
 }
 
-export type CandleType = 'candle_solid' | 'candle_stroke' | 'candle_up_stroke' | 'candle_down_stroke' | 'ohlc' | 'area' | 'heikin_ashi'
+export type CandleType =
+  'candle_solid' | 'candle_stroke' | 'candle_up_stroke' | 'candle_down_stroke' | 'ohlc' | 'area' | 'heikin_ashi' |
+  'line' | 'line_markers' | 'step_line' | 'hlc_area' | 'baseline' | 'column' | 'high_low'
+
+/** Types drawn as one continuous series by CandleLineView, rather than per-bar shapes. */
+export type CandleLineSeriesType = 'line' | 'line_markers' | 'step_line' | 'hlc_area' | 'baseline'
+
+export function isLineSeriesType (type: CandleType): type is CandleLineSeriesType {
+  return type === 'line' || type === 'line_markers' || type === 'step_line' || type === 'hlc_area' || type === 'baseline'
+}
 
 export type CandleColorCompareRule = 'current_open' | 'previous_close'
 
@@ -279,6 +317,9 @@ export interface CandleStyle {
   type: CandleType
   bar: CandleBarColor
   area: CandleAreaStyle
+  line: CandleLineStyle
+  baseline: CandleBaselineStyle
+  hlcArea: CandleHlcAreaStyle
   priceMark: CandlePriceMarkStyle
   tooltip: CandleTooltipStyle
 }
@@ -455,6 +496,27 @@ function getDefaultCandleStyle (): CandleStyle {
         animation: true,
         animationDuration: 1000
       }
+    },
+    line: {
+      color: Color.BLUE,
+      size: 2,
+      markerRadius: 3
+    },
+    baseline: {
+      level: 50,
+      lineSize: 2,
+      topLineColor: Color.GREEN,
+      bottomLineColor: Color.RED,
+      topFillColor: hexToRgb(Color.GREEN, 0.2),
+      bottomFillColor: hexToRgb(Color.RED, 0.2)
+    },
+    hlcArea: {
+      lineSize: 1,
+      highLineColor: Color.GREEN,
+      lowLineColor: Color.RED,
+      closeLineColor: Color.BLUE,
+      upFillColor: hexToRgb(Color.GREEN, 0.2),
+      downFillColor: hexToRgb(Color.RED, 0.2)
     },
     priceMark: {
       show: true,

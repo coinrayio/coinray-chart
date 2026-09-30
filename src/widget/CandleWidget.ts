@@ -16,6 +16,7 @@ import IndicatorWidget from './IndicatorWidget'
 
 import CandleBarView from '../view/CandleBarView'
 import CandleAreaView from '../view/CandleAreaView'
+import CandleLineView from '../view/CandleLineView'
 import CandleHighLowPriceView from '../view/CandleHighLowPriceView'
 import CandleLastPriceLineView from '../view/CandleLastPriceLineView'
 
@@ -23,6 +24,7 @@ import type IndicatorTooltipView from '../view/IndicatorTooltipView'
 import CandleTooltipView from '../view/CandleTooltipView'
 import CrosshairFeatureView from '../view/CrosshairFeatureView'
 
+import { isLineSeriesType } from '../common/Styles'
 import type AxisPane from '../pane/DrawPane'
 
 import type { YAxis } from '../component/YAxis'
@@ -30,6 +32,7 @@ import type { YAxis } from '../component/YAxis'
 export default class CandleWidget extends IndicatorWidget {
   private readonly _candleBarView = new CandleBarView(this)
   private readonly _candleAreaView = new CandleAreaView(this)
+  private readonly _candleLineView = new CandleLineView(this)
   private readonly _candleHighLowPriceView = new CandleHighLowPriceView(this)
   private readonly _candleLastPriceLineView = new CandleLastPriceLineView(this)
   private readonly _crosshairFeatureView = new CrosshairFeatureView(this)
@@ -42,12 +45,20 @@ export default class CandleWidget extends IndicatorWidget {
 
   override updateMainContent (ctx: CanvasRenderingContext2D): void {
     const candleStyles = this.getPane().getChart().getStyles().candle
-    if (candleStyles.type !== 'area') {
-      this._candleBarView.draw(ctx)
-      this._candleHighLowPriceView.draw(ctx)
-      this._candleAreaView.stopAnimation()
-    } else {
+    const type = candleStyles.type
+    if (type === 'area') {
       this._candleAreaView.draw(ctx)
+    } else {
+      this._candleAreaView.stopAnimation()
+      if (isLineSeriesType(type)) {
+        this._candleLineView.draw(ctx)
+      } else {
+        this._candleBarView.draw(ctx)
+      }
+      // Column bars are anchored to close, so the visible high/low labels would point at nothing.
+      if (!isLineSeriesType(type) && type !== 'column') {
+        this._candleHighLowPriceView.draw(ctx)
+      }
     }
     this._candleLastPriceLineView.draw(ctx)
   }
