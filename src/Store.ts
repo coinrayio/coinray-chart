@@ -298,6 +298,22 @@ export default class StoreImp implements Store {
   private _loading = false
 
   /**
+   * Set for the life of a period switch's init load (`setPeriod` through the
+   * `_addData('init', …)` that applies the new bars). While true, overlay
+   * views skip drawing entirely.
+   *
+   * Without this, a timestamp-anchored overlay keeps rendering against the
+   * *old* period's bars for however long the fetch takes, then snaps once
+   * `_addData` swaps `_dataList` in — a different bar count/spacing
+   * generally maps the same timestamp to a different pixel. The visible
+   * result is a drawing appearing to jump right after the new candles land.
+   * Hiding it for that window and revealing it once the new data (and its
+   * coordinates) are in place reads as "the drawing loaded with the chart"
+   * instead.
+   */
+  private _periodSwitchPending = false
+
+  /**
    * Init-type load specifically — distinct from `_loading` because only
    * init resets scroll offset (`_addData` case 'init') and consumers gate
    * deferred operations like `setVisibleRange` on this.
@@ -673,6 +689,7 @@ export default class StoreImp implements Store {
   }
 
   setPeriod (period: Period): void {
+    this._periodSwitchPending = true
     if (this._replayEngine.isInReplay()) {
       // Playback mode: delegate to engine which handles period change logic
       this._replayEngine.handlePeriodChange(period, () => {
@@ -683,6 +700,12 @@ export default class StoreImp implements Store {
         this._period = period
       })
     }
+  }
+
+  /** True from `setPeriod` until the new period's init load has been
+   *  applied — see `_periodSwitchPending`. */
+  isPeriodSwitchPending (): boolean {
+    return this._periodSwitchPending
   }
 
   getPeriod (): Nullable<Period> {
@@ -804,6 +827,7 @@ export default class StoreImp implements Store {
           this.setOffsetRightDistance(this._offsetRightDistance)
           adjustFlag = true
           this._initLoadInFlight = false
+          this._periodSwitchPending = false
           this.executeAction('onInitLoadComplete', undefined)
           break
         }
@@ -1088,6 +1112,11 @@ export default class StoreImp implements Store {
         }
       }
       void this._dataLoader.getBars(params)
+    } else if (type === 'init') {
+      // Nothing is actually going to load (no data loader configured yet,
+      // already loading, ...) — don't leave overlays hidden forever waiting
+      // for an init that never resolves.
+      this._periodSwitchPending = false
     }
   }
 
