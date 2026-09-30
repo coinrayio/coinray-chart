@@ -19,6 +19,7 @@ import { UpdateLevel } from './common/Updater'
 import type Crosshair from './common/Crosshair'
 import { requestAnimationFrame, cancelAnimationFrame } from './common/utils/compatible'
 import { isValid } from './common/utils/typeChecks'
+import { yAxisWheelRangeFactor } from './common/utils/yAxisWheelZoom'
 
 import type { AxisRange } from './component/Axis'
 import type YAxis from './component/YAxis'
@@ -76,35 +77,7 @@ export default class Event implements EventHandler {
   // Defer single-click action so a following double-click can cancel it.
   private _pendingClickTimer: ReturnType<typeof setTimeout> | null = null
 
-  private readonly _boundKeyBoardDownEvent: ((event: KeyboardEvent) => void) = (event: KeyboardEvent) => {
-    if (event.shiftKey) {
-      switch (event.code) {
-        case 'Equal': {
-          this._chart.getChartStore().zoom(0.5, null, 'main')
-          break
-        }
-        case 'Minus': {
-          this._chart.getChartStore().zoom(-0.5, null, 'main')
-          break
-        }
-        case 'ArrowLeft': {
-          const store = this._chart.getChartStore()
-          store.startScroll()
-          store.scroll(-3 * store.getBarSpace().bar)
-          break
-        }
-        case 'ArrowRight': {
-          const store = this._chart.getChartStore()
-          store.startScroll()
-          store.scroll(3 * store.getBarSpace().bar)
-          break
-        }
-        default: {
-          break
-        }
-      }
-    }
-  }
+  private _measureDismiss: Nullable<() => void> = null
 
   constructor (container: HTMLElement, chart: Chart) {
     this._container = container
@@ -114,7 +87,6 @@ export default class Event implements EventHandler {
       treatHorzDragAsPageScroll: () => false,
       isOverlayDrawing: () => chart.getChartStore().isOverlayDrawing()
     })
-    container.addEventListener('keydown', this._boundKeyBoardDownEvent)
   }
 
   pinchStartEvent (): boolean {
@@ -135,7 +107,11 @@ export default class Event implements EventHandler {
     return false
   }
 
-  mouseWheelHortEvent (_: MouseTouchEvent, distance: number): boolean {
+  mouseWheelHortEvent (e: MouseTouchEvent, distance: number): boolean {
+    // Sideways/Shift+wheel over the price axis must not scroll time; TradingView does nothing there.
+    if (this._findWidgetByEvent(e).widget?.getName() === WidgetNameConstants.Y_AXIS) {
+      return true
+    }
     const store = this._chart.getChartStore()
     store.startScroll()
     store.scroll(distance)
@@ -147,9 +123,18 @@ export default class Event implements EventHandler {
     const event = this._makeWidgetEvent(e, widget)
     const name = widget?.getName()
     if (name === WidgetNameConstants.MAIN) {
-      // Cmd/Ctrl + wheel zooms around the opposite anchor (cursor <-> last bar).
-      const invertAnchor = event.metaKey === true || event.ctrlKey === true
-      this._chart.getChartStore().zoom(scale, { x: event.x, y: event.y }, 'main', invertAnchor)
+      // Cmd/Ctrl + wheel always zooms at the cursor, whatever anchor is configured.
+      const atCursor = event.metaKey === true || event.ctrlKey === true
+      this._chart.getChartStore().zoom(scale, { x: event.x, y: event.y }, 'main', atCursor)
+      return true
+    }
+    if (name === WidgetNameConstants.Y_AXIS) {
+      const yAxis = (widget as Widget<DrawPane<YAxis>>).getPane().getAxisComponent()
+      if (!yAxis.scrollZoomEnabled) {
+        return true
+      }
+      // Same anchor as the axis drag: the range centre.
+      this._applyYAxisRange(yAxis, { ...yAxis.getRange() }, yAxisWheelRangeFactor(scale))
       return true
     }
     return false
@@ -370,6 +355,16 @@ export default class Event implements EventHandler {
       const consumed = widget.dispatchEvent('mouseClickEvent', event)
       // Fire onChartClick only when no overlay consumed the click
       const widgetName = widget.getName()
+      if (
+        !consumed &&
+        event.shiftKey === true &&
+        pane?.getId() === PaneIdConstants.CANDLE &&
+        widgetName === WidgetNameConstants.MAIN &&
+        !this._chart.getChartStore().isOverlayDrawing()
+      ) {
+        this._startQuickMeasure(widget, event)
+        return true
+      }
       if (!consumed && pane !== null && widgetName === WidgetNameConstants.MAIN) {
         const chartStore = this._chart.getChartStore()
         if (chartStore.hasAction('onChartClick')) {
@@ -423,6 +418,18 @@ export default class Event implements EventHandler {
     return false
   }
 
+  mouseMiddleClickEvent (e: MouseTouchEvent): boolean {
+    const { widget } = this._findWidgetByEvent(e)
+    if (widget?.getName() === WidgetNameConstants.MAIN) {
+      const consumed = widget.dispatchEvent('mouseMiddleClickEvent', this._makeWidgetEvent(e, widget))
+      if (consumed) {
+        this._chart.updatePane(UpdateLevel.Overlay)
+      }
+      return consumed
+    }
+    return false
+  }
+
   mouseDoubleClickEvent (e: MouseTouchEvent): boolean {
     const { pane, widget } = this._findWidgetByEvent(e)
     if (widget !== null) {
@@ -441,11 +448,15 @@ export default class Event implements EventHandler {
             const chartStore = this._chart.getChartStore()
             if (chartStore.hasAction('onChartDoubleClick')) {
               const crosshair = chartStore.getCrosshair()
+              // Modifiers let the host tell maximize (plain) from collapse (Mod).
               chartStore.executeAction('onChartDoubleClick', {
                 x: event.x,
                 y: event.y,
                 pageX: event.pageX,
                 pageY: event.pageY,
+                shiftKey: event.shiftKey,
+                metaKey: event.metaKey,
+                ctrlKey: event.ctrlKey,
                 ...crosshair
               })
             }
@@ -705,6 +716,34 @@ export default class Event implements EventHandler {
     return false
   }
 
+  // TradingView's Shift+click measure: the click places the first point, the
+  // next click finishes it, the click after that dismisses it. Engine-owned and
+  // never persisted, so the host needs no wiring.
+  private _startQuickMeasure (widget: Widget, event: MouseTouchEvent): void {
+    this._measureDismiss?.()
+    const id = this._chart.createOverlay({
+      name: 'measure',
+      paneId: PaneIdConstants.CANDLE,
+      onDrawEnd: ({ overlay }) => {
+        // Deferred so the click that finished the measure doesn't dismiss it.
+        setTimeout(() => {
+          const dismiss = (): void => {
+            this._measureDismiss?.()
+            this._chart.removeOverlay({ id: overlay.id })
+          }
+          this._measureDismiss = () => {
+            this._container.removeEventListener('mousedown', dismiss, true)
+            this._measureDismiss = null
+          }
+          this._container.addEventListener('mousedown', dismiss, true)
+        }, 0)
+      }
+    })
+    if (id === null) return
+    widget.dispatchEvent('mouseClickEvent', event)
+    this._chart.updatePane(UpdateLevel.Overlay)
+  }
+
   private _processMainScrollingEvent (widget: Widget<DrawPane<YAxis>>, event: MouseTouchEvent): void {
     if (this._startScrollCoordinate !== null) {
       const yAxis = widget.getPane().getAxisComponent()
@@ -792,41 +831,41 @@ export default class Event implements EventHandler {
       const yAxis = widget.getPane().getAxisComponent()
       if (this._prevYAxisRange !== null && yAxis.scrollZoomEnabled && this._yAxisStartScaleDistance !== 0) {
         event.preventDefault?.()
-        const { realFrom, realTo, realRange } = this._prevYAxisRange
-        const scale = event.pageY / this._yAxisStartScaleDistance
-        // Zoom in *real* space -- the space the pixel mapping is linear in -- so a
-        // drag zooms at a constant visual rate on every axis type. Zooming in
-        // value/price space overshoots on a logarithmic axis (increasingly so
-        // the wider the price range), matching the panning fix above.
-        const newRealRange = realRange * scale
-        const difRealRange = (newRealRange - realRange) / 2
-        const newRealFrom = realFrom - difRealRange
-        const newRealTo = realTo + difRealRange
-        const newFrom = yAxis.realValueToValue(newRealFrom, { range: this._prevYAxisRange })
-        const newTo = yAxis.realValueToValue(newRealTo, { range: this._prevYAxisRange })
-        const newDisplayFrom = yAxis.realValueToDisplayValue(newRealFrom, { range: this._prevYAxisRange })
-        const newDisplayTo = yAxis.realValueToDisplayValue(newRealTo, { range: this._prevYAxisRange })
-        yAxis.setRange({
-          from: newFrom,
-          to: newTo,
-          range: newTo - newFrom,
-          realFrom: newRealFrom,
-          realTo: newRealTo,
-          realRange: newRealTo - newRealFrom,
-          displayFrom: newDisplayFrom,
-          displayTo: newDisplayTo,
-          displayRange: newDisplayTo - newDisplayFrom
-        })
-        this._chart.layout({
-          measureWidth: true,
-          update: true,
-          buildYAxisTick: true
-        })
+        this._applyYAxisRange(yAxis, this._prevYAxisRange, event.pageY / this._yAxisStartScaleDistance)
       }
     } else {
       this._chart.updatePane(UpdateLevel.Overlay)
     }
     return consumed
+  }
+
+  private _applyYAxisRange (yAxis: YAxis, base: AxisRange, scale: number): void {
+    const { realFrom, realTo, realRange } = base
+    // Zoom in real space (the space pixel mapping is linear in); zooming in value
+    // space overshoots on a logarithmic axis.
+    const difRealRange = (realRange * scale - realRange) / 2
+    const newRealFrom = realFrom - difRealRange
+    const newRealTo = realTo + difRealRange
+    const newFrom = yAxis.realValueToValue(newRealFrom, { range: base })
+    const newTo = yAxis.realValueToValue(newRealTo, { range: base })
+    const newDisplayFrom = yAxis.realValueToDisplayValue(newRealFrom, { range: base })
+    const newDisplayTo = yAxis.realValueToDisplayValue(newRealTo, { range: base })
+    yAxis.setRange({
+      from: newFrom,
+      to: newTo,
+      range: newTo - newFrom,
+      realFrom: newRealFrom,
+      realTo: newRealTo,
+      realRange: newRealTo - newRealFrom,
+      displayFrom: newDisplayFrom,
+      displayTo: newDisplayTo,
+      displayRange: newDisplayTo - newDisplayFrom
+    })
+    this._chart.layout({
+      measureWidth: true,
+      update: true,
+      buildYAxisTick: true
+    })
   }
 
   private _findWidgetByEvent (event: MouseTouchEvent): EventTriggerWidgetInfo {
@@ -896,7 +935,7 @@ export default class Event implements EventHandler {
   }
 
   destroy (): void {
-    this._container.removeEventListener('keydown', this._boundKeyBoardDownEvent)
+    this._measureDismiss?.()
     this._event.destroy()
   }
 }

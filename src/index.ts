@@ -57,6 +57,7 @@ import { setOverlayDragDebug } from './component/Overlay'
 
 import type { FormatDateType, Options, BarSpaceLimit, ZoomAnchor } from './Options'
 import ChartImp, { type Chart, type DomPosition } from './Chart'
+import type { OverlayNudgeDirection } from './Store'
 import { isSetVisibleRangeError, type SetVisibleRangeError, type SetVisibleRangeErrorCode } from './common/Errors'
 import type { ReplayStatus, ReplayEngine } from './replay/types'
 
@@ -217,7 +218,7 @@ export {
   // Style / enum types
   type LineType, type PolygonType, type TooltipShowRule, type TooltipShowType, type FeatureType, type TooltipFeaturePosition, type CandleTooltipRectPosition,
   type CandleType, type CandleLineStyle, type CandleBaselineStyle, type CandleHlcAreaStyle, type FormatDateType, type BarSpaceLimit, type ZoomAnchor,
-  type DomPosition, type ActionType, type IndicatorSeries, type OverlayMode, type OverlayDrawingMode, type OverlayTextChangeEvent, type OverlayTextChangeCallback,
+  type DomPosition, type ActionType, type IndicatorSeries, type OverlayMode, type OverlayDrawingMode, type OverlayTextChangeEvent, type OverlayTextChangeCallback, type OverlayNudgeDirection,
   // Pro overlay types
   type OverlayProperties, type ProOverlayTemplate, type OverlayPropertiesStore, type FigureLevel,
   type PriceLineProperties, type PriceLine, type PriceLineEventListener,

@@ -46,6 +46,9 @@ const SELECTION_RECT_FILL = 'rgba(41, 98, 255, 0.12)'
 const SELECTION_RECT_STROKE = 'rgba(41, 98, 255, 0.9)'
 
 export default class OverlayView<C extends Axis = YAxis> extends View<C> {
+  // Where the current drag started, pane-local, for Shift axis-locking.
+  private _pressStart: Nullable<Coordinate> = null
+
   private _activeTextEditor: Nullable<{
     input: HTMLInputElement | HTMLTextAreaElement
     overlay: OverlayImp
@@ -143,9 +146,13 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
             key: `${OVERLAY_FIGURE_KEY_PREFIX}point_${index}`,
             type: 'circle',
             attrs: {}
-          }
+          },
+          event.shiftKey === true
         )(event)
       }
+      // Shift+click on empty space starts a quick measure, which must not
+      // cost the user their selection.
+      if (event.shiftKey === true) return false
       chartStore.setClickOverlayInfo(
         {
           paneId,
@@ -249,6 +256,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         }
         this._coDraggedOverlays = []
       }
+      this._pressStart = null
       chartStore.setPressedOverlayInfo({
         paneId,
         overlay: null,
@@ -273,7 +281,10 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       if (overlay !== null) {
         if (checkOverlayFigureEvent('onPressedMoving', figure)) {
           if (!overlay.lock) {
-            const point = this._coordinateToPoint(overlay, event)
+            const moveEvent = figureType !== 'point' && event.shiftKey === true
+              ? this._constrainToDragAxis(event)
+              : event
+            const point = this._coordinateToPoint(overlay, moveEvent)
             // When the pressed figure declares `noTranslate`, the
             // engine skips the default point-translation step
             // entirely — the overlay's `onPressedMoving` handler
@@ -291,7 +302,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
                 if (this._coDraggedOverlays.length > 0) {
                   const store = this.getWidget().getPane().getChart().getChartStore()
                   for (const other of this._coDraggedOverlays) {
-                    other.eventPressedOtherMove(this._coordinateToPoint(other, event), store)
+                    other.eventPressedOtherMove(this._coordinateToPoint(other, moveEvent), store)
                   }
                 }
               }
@@ -697,6 +708,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       mouseDownEvent: this._figureMouseDownEvent(overlay, figureType, figureIndex, figure),
       mouseClickEvent: this._figureMouseClickEvent(overlay, figureType, figureIndex, figure),
       mouseRightClickEvent: this._figureMouseRightClickEvent(overlay, figureType, figureIndex, figure),
+      mouseMiddleClickEvent: this._figureMouseMiddleClickEvent(overlay, figure),
       mouseDoubleClickEvent: this._figureMouseDoubleClickEvent(overlay, figureType, figureIndex, figure)
     }
   }
@@ -768,6 +780,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       const pane = this.getWidget().getPane()
       const paneId = pane.getId()
       const chartStore = pane.getChart().getChartStore()
+      this._pressStart = { x: event.x, y: event.y }
       overlay.startPressedMove(this._coordinateToPoint(overlay, event), chartStore)
 
       // Multi-selection drag: grabbing the *body* (not a single point handle)
@@ -799,7 +812,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     }
   }
 
-  private _figureMouseClickEvent (overlay: OverlayImp, figureType: EventOverlayInfoFigureType, figureIndex: number, figure: OverlayFigure): MouseTouchEventCallback {
+  private _figureMouseClickEvent (overlay: OverlayImp, figureType: EventOverlayInfoFigureType, figureIndex: number, figure: OverlayFigure, keepSelection = false): MouseTouchEventCallback {
     return (event: MouseTouchEvent) => {
       const pane = this.getWidget().getPane()
       const paneId = pane.getId()
@@ -843,7 +856,9 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         chartStore.toggleSelectedOverlayId(overlay.id)
         return check
       }
-      chartStore.setSelectedOverlayIds([overlay.id])
+      if (!keepSelection) {
+        chartStore.setSelectedOverlayIds([overlay.id])
+      }
 
       chartStore.setClickOverlayInfo(
         { paneId, overlay, figureType, figureIndex, figure },
@@ -879,37 +894,67 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     }
   }
 
+  // No default removal, unlike right-click: the host owns persistence and undo,
+  // so a bare engine delete would leave its records behind.
+  private _figureMouseMiddleClickEvent (overlay: OverlayImp, figure: OverlayFigure): MouseTouchEventCallback {
+    return (event: MouseTouchEvent) => {
+      if (isFunction(overlay.onMiddleClick) && checkOverlayFigureEvent('onMiddleClick', figure)) {
+        overlay.onMiddleClick({ chart: this.getWidget().getPane().getChart(), overlay, figure, ...event })
+        return !overlay.isDrawing()
+      }
+      return false
+    }
+  }
+
   /**
-   * Constrain the in-progress point to 45° steps from the anchor already
-   * placed, in SCREEN space — the angles the user sees, not value-space ones,
-   * which would depend on the current scale. Held Shift only; the cursor's
-   * distance along the chosen direction is preserved, so the drawing follows
-   * the pointer as far as it reaches and only its angle is quantised.
+   * Shift snap for the in-progress point, in SCREEN space: the shapes the user
+   * sees, not value-space ones, which would depend on the current scale. Held
+   * Shift only. Per tool: a square for rect/box, a circle for the ellipse and a
+   * square for the rotated rectangle (their third point sets the width), nothing
+   * for circle (already round), and 45° steps from the last anchor otherwise.
    *
    * Returns the coordinate unchanged when there is nothing to anchor to (the
    * first click of a drawing, or an anchor with no resolvable position).
    */
-  private _constrainToAngle (o: Overlay, coordinate: Coordinate): Coordinate {
+  private _snapInProgressPoint (o: Overlay, coordinate: Coordinate): Coordinate {
     const overlayImp = o as OverlayImp
     if (!overlayImp.isDrawing()) return coordinate
+    if (o.name === 'circle') return coordinate
     // `currentStep - 1` is the point tracking the cursor, so the one before
     // it is the last anchor the user committed.
-    const anchor = o.points[o.currentStep - 2] as Partial<Point> | undefined
-    if (anchor === undefined) return coordinate
+    const anchor = this._pointToCoordinate(o.points[o.currentStep - 2])
+    if (anchor === null) return coordinate
 
-    const pane = this.getWidget().getPane()
-    const chart = pane.getChart()
-    const chartStore = chart.getChartStore()
-    const dataIndex = isNumber(anchor.dataIndex)
-      ? anchor.dataIndex
-      : (isNumber(anchor.timestamp) ? chartStore.timestampToDataIndex(anchor.timestamp) : null)
-    if (dataIndex === null || !isNumber(anchor.value)) return coordinate
-
-    const anchorX = chart.getXAxisPane().getAxisComponent().convertToPixel(dataIndex)
-    const anchorY = pane.getAxisComponent().convertToPixel(anchor.value)
-    const dx = coordinate.x - anchorX
-    const dy = coordinate.y - anchorY
+    const dx = coordinate.x - anchor.x
+    const dy = coordinate.y - anchor.y
     if (dx === 0 && dy === 0) return coordinate
+
+    if (o.name === 'rect' || o.name === 'box') {
+      const side = Math.max(Math.abs(dx), Math.abs(dy))
+      return { x: anchor.x + (dx < 0 ? -side : side), y: anchor.y + (dy < 0 ? -side : side) }
+    }
+
+    const widthTool = o.name === 'ellipse' || o.name === 'rotatedRectangle'
+    if (widthTool && o.currentStep === 3) {
+      const axisStart = this._pointToCoordinate(o.points[0])
+      if (axisStart === null) return coordinate
+      const ax = anchor.x - axisStart.x
+      const ay = anchor.y - axisStart.y
+      const length = Math.hypot(ax, ay)
+      if (length === 0) return coordinate
+      // Keep the cursor's position along the axis and its side of it; only the
+      // distance from the axis is fixed, at half the axis length.
+      const nx = -ay / length
+      const ny = ax / length
+      const side = (coordinate.x - axisStart.x) * nx + (coordinate.y - axisStart.y) * ny < 0 ? -1 : 1
+      const along = ((coordinate.x - axisStart.x) * ax + (coordinate.y - axisStart.y) * ay) / length
+      const mid = { x: axisStart.x + ax / 2, y: axisStart.y + ay / 2 }
+      const reach = along - length / 2
+      return {
+        x: mid.x + (ax / length) * reach + nx * side * (length / 2),
+        y: mid.y + (ay / length) * reach + ny * side * (length / 2)
+      }
+    }
 
     const step = Math.PI / 4
     const angle = Math.round(Math.atan2(dy, dx) / step) * step
@@ -919,7 +964,31 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     // raw distance: sliding sideways then shortens the line instead of
     // swinging its far end out past the pointer.
     const reach = dx * cos + dy * sin
-    return { x: anchorX + reach * cos, y: anchorY + reach * sin }
+    return { x: anchor.x + reach * cos, y: anchor.y + reach * sin }
+  }
+
+  private _pointToCoordinate (point: Partial<Point> | undefined): Nullable<Coordinate> {
+    if (point === undefined) return null
+    const pane = this.getWidget().getPane()
+    const chart = pane.getChart()
+    const dataIndex = isNumber(point.dataIndex)
+      ? point.dataIndex
+      : (isNumber(point.timestamp) ? chart.getChartStore().timestampToDataIndex(point.timestamp) : null)
+    if (dataIndex === null || !isNumber(point.value)) return null
+    return {
+      x: chart.getXAxisPane().getAxisComponent().convertToPixel(dataIndex),
+      y: pane.getAxisComponent().convertToPixel(point.value)
+    }
+  }
+
+  // Whichever axis the cursor has travelled further along wins, measured from
+  // where the press landed.
+  private _constrainToDragAxis (event: MouseTouchEvent): MouseTouchEvent {
+    const start = this._pressStart
+    if (start === null) return event
+    return Math.abs(event.x - start.x) >= Math.abs(event.y - start.y)
+      ? { ...event, y: start.y }
+      : { ...event, x: start.x }
   }
 
   private _coordinateToPoint (o: Overlay, event: MouseTouchEvent): Partial<Point> {
@@ -928,14 +997,20 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const chart = pane.getChart()
     const paneId = pane.getId()
     const chartStore = chart.getChartStore()
-    const coordinate = event.shiftKey === true ? this._constrainToAngle(o, event) : event
+    const shift = event.shiftKey === true
+    const coordinate = shift ? this._snapInProgressPoint(o, event) : event
     // Meta (Cmd) / Ctrl inverts magnet for as long as it is held: a tool drawn
     // with magnet on goes free, and one drawn with magnet off snaps at the
-    // strength the user last picked.
+    // strength the user last picked. Shift while drawing switches it off, as a
+    // magnet pull would fight the snapped geometry; not during a drag, where
+    // the grab point was magnetised and dropping it would make the drawing jump.
     const magnetInverted = event.metaKey === true || event.ctrlKey === true
-    const mode = magnetInverted
+    let mode = magnetInverted
       ? (o.mode === 'normal' ? chartStore.getPreferredMagnetMode() : 'normal')
       : o.mode
+    if (shift && (o as OverlayImp).isDrawing()) {
+      mode = 'normal'
+    }
     if (this.coordinateToPointTimestampDataIndexFlag()) {
       const overlayImp = o as OverlayImp
       if (overlayImp.isContinuousDrawing() && !overlayImp.isStart()) {

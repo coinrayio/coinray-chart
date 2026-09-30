@@ -40,7 +40,7 @@ import type PickRequired from './common/PickRequired'
 import type { SymbolInfo } from './common/SymbolInfo'
 import type { Period } from './common/Period'
 
-import ChartStore, { SCALE_MULTIPLIER, type Store } from './Store'
+import ChartStore, { SCALE_MULTIPLIER, type Store, type OverlayNudgeDirection } from './Store'
 import type { ReplayEngine } from './replay/types'
 
 import CandlePane from './pane/CandlePane'
@@ -88,6 +88,8 @@ export interface Chart extends Store {
   getSelectedOverlayIds: () => string[]
   /** Replace the selection. `[]` clears it. */
   setSelectedOverlayIds: (ids: string[]) => void
+  /** Move overlays one bar sideways or a few pixels vertically. False when none moved. */
+  nudgeOverlays: (ids: string[], direction: OverlayNudgeDirection) => boolean
   setPaneOptions: (options: PaneOptions) => void
   getPaneOptions: (id?: string) => Nullable<PaneOptions> | PaneOptions[]
   scrollByDistance: (distance: number, animationDuration?: number) => void
@@ -946,6 +948,10 @@ export default class ChartImp implements Chart {
 
   setSelectedOverlayIds (ids: string[]): void {
     this._chartStore.setSelectedOverlayIds(ids)
+  }
+
+  nudgeOverlays (ids: string[], direction: OverlayNudgeDirection): boolean {
+    return this._chartStore.nudgeOverlays(ids, direction)
   }
 
   overrideOverlay (override: OverlayOverride): boolean {

@@ -45,6 +45,7 @@ import type IndicatorImp from './component/Indicator'
 import { getIndicatorClass } from './extension/indicator/index'
 
 import type OverlayImp from './component/Overlay'
+import type Point from './common/Point'
 import { type OverlayCreate, OVERLAY_ID_PREFIX, type OverlayFilter, type OverlayFigure, type OverlayOverride, type OverlayMode } from './component/Overlay'
 import { getOverlayInnerClass } from './extension/overlay/index'
 
@@ -147,6 +148,11 @@ const DEFAULT_OFFSET_RIGHT_DISTANCE = 80
 const BAR_GAP_RATIO = 0.2
 
 export const SCALE_MULTIPLIER = 10
+
+export type OverlayNudgeDirection = 'left' | 'right' | 'up' | 'down'
+
+// A one-tick vertical step would be invisible on high-priced symbols.
+const NUDGE_PIXELS = 4
 
 export const DEFAULT_MIN_TIME_SPAN = 15 * 60 * 1000
 
@@ -1596,16 +1602,13 @@ export default class StoreImp implements Store {
     return floorIndex
   }
 
-  zoom (scale: number, coordinate: Nullable<Partial<Coordinate>>, position: 'main' | 'xAxis', invertAnchor = false): void {
+  zoom (scale: number, coordinate: Nullable<Partial<Coordinate>>, position: 'main' | 'xAxis', anchorAtCursor = false): void {
     if (!this._zoomEnabled) {
       return
     }
     const zoomCoordinate: Partial<Coordinate> = coordinate ?? { x: this._crosshair.x ?? this._totalBarSpace / 2 }
 
-    const configured = this._zoomAnchor[position]
-    const anchor = invertAnchor
-      ? (configured === 'last_bar' ? 'cursor' : 'last_bar')
-      : configured
+    const anchor = anchorAtCursor ? 'cursor' : this._zoomAnchor[position]
     if (anchor === 'last_bar') {
       // The bar's exact centre, not dataIndexToCoordinate's whole pixel: pinning
       // the rounded x lands the centre just across a half pixel, the next step
@@ -2462,6 +2465,55 @@ export default class StoreImp implements Store {
       if (hit) ids.push(overlay.id)
     })
     return ids
+  }
+
+  /**
+   * Arrow-key nudge. Left/right moves every point exactly one bar; up/down moves
+   * it a fixed on-screen distance (converted per point, so it holds on log and
+   * percentage axes). Locked overlays stay put. Each moved overlay then gets
+   * `onPressedMoveEnd`, the hook hosts already persist drags from.
+   * Returns false when nothing moved.
+   */
+  nudgeOverlays (ids: string[], direction: OverlayNudgeDirection): boolean {
+    interface AxisLike { convertToPixel: (value: number) => number, convertFromPixel: (pixel: number) => number }
+    interface ChartLike { getDrawPaneById: (id: string) => Nullable<{ getAxisComponent: () => AxisLike }> }
+    const horizontal = direction === 'left' || direction === 'right'
+    const moved: OverlayImp[] = []
+    ids.forEach(id => {
+      const overlay = this.getOverlaysByFilter({ id })[0] as OverlayImp | undefined
+      if (overlay === undefined || overlay.lock || overlay.isDrawing() || overlay.points.length === 0) return
+      const ext = overlay.extendData as { lockPrice?: boolean, lockTime?: boolean } | null | undefined
+      if ((horizontal ? ext?.lockTime : ext?.lockPrice) === true) return
+      const yAxis = (this._chart as unknown as ChartLike).getDrawPaneById(overlay.paneId)?.getAxisComponent()
+      if (!horizontal && yAxis === undefined) return
+
+      const float = overlay.isContinuousDrawing()
+      const next: Array<Partial<Point>> = []
+      for (const p of overlay.points) {
+        const point = { ...p }
+        if (horizontal) {
+          let dataIndex = p.dataIndex
+          if (isNumber(p.timestamp)) {
+            dataIndex = float ? this.timestampToFloatIndex(p.timestamp) : this.timestampToDataIndex(p.timestamp)
+          }
+          if (!isNumber(dataIndex)) continue
+          point.dataIndex = dataIndex + (direction === 'left' ? -1 : 1)
+          point.timestamp = this.floatIndexToTimestamp(point.dataIndex) ?? p.timestamp
+        } else if (isNumber(p.value) && yAxis !== undefined) {
+          point.value = yAxis.convertFromPixel(yAxis.convertToPixel(p.value) + (direction === 'up' ? -NUDGE_PIXELS : NUDGE_PIXELS))
+        }
+        next.push(point)
+      }
+      if (next.length !== overlay.points.length) return
+      overlay.points = next
+      moved.push(overlay)
+    })
+    if (moved.length === 0) return false
+    this._chart.updatePane(UpdateLevel.Overlay)
+    moved.forEach(overlay => {
+      overlay.onPressedMoveEnd?.({ chart: this._chart, overlay })
+    })
+    return true
   }
 
   isOverlayEmpty (): boolean {

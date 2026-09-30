@@ -35,8 +35,8 @@ export interface MouseTouchEvent extends Coordinate {
   isTouch?: boolean
   /**
    * Modifier keys as of this event. Drawing reads them live rather than
-   * tracking key state: Shift constrains the in-progress point to 45°
-   * steps, Meta/Ctrl inverts magnet for as long as it is held.
+   * tracking key state: Shift snaps the in-progress point per tool and
+   * switches magnet off, Meta/Ctrl inverts magnet for as long as it is held.
    */
   shiftKey?: boolean
   metaKey?: boolean
@@ -56,6 +56,7 @@ export interface EventHandler {
 
   mouseClickEvent?: MouseTouchEventCallback
   mouseRightClickEvent?: MouseTouchEventCallback
+  mouseMiddleClickEvent?: MouseTouchEventCallback
   tapEvent?: MouseTouchEventCallback
 
   mouseDoubleClickEvent?: MouseTouchEventCallback
@@ -312,6 +313,13 @@ export default class EventHandlerImp {
   }
 
   private _mouseWheelHandler (wheelEvent: WheelEvent): void {
+    // macOS already reports Shift+wheel as deltaX; elsewhere it arrives as deltaY.
+    if (wheelEvent.shiftKey && wheelEvent.deltaX === 0 && wheelEvent.deltaY !== 0 && isValid(this._handler.mouseWheelHortEvent)) {
+      this._preventDefault(wheelEvent)
+      const unit = wheelEvent.deltaMode === wheelEvent.DOM_DELTA_LINE ? 32 : wheelEvent.deltaMode === wheelEvent.DOM_DELTA_PAGE ? 120 : 1
+      this._handler.mouseWheelHortEvent(this._makeCompatEvent(wheelEvent), -wheelEvent.deltaY * unit)
+      return
+    }
     if (Math.abs(wheelEvent.deltaX) > Math.abs(wheelEvent.deltaY)) {
       if (!isValid(this._handler.mouseWheelHortEvent)) {
         return
@@ -667,6 +675,13 @@ export default class EventHandlerImp {
     if (downEvent.button === MouseEventButton.Right) {
       this._preventDefault(downEvent)
       this._processEvent(this._makeCompatEvent(downEvent), this._handler.mouseRightClickEvent)
+      return
+    }
+
+    if (downEvent.button === MouseEventButton.Middle) {
+      // Stops the browser's middle-button autoscroll over the chart.
+      this._preventDefault(downEvent)
+      this._processEvent(this._makeCompatEvent(downEvent), this._handler.mouseMiddleClickEvent)
       return
     }
 
