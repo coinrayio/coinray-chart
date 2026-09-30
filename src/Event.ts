@@ -774,20 +774,24 @@ export default class Event implements EventHandler {
       const yAxis = widget.getPane().getAxisComponent()
       if (this._prevYAxisRange !== null && yAxis.scrollZoomEnabled && this._yAxisStartScaleDistance !== 0) {
         event.preventDefault?.()
-        const { from, to, range } = this._prevYAxisRange
+        const { realFrom, realTo, realRange } = this._prevYAxisRange
         const scale = event.pageY / this._yAxisStartScaleDistance
-        const newRange = range * scale
-        const difRange = (newRange - range) / 2
-        const newFrom = from - difRange
-        const newTo = to + difRange
-        const newRealFrom = yAxis.valueToRealValue(newFrom, { range: this._prevYAxisRange })
-        const newRealTo = yAxis.valueToRealValue(newTo, { range: this._prevYAxisRange })
+        // Zoom in *real* space -- the space the pixel mapping is linear in -- so a
+        // drag zooms at a constant visual rate on every axis type. Zooming in
+        // value/price space overshoots on a logarithmic axis (increasingly so
+        // the wider the price range), matching the panning fix above.
+        const newRealRange = realRange * scale
+        const difRealRange = (newRealRange - realRange) / 2
+        const newRealFrom = realFrom - difRealRange
+        const newRealTo = realTo + difRealRange
+        const newFrom = yAxis.realValueToValue(newRealFrom, { range: this._prevYAxisRange })
+        const newTo = yAxis.realValueToValue(newRealTo, { range: this._prevYAxisRange })
         const newDisplayFrom = yAxis.realValueToDisplayValue(newRealFrom, { range: this._prevYAxisRange })
         const newDisplayTo = yAxis.realValueToDisplayValue(newRealTo, { range: this._prevYAxisRange })
         yAxis.setRange({
           from: newFrom,
           to: newTo,
-          range: newRange,
+          range: newTo - newFrom,
           realFrom: newRealFrom,
           realTo: newRealTo,
           realRange: newRealTo - newRealFrom,
