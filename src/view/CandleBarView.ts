@@ -88,7 +88,8 @@ export default class CandleBarView extends ChildrenView {
           ]
           priceY.sort((a, b) => a - b)
 
-          const correction = barSpace.gapBar % 2 === 0 ? 1 : 0
+          // Body and wick widths already share a parity (Store), so nothing to correct.
+          const correction = 0
           let rects: Array<FigureCreate<RectAttrs | RectAttrs[], Partial<RectStyle>>> = []
           switch (type) {
             case 'candle_solid':
@@ -199,9 +200,9 @@ export default class CandleBarView extends ChildrenView {
       {
         name: 'rect',
         attrs: {
-          x,
+          x: x - barSpace.halfWick,
           y: priceY[0],
-          width: 1,
+          width: barSpace.wick,
           height: priceY[3] - priceY[0]
         },
         styles: { color: colors[2] }
@@ -229,15 +230,15 @@ export default class CandleBarView extends ChildrenView {
         name: 'rect',
         attrs: [
           {
-            x,
+            x: x - barSpace.halfWick,
             y: priceY[0],
-            width: 1,
+            width: barSpace.wick,
             height: priceY[1] - priceY[0]
           },
           {
-            x,
+            x: x - barSpace.halfWick,
             y: priceY[2],
-            width: 1,
+            width: barSpace.wick,
             height: priceY[3] - priceY[2]
           }
         ],

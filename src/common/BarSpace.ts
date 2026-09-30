@@ -17,4 +17,8 @@ export default interface BarSpace {
   halfBar: number
   gapBar: number
   halfGapBar: number
+  /** Wick width, and its left offset from the bar's x — whole device pixels, the
+   *  body's parity, so body and wick share a centre line. */
+  wick: number
+  halfWick: number
 }

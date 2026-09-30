@@ -22,6 +22,11 @@ let measureCtx: Nullable<CanvasRenderingContext2D> = null
  * @param canvas
  * @returns {number}
  */
+/** Device pixels per CSS pixel of the page; 1 where there is no window (tests, workers). */
+export function windowPixelRatio (): number {
+  return typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
+}
+
 export function getPixelRatio (canvas: HTMLCanvasElement): number {
   return canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1
 }

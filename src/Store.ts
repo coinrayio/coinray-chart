@@ -34,6 +34,7 @@ import { isArray, isString, isValid, isNumber, isBoolean, merge } from './common
 import { createId } from './common/utils/id'
 import { binarySearchNearest } from './common/utils/number'
 import { logWarn } from './common/utils/logger'
+import { windowPixelRatio } from './common/utils/canvas'
 import { UpdateLevel } from './common/Updater'
 import type { DataLoader, DataLoaderGetBarsParams, DataLoadMore, DataLoadType } from './common/DataLoader'
 
@@ -400,6 +401,9 @@ export default class StoreImp implements Store {
    * The space of the draw bar
    */
   private _gapBarSpace: number
+  private _halfGapBarSpace = 0
+  private _wickSpace = 1
+  private _halfWickSpace = 0
 
   /**
    * Distance from the last data to the right of the drawing area
@@ -984,14 +988,25 @@ export default class StoreImp implements Store {
     })
   }
 
+  /**
+   * The candle body and wick widths, in whole device pixels as TradingView sizes
+   * them: the body is the bar space less a gap that shrinks as bars widen, then
+   * trimmed to the wick's parity so both centre on one line. Zooming then grows a
+   * body one device-pixel pair at a time, not a whole CSS-pixel pair.
+   */
   private _calcOptimalBarSpace (): void {
+    const pixelRatio = windowPixelRatio()
     const specialBarSpace = 4
     const ratio = 1 - BAR_GAP_RATIO * Math.atan(Math.max(specialBarSpace, this._barSpace) - specialBarSpace) / (Math.PI * 0.5)
-    let gapBarSpace = Math.min(Math.floor(this._barSpace * ratio), Math.floor(this._barSpace))
-    if (gapBarSpace % 2 === 0 && gapBarSpace + 2 >= this._barSpace) {
-      --gapBarSpace
+    const wick = Math.max(1, Math.floor(pixelRatio))
+    let body = Math.max(wick, Math.min(Math.floor(this._barSpace * ratio * pixelRatio), Math.floor(this._barSpace * pixelRatio)))
+    if (body > wick && body % 2 !== wick % 2) {
+      --body
     }
-    this._gapBarSpace = Math.max(1, gapBarSpace)
+    this._gapBarSpace = body / pixelRatio
+    this._halfGapBarSpace = Math.floor(body / 2) / pixelRatio
+    this._wickSpace = wick / pixelRatio
+    this._halfWickSpace = Math.floor(wick / 2) / pixelRatio
   }
 
   private _adjustVisibleRange (): void {
@@ -1169,7 +1184,9 @@ export default class StoreImp implements Store {
       bar: this._barSpace,
       halfBar: this._barSpace / 2,
       gapBar: this._gapBarSpace,
-      halfGapBar: Math.floor(this._gapBarSpace / 2)
+      halfGapBar: this._halfGapBarSpace,
+      wick: this._wickSpace,
+      halfWick: this._halfWickSpace
     }
   }
 
@@ -1432,9 +1449,13 @@ export default class StoreImp implements Store {
   }
 
   dataIndexToCoordinate (dataIndex: number): number {
+    // Rounded to device pixels, not CSS pixels (as TradingView does): with a
+    // fractional bar space two neighbouring gaps can differ by one device pixel,
+    // half of what whole-CSS-pixel rounding gave on a 2x screen, and zoom stays continuous.
+    const ratio = windowPixelRatio()
     const dataCount = this._dataList.length
     const deltaFromRight = dataCount + this._lastBarRightSideDiffBarCount - dataIndex
-    return Math.floor(this._totalBarSpace - (deltaFromRight - 0.5) * this._barSpace + 0.5)
+    return Math.round((this._totalBarSpace - (deltaFromRight - 0.5) * this._barSpace) * ratio) / ratio
   }
 
   coordinateToDataIndex (x: number): number {
@@ -1586,7 +1607,10 @@ export default class StoreImp implements Store {
       ? (configured === 'last_bar' ? 'cursor' : 'last_bar')
       : configured
     if (anchor === 'last_bar') {
-      const lastBarX = this.dataIndexToCoordinate(this._dataList.length - 1)
+      // The bar's exact centre, not dataIndexToCoordinate's whole pixel: pinning
+      // the rounded x lands the centre just across a half pixel, the next step
+      // rounds the other way, and the whole chart flips a pixel back and forth.
+      const lastBarX = this._totalBarSpace - (this._lastBarRightSideDiffBarCount + 0.5) * this._barSpace
       if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
         zoomCoordinate.x = lastBarX
       }
