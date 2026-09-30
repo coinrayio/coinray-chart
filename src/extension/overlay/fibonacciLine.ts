@@ -44,7 +44,7 @@ import { merge, clone } from '../../common/utils/typeChecks'
 
 import type { OverlayProperties, FigureLevel, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
-import { fibLevelDefaultColour, formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared'
+import { fibLevelDefaultColour, formatFibRatio, levelLineStyle, resolveFibSettings, withAlpha } from './fibonacciShared'
 
 /** Retracement level set — same defaults the retracement
  *  template uses, exported so other fib templates can share.
@@ -254,7 +254,7 @@ const fibonacciLine = (): ProOverlayTemplate => {
             end = extE
           }
           const color = level.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-          return { percent, start, end, color }
+          return { percent, start, end, color, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
         })
         // Reverse flag swaps sort order so bands paint the
         // other way. Sort by `start.y` so band iteration is
@@ -297,7 +297,7 @@ const fibonacciLine = (): ProOverlayTemplate => {
           type: 'line',
           key: `level_${l.percent}`,
           attrs: { coordinates: [l.start, l.end] },
-          styles: { ...baseLineStyle, color: l.color }
+          styles: levelLineStyle(baseLineStyle, l)
         })
       })
 
@@ -323,8 +323,8 @@ const fibonacciLine = (): ProOverlayTemplate => {
           // so the text extends AWAY from the line. `center`
           // stays centred.
           let canvasAlign: CanvasTextAlign = 'center'
-          if (hAlign === 'left') canvasAlign = 'right'
-          else if (hAlign === 'right') canvasAlign = 'left'
+          if (hAlign === 'left') canvasAlign = settings.extendLeft ? 'left' : 'right'
+          else if (hAlign === 'right') canvasAlign = settings.extendRight ? 'right' : 'left'
           return {
             key: `level_${l.percent}_text`,
             x: anchor.x,

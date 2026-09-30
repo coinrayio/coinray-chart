@@ -164,6 +164,7 @@ function parseBorderKey (key: string): { kind: 'col' | 'row', index: number } | 
 
 const table: OverlayTemplate = {
   name: 'table',
+  editTextOnCreate: true,
   // Single-click overlay; engine convention is clicks + 1.
   totalStep: 2,
   // Pass C will swap to a per-corner default-figure look. For now

@@ -141,7 +141,14 @@ const fibonacciExtension = (): ProOverlayTemplate => {
       const yDif = coordinates[1].y - coordinates[0].y
       const valueDif = (points[1]?.value ?? 0) - (points[0]?.value ?? 0)
       const virtualNear = { x: coordinates[2].x, y: coordinates[2].y + yDif }
-      const virtualNearValue = (points[2]?.value ?? 0) + valueDif
+      // Log scale: the extension leg is a ratio (p1 / p0) rather than a difference.
+      const p0 = points[0]?.value ?? 0
+      const p1 = points[1]?.value ?? 0
+      const p2 = points[2]?.value ?? 0
+      const logToY = settings.logScale && yAxis != null && p0 > 0 && p1 > 0 && p2 > 0
+        ? (price: number) => yAxis.convertToPixel(price)
+        : undefined
+      const virtualNearValue = logToY !== undefined ? p2 * (p1 / p0) : p2 + valueDif
 
       const enriched = buildEnrichedLevels({
         levels: (((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_EXTENSION_LEVELS) as FigureLevel[])
@@ -153,7 +160,8 @@ const fibonacciExtension = (): ProOverlayTemplate => {
         precision,
         chart,
         lineColour: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-        reverse: settings.reverse
+        reverse: settings.reverse,
+        logToY
       })
 
       if (settings.showBackground) {

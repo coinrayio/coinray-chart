@@ -47,9 +47,16 @@ interface EmojiMarkerProperties {
    * standard naming as above.
    */
   textColor?: string
+  /**
+   * Clockwise rotation in radians about the marker's point. Absent = upright,
+   * today's behaviour. TV's Icon/Emoji `angle` (minus its pi/2 baseline).
+   */
+  angle?: number
+  /** Draw an `svg:` icon filled (font glyphs) instead of stroked (line icons). */
+  iconFill?: boolean
 }
 
-const defaultStyle: Required<EmojiMarkerProperties> = {
+const defaultStyle: Required<Omit<EmojiMarkerProperties, 'angle' | 'iconFill'>> = {
   text: '⭐',
   textFontSize: 24,
   // Medium grey — matches Signpost's default line colour and
@@ -113,7 +120,9 @@ const emojiMarker = (): ProOverlayTemplate => {
           y: coordinates[0].y,
           value,
           size: fontSize,
-          color
+          color,
+          angle: prop('angle'),
+          ...(prop('iconFill') === true ? { iconStyle: 'fill' as const } : {})
         })
       ]
     },

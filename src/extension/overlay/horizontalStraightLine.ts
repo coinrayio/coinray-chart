@@ -18,6 +18,7 @@ import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 import { computeTextPosition } from './textUtils'
+import { anchorPriceAxisLabel } from './horizontalRayLine'
 
 const horizontalStraightLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -92,6 +93,7 @@ const horizontalStraightLine = (): ProOverlayTemplate => {
 
       return figures
     },
+    createYAxisFigures: anchorPriceAxisLabel,
     setProperties,
     getProperties
   }

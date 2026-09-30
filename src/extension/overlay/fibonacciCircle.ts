@@ -260,7 +260,22 @@ const fibonacciCircle = (): ProOverlayTemplate => {
         const percent = level.value
         const levelKey = `circle_${percent}`
         const verts = sampleEllipse(percent)
-        polygons.push({ key: levelKey, coordinates: verts })
+        // A level with its own line style / width is stroked on its own;
+        // the rest share one batched figure.
+        if (level.lineStyle !== undefined || level.lineWidth !== undefined) {
+          const base = circleStyle(props)
+          figures.push({
+            type: 'polygon',
+            attrs: [{ key: levelKey, coordinates: verts }],
+            styles: {
+              ...base,
+              ...(level.lineStyle !== undefined ? { borderStyle: level.lineStyle, borderDashedValue: level.lineDashedValue ?? base.borderDashedValue } : {}),
+              ...(level.lineWidth !== undefined ? { borderSize: level.lineWidth } : {})
+            }
+          })
+        } else {
+          polygons.push({ key: levelKey, coordinates: verts })
+        }
         if (showLevels) {
           const label = formatFibRatio(percent, settings.levelFormat)
           const vAlign = props.textAlignVertical ?? 'top'

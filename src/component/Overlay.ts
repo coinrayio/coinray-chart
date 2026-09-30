@@ -280,12 +280,29 @@ export interface Overlay<E = unknown> extends OverlayEventCollection<E> {
    * In drawing, special handling callback when moving events
    */
   performEventMoveForDrawing: Nullable<(params: OverlayPerformEventParams) => void>
+
+  /**
+   * Template-owned hook run once when an interactive draw completes, before
+   * `onDrawEnd`. Hosts replace `onDrawEnd` on every overlay they create, so a
+   * template that must finish its own geometry (a one-click tool that derives
+   * further anchors, e.g. a position's stop, target and right edge) does it
+   * here, where the chart is available for pixel ↔ point conversion.
+   */
+  completeDrawing: Nullable<(params: { overlay: Overlay<E>, chart: Chart }) => void>
+
+  /**
+   * Open the inline text editor as soon as an interactive draw completes, so
+   * the user can type straight away. For text tools only (TradingView does it
+   * for Text, Note, Callout and similar): on any other drawing an empty label
+   * would leave a focused, invisible editor over it that swallows the next click.
+   */
+  editTextOnCreate: boolean
 }
 
 export type OverlayTemplate<E = unknown> = ExcludePickPartial<Omit<Overlay<E>, 'id' | 'groupId' | 'paneId' | 'points' | 'currentStep'>, 'name'>
 
-export type OverlayCreate<E = unknown> = ExcludePickPartial<Omit<Overlay<E>, 'currentStep' | 'totalStep' | 'createPointFigures' | 'createXAxisFigures' | 'createYAxisFigures' | 'performEventPressedMove' | 'performEventMoveForDrawing'>, 'name'>
-export type OverlayOverride<E = unknown> = Partial<Omit<Overlay<E>, 'currentStep' | 'totalStep' | 'createPointFigures' | 'createXAxisFigures' | 'createYAxisFigures' | 'performEventPressedMove' | 'performEventMoveForDrawing'>>
+export type OverlayCreate<E = unknown> = ExcludePickPartial<Omit<Overlay<E>, 'currentStep' | 'totalStep' | 'createPointFigures' | 'createXAxisFigures' | 'createYAxisFigures' | 'performEventPressedMove' | 'performEventMoveForDrawing' | 'completeDrawing'>, 'name'>
+export type OverlayOverride<E = unknown> = Partial<Omit<Overlay<E>, 'currentStep' | 'totalStep' | 'createPointFigures' | 'createXAxisFigures' | 'createYAxisFigures' | 'performEventPressedMove' | 'performEventMoveForDrawing' | 'completeDrawing'>>
 
 export type OverlayFilter<E = unknown> = Partial<Pick<Overlay<E>, 'id' | 'groupId' | 'name' | 'paneId'>>
 
@@ -350,6 +367,8 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   createYAxisFigures: Nullable<OverlayCreateFiguresCallback<E>> = null
   performEventPressedMove: Nullable<(params: OverlayPerformEventParams) => void> = null
   performEventMoveForDrawing: Nullable<(params: OverlayPerformEventParams) => void> = null
+  completeDrawing: Nullable<(params: { overlay: Overlay<E>, chart: Chart }) => void> = null
+  editTextOnCreate = false
   onDrawStart: Nullable<OverlayEventCallback<E>> = null
   onDrawing: Nullable<OverlayEventCallback<E>> = null
   onDrawEnd: Nullable<OverlayEventCallback<E>> = null
@@ -414,9 +433,14 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
     if (isArray(points) && points.length > 0) {
       let repeatTotalStep = 0
       this.points = [...points]
-      if (points.length >= this.totalStep - 1) {
+      // Variable-length tools (polyline, path, any waves) have no fixed count
+      // to reach, so points handed in — a restore, or an API create — mean a
+      // finished drawing. Without this each one stays "in progress", and the
+      // next overlay created replaces it.
+      const variableLength = this.totalStep === Number.MAX_SAFE_INTEGER
+      if (variableLength || points.length >= this.totalStep - 1) {
         this.currentStep = OVERLAY_DRAW_STEP_FINISHED
-        repeatTotalStep = this.totalStep - 1
+        repeatTotalStep = variableLength ? points.length : this.totalStep - 1
       } else {
         this.currentStep = points.length + 1
         repeatTotalStep = points.length

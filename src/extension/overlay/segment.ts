@@ -15,6 +15,7 @@
 import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, PolygonStyle, TextStyle } from '../../common/Styles'
 import type { Chart } from '../../Chart'
+import type ChartImp from '../../Chart'
 import { isNumber, merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
@@ -203,6 +204,7 @@ const segment = (): ProOverlayTemplate => {
         showMidPoint?: boolean
         stats?: StatKey[]
         statsPosition?: StatsPos
+        statsOnSelect?: boolean
       } | undefined
       const extendLeft = ext?.extendLeft === true
       const extendRight = ext?.extendRight === true
@@ -381,7 +383,13 @@ const segment = (): ProOverlayTemplate => {
       // price / percent / pips, row 2: bars / time / distance,
       // row 3: angle). Rows separated by `\n` — the `text` figure
       // splits on newlines and stacks the lines.
-      if (statsSelected.length > 0 && overlay.points.length === 2) {
+      // `statsOnSelect`: TV shows the stats only while the line is hovered or
+      // selected; same store read as pin's tooltip.
+      const chartStore = (chart as ChartImp).getChartStore()
+      const active = ext?.statsOnSelect !== true ||
+        chartStore.getHoverOverlayInfo().overlay?.id === id ||
+        chartStore.getClickOverlayInfo().overlay?.id === id
+      if (active && statsSelected.length > 0 && overlay.points.length === 2) {
         const p0 = overlay.points[0]
         const p1 = overlay.points[1]
         const v0 = p0.value

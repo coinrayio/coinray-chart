@@ -16,6 +16,7 @@ import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, TextStyle } from '../../common/Styles'
 import { isNumber, merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
+import type { OverlayCreateFiguresCallback } from '../../component/Overlay'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 import { computeTextPosition } from './textUtils'
 import { formatPrecision } from '../../common/utils/format'
@@ -23,6 +24,41 @@ import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
 
 /** Which side the ray extends after its single-click anchor. */
 type RayDirection = 'left' | 'right'
+
+/**
+ * Persistent Y-axis price label at a one-anchor line's price, on when
+ * `extendData.showPriceLabels` is true (TV's "Price label" checkbox). Mirrors
+ * segment.ts's `createYAxisFigures` — same format chain (`decimalFold`
+ * ∘ `thousandsSeparator` ∘ `formatPrecision`) so every Y-axis label source in
+ * the chart reads identically. Shared by the horizontal line and ray.
+ */
+export const anchorPriceAxisLabel: OverlayCreateFiguresCallback<unknown> = ({ chart, overlay, coordinates, bounding, yAxis }) => {
+  const ext = overlay.extendData as { showPriceLabels?: boolean } | undefined
+  if (ext?.showPriceLabels !== true) return []
+  if (coordinates.length === 0) return []
+
+  const isFromZero = yAxis?.isFromZero() ?? false
+  const textAlign: CanvasTextAlign = isFromZero ? 'left' : 'right'
+  const x = isFromZero ? 0 : bounding.width
+
+  const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
+  const decimalFold = chart.getDecimalFold()
+  const thousandsSeparator = chart.getThousandsSeparator()
+  const value = overlay.points[0]?.value
+  if (!isNumber(value)) return []
+  const labelText = decimalFold.format(thousandsSeparator.format(formatPrecision(value, precision)))
+
+  return [{
+    type: 'text',
+    attrs: {
+      x,
+      y: coordinates[0].y,
+      text: labelText,
+      align: textAlign,
+      baseline: 'middle' as CanvasTextBaseline
+    }
+  }]
+}
 
 const horizontalRayLine = (): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
@@ -117,33 +153,7 @@ const horizontalRayLine = (): ProOverlayTemplate => {
     // `createYAxisFigures` — same format chain (`decimalFold`
     // ∘ `thousandsSeparator` ∘ `formatPrecision`) so every
     // Y-axis label source in the chart reads identically.
-    createYAxisFigures: ({ chart, overlay, coordinates, bounding, yAxis }) => {
-      const ext = overlay.extendData as { showPriceLabels?: boolean } | undefined
-      if (ext?.showPriceLabels !== true) return []
-      if (coordinates.length === 0) return []
-
-      const isFromZero = yAxis?.isFromZero() ?? false
-      const textAlign: CanvasTextAlign = isFromZero ? 'left' : 'right'
-      const x = isFromZero ? 0 : bounding.width
-
-      const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
-      const decimalFold = chart.getDecimalFold()
-      const thousandsSeparator = chart.getThousandsSeparator()
-      const value = overlay.points[0]?.value
-      if (!isNumber(value)) return []
-      const labelText = decimalFold.format(thousandsSeparator.format(formatPrecision(value, precision)))
-
-      return [{
-        type: 'text',
-        attrs: {
-          x,
-          y: coordinates[0].y,
-          text: labelText,
-          align: textAlign,
-          baseline: 'middle' as CanvasTextBaseline
-        }
-      }]
-    },
+    createYAxisFigures: anchorPriceAxisLabel,
     performEventPressedMove: ({ points, performPoint }) => {
       // Anchor is one point now, but the engine's move handler
       // still stamps both slots so legacy saved overlays with

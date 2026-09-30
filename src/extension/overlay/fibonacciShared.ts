@@ -83,6 +83,8 @@ export interface FibExtendData {
   showLevels?: boolean
   levelFormat?: 'values' | 'percent'
   showText?: boolean
+  /** TV `fibLevelsBasedOnLogScale`: level prices interpolate in log space. */
+  logScale?: boolean
 }
 
 /** Every extendData flag resolved with defaults matching the
@@ -100,6 +102,7 @@ export interface ResolvedFibSettings {
   showLevels: boolean
   levelFormat: 'values' | 'percent'
   showText: boolean
+  logScale: boolean
   diagonalColor?: string
   diagonalWidth?: number
   diagonalStyle?: string
@@ -126,6 +129,7 @@ export const resolveFibSettings = (extendData: unknown): ResolvedFibSettings => 
     showLevels: ext.showLevels !== false,
     levelFormat: ext.levelFormat === 'values' ? 'values' : 'percent',
     showText: ext.showText !== false,
+    logScale: ext.logScale === true,
     diagonalColor: ext.diagonalColor,
     diagonalWidth: ext.diagonalWidth,
     diagonalStyle: ext.diagonalStyle,
@@ -165,7 +169,36 @@ export interface EnrichedFibLevel {
   y: number
   price: string
   color: string
+  lineStyle?: FigureLevel['lineStyle']
+  lineWidth?: number
+  lineDashedValue?: number[]
 }
+
+/** Y for a level at `ratio` between the two anchors: linear in pixels, or, for
+ *  TV's `fibLevelsBasedOnLogScale`, linear in ln(price) then mapped through
+ *  the axis. Needs both prices positive; otherwise falls back to linear. */
+export const fibLevelPosition = (
+  ratio: number,
+  far: { y: number },
+  near: { y: number },
+  farVal: number,
+  nearVal: number,
+  toY?: (price: number) => number
+): { y: number, value: number } => {
+  if (toY !== undefined && farVal > 0 && nearVal > 0) {
+    const value = Math.exp(Math.log(farVal) + ratio * (Math.log(nearVal) - Math.log(farVal)))
+    return { y: toY(value), value }
+  }
+  return { y: far.y + (near.y - far.y) * ratio, value: farVal + (nearVal - farVal) * ratio }
+}
+
+/** Base line style with a level's own style / width / dash laid over it. */
+export const levelLineStyle = (base: Partial<LineStyle>, l: Pick<EnrichedFibLevel, 'color' | 'lineStyle' | 'lineWidth' | 'lineDashedValue'>): Partial<LineStyle> => ({
+  ...base,
+  color: l.color,
+  ...(l.lineStyle !== undefined ? { style: l.lineStyle, dashedValue: l.lineDashedValue ?? base.dashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue } : {}),
+  ...(l.lineWidth !== undefined ? { size: l.lineWidth } : {})
+})
 
 /** Compute each enabled level's rendered y, formatted price,
  *  and effective colour (per-level override → props.lineColor
@@ -186,25 +219,24 @@ export const buildEnrichedLevels = (opts: {
   chart: { getDecimalFold: () => { format: (v: string) => string }, getThousandsSeparator: () => { format: (v: string) => string } }
   lineColour: string
   reverse: boolean
+  /** Set to price → y to place levels in log space (`logScale`). */
+  logToY?: (price: number) => number
 }): EnrichedFibLevel[] => {
-  const { levels, anchorFar, anchorNear, valueFar, valueNear, precision, chart, lineColour, reverse } = opts
+  const { levels, anchorFar, anchorNear, valueFar, valueNear, precision, chart, lineColour, reverse, logToY } = opts
   const swap = reverse
   const near = swap ? anchorFar : anchorNear
   const far = swap ? anchorNear : anchorFar
   const nearVal = swap ? valueFar : valueNear
   const farVal = swap ? valueNear : valueFar
-  const yDif = near.y - far.y
-  const valueDif = nearVal - farVal
   const decimalFold = chart.getDecimalFold()
   const thousandsSeparator = chart.getThousandsSeparator()
   return levels
     .map(level => {
       const percent = level.value
-      const y = far.y + yDif * percent
-      const rawPrice = (farVal + valueDif * percent).toFixed(precision)
-      const price = decimalFold.format(thousandsSeparator.format(rawPrice))
+      const { y, value } = fibLevelPosition(percent, far, near, farVal, nearVal, logToY)
+      const price = decimalFold.format(thousandsSeparator.format(value.toFixed(precision)))
       const color = level.color ?? lineColour
-      return { percent, y, price, color }
+      return { percent, y, price, color, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
     })
     .sort((a, b) => a.y - b.y)
 }
@@ -277,7 +309,7 @@ export const buildLevelLines = (
     type: 'line',
     key: `level_${l.percent}`,
     attrs: { coordinates: [{ x: leftX, y: l.y }, { x: rightX, y: l.y }] },
-    styles: { ...styles, color: l.color }
+    styles: levelLineStyle(styles, l)
   }))
 
 /** Ratio text — percent or decimal, per `levelFormat`. Extracted
@@ -309,8 +341,8 @@ export const buildLevelLabels = (
   // canvas text-align flips so glyphs run AWAY from the fib.
   // 'center' keeps the natural centred behaviour inside.
   let canvasAlign: CanvasTextAlign = 'center'
-  if (hAlign === 'left') canvasAlign = 'right'
-  else if (hAlign === 'right') canvasAlign = 'left'
+  if (hAlign === 'left') canvasAlign = settings.extendLeft ? 'left' : 'right'
+  else if (hAlign === 'right') canvasAlign = settings.extendRight ? 'right' : 'left'
   const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'bottom' ? 'top' : 'bottom'
   const texts = enriched.map(l => {
     let content = ''

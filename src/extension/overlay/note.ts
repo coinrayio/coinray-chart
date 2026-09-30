@@ -111,6 +111,7 @@ function nearestMidpoint (
 const note: OverlayTemplate = {
   // 2 clicks (anchor + label position). totalStep = clicks + 1.
   name: 'note',
+  editTextOnCreate: true,
   totalStep: 3,
   needDefaultPointFigure: false,
   needDefaultXAxisFigure: false,

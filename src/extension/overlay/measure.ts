@@ -69,7 +69,7 @@ function formatPrice (n: number, precision: number): string {
  * by reading their own metadata and overriding the figure label,
  * but the default keeps the common cases right.
  */
-function pipValue (delta: number, precision: number): number {
+export function pipValue (delta: number, precision: number): number {
   if (precision >= 3) {
     return delta * Math.pow(10, precision - 1)
   }
@@ -82,7 +82,7 @@ function pipValue (delta: number, precision: number): number {
  * through naturally (positive durations omit `+`, negative keep
  * the `-`).
  */
-function formatDuration (ms: number): string {
+export function formatDuration (ms: number): string {
   if (ms === 0) return '0s'
   const sign = ms < 0 ? '-' : ''
   const abs = Math.abs(ms)

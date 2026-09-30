@@ -23,15 +23,19 @@ import { DEFAULT_OVERLAY_PROPERTIES } from './types'
  * Collects mouse points during drag to create a smooth path
  * Uses continuous drawing mode for collecting points during mouse move
  */
-const brush = (): ProOverlayTemplate => {
+/**
+ * `name` / `defaults` let one implementation serve both TV's Brush and its
+ * Highlighter (same freehand stroke, wide and translucent by default).
+ */
+const brush = (name = 'brush', defaults: DeepPartial<OverlayProperties> = {}): ProOverlayTemplate => {
   const properties = new Map<string, DeepPartial<OverlayProperties>>()
 
   const lineStyle = (id: string): Partial<LineStyle> & { smooth?: boolean; lineCap?: CanvasLineCap; lineJoin?: CanvasLineJoin } => {
     const props = properties.get(id) ?? {}
     return {
       style: props.lineStyle ?? DEFAULT_OVERLAY_PROPERTIES.lineStyle,
-      color: props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
-      size: props.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
+      color: props.lineColor ?? defaults.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor,
+      size: props.lineWidth ?? defaults.lineWidth ?? DEFAULT_OVERLAY_PROPERTIES.lineWidth,
       dashedValue: props.lineDashedValue ?? DEFAULT_OVERLAY_PROPERTIES.lineDashedValue,
       smooth: false,
       lineCap: 'round',
@@ -49,7 +53,7 @@ const brush = (): ProOverlayTemplate => {
   const getProperties = (id: string): DeepPartial<OverlayProperties> => properties.get(id) ?? {}
 
   return {
-    name: 'brush',
+    name,
     totalStep: 2,
     drawingMode: 'continuous',
     needDefaultPointFigure: false,

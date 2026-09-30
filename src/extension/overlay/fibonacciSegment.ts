@@ -24,6 +24,7 @@ import type { LineAttrs } from '../figure/line'
 import type { TextAttrs } from '../figure/text'
 
 import { FIBONACCI_RETRACEMENT_LEVELS } from './fibonacciLine'
+import { fibLevelPosition, levelLineStyle } from './fibonacciShared'
 
 /** Coerce any CSS colour string to `rgba(r, g, b, alpha)` with
  *  the given alpha (0-1), overriding whatever alpha the input
@@ -121,6 +122,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
         showLevels?: boolean
         levelFormat?: 'values' | 'percent'
         showText?: boolean
+        logScale?: boolean
       }
       const extendLeft = ext.extendLeft === true
       const extendRight = ext.extendRight === true
@@ -178,8 +180,10 @@ const fibonacciSegment = (): ProOverlayTemplate => {
       const anchorNear = reverse ? coordinates[1] : coordinates[0]
       const valueFar = reverse ? (overlay.points[0]?.value ?? 0) : (overlay.points[1]?.value ?? 0)
       const valueNear = reverse ? (overlay.points[1]?.value ?? 0) : (overlay.points[0]?.value ?? 0)
-      const yDif = anchorNear.y - anchorFar.y
-      const valueDif = valueNear - valueFar
+      // TV `fibLevelsBasedOnLogScale`: interpolate the price in log space.
+      const logToY = ext.logScale === true && yAxis != null
+        ? (price: number) => yAxis.convertToPixel(price)
+        : undefined
 
       const enabledLevels = ((props.figureLevels?.length ?? 0) > 0 ? props.figureLevels! : FIBONACCI_RETRACEMENT_LEVELS)
         .filter(l => l.enabled === true)
@@ -194,11 +198,10 @@ const fibonacciSegment = (): ProOverlayTemplate => {
       const enrichedLevels = enabledLevels
         .map(level => {
           const percent = level.value ?? 0
-          const y = anchorFar.y + yDif * percent
-          const rawPrice = (valueFar + valueDif * percent).toFixed(precision)
-          const price = decimalFold.format(thousandsSeparator.format(rawPrice))
+          const { y, value } = fibLevelPosition(percent, anchorFar, anchorNear, valueFar, valueNear, logToY)
+          const price = decimalFold.format(thousandsSeparator.format(value.toFixed(precision)))
           const color = level.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
-          return { percent, y, price, color }
+          return { percent, y, price, color, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
         })
         .sort((a, b) => a.y - b.y)
 
@@ -244,7 +247,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
           type: 'line',
           key: `level_${l.percent}`,
           attrs: { coordinates: [{ x: leftX, y: l.y }, { x: rightX, y: l.y }] } satisfies { coordinates: LineAttrs['coordinates'] },
-          styles: { ...baseLineStyle, color: l.color }
+          styles: levelLineStyle(baseLineStyle, l)
         })
       })
 
@@ -264,8 +267,9 @@ const fibonacciSegment = (): ProOverlayTemplate => {
         const vAlign = props.textAlignVertical ?? 'top'
         const textX = hAlign === 'right' ? rightX : hAlign === 'center' ? (leftX + rightX) / 2 : leftX
         let canvasAlign: CanvasTextAlign = 'center'
-        if (hAlign === 'left') canvasAlign = 'right'
-        else if (hAlign === 'right') canvasAlign = 'left'
+        // Extended sides put the label inside the chart edge, as TV does.
+        if (hAlign === 'left') canvasAlign = extendLeft ? 'left' : 'right'
+        else if (hAlign === 'right') canvasAlign = extendRight ? 'right' : 'left'
         const baseline: CanvasTextBaseline = vAlign === 'middle' ? 'middle' : vAlign === 'bottom' ? 'top' : 'bottom'
 
         const texts: TextAttrs[] = enrichedLevels.map(l => {

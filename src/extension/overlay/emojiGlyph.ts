@@ -50,6 +50,23 @@ export function scalePath (d: string, scale: number): string {
   return d.replace(/-?\d*\.?\d+/g, (n) => String(parseFloat(n) * scale))
 }
 
+/**
+ * Rotate an icon path about the centre of its 24 x 24 source box. Only for
+ * paths made of absolute coordinate pairs (M/L/C/Q/Z), like the built-in
+ * picker icons; the numbers are read pairwise.
+ */
+export function rotatePath (d: string, angle: number): string {
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const c = ICON_SOURCE_VIEWBOX / 2
+  const num = '-?\\d*\\.?\\d+'
+  return d.replace(new RegExp(`(${num})[\\s,]+(${num})`, 'g'), (_m, a: string, b: string) => {
+    const x = parseFloat(a) - c
+    const y = parseFloat(b) - c
+    return `${(c + x * cos - y * sin).toFixed(2)} ${(c + x * sin + y * cos).toFixed(2)}`
+  })
+}
+
 export interface GlyphFigureParams {
   /** Centre X of the glyph (or icon bbox centre). */
   x: number
@@ -73,6 +90,8 @@ export interface GlyphFigureParams {
   iconLineWidth?: number
   /** Icon-only — stroke vs fill. Defaults to 'stroke'. */
   iconStyle?: 'stroke' | 'fill'
+  /** Clockwise rotation in radians about (x, y). Icon paths must be absolute-only, see `rotatePath`. */
+  angle?: number
 }
 
 /**
@@ -81,11 +100,12 @@ export interface GlyphFigureParams {
  * `path` figure (Tabler SVG path, scaled to `size`).
  */
 export function glyphFigure (params: GlyphFigureParams): OverlayFigure {
-  const { x, y, value, size, color, key, fontFamily, fontWeight, iconLineWidth, iconStyle } = params
+  const { x, y, value, size, color, key, fontFamily, fontWeight, iconLineWidth, iconStyle, angle } = params
   const base: { key?: string } = key !== undefined ? { key } : {}
   if (value.startsWith(ICON_VALUE_PREFIX)) {
     const scale = size / ICON_SOURCE_VIEWBOX
-    const scaledD = scalePath(value.slice(ICON_VALUE_PREFIX.length), scale)
+    const source = value.slice(ICON_VALUE_PREFIX.length)
+    const scaledD = scalePath(angle === undefined || angle === 0 ? source : rotatePath(source, angle), scale)
     return {
       ...base,
       type: 'path',
@@ -108,13 +128,14 @@ export function glyphFigure (params: GlyphFigureParams): OverlayFigure {
   }
   return {
     ...base,
-    type: 'text',
+    type: angle === undefined || angle === 0 ? 'text' : 'rotatedText',
     attrs: {
       x,
       y,
       text: value,
       align: 'center',
-      baseline: 'middle'
+      baseline: 'middle',
+      ...(angle === undefined || angle === 0 ? {} : { angle })
     },
     styles: {
       size,

@@ -78,3 +78,17 @@ export function getDistance (coordinate1: Coordinate, coordinate2: Coordinate): 
   const yDis = Math.abs(coordinate1.y - coordinate2.y)
   return Math.sqrt(xDis * xDis + yDis * yDis)
 }
+
+/**
+ * Triangle for an arrowhead whose tip is `to`, pointing away from `from`:
+ * `length` px deep, `length` px wide. Empty when the two points coincide.
+ */
+export function arrowHeadCoordinates (from: Coordinate, to: Coordinate, length: number): Coordinate[] {
+  const len = Math.hypot(to.x - from.x, to.y - from.y)
+  if (len === 0) return []
+  const ux = (to.x - from.x) / len
+  const uy = (to.y - from.y) / len
+  const bx = to.x - ux * length
+  const by = to.y - uy * length
+  return [to, { x: bx - uy * length / 2, y: by + ux * length / 2 }, { x: bx + uy * length / 2, y: by - ux * length / 2 }]
+}

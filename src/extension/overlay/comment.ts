@@ -132,6 +132,7 @@ function buildBubblePolygon (
 
 const comment: OverlayTemplate = {
   name: 'comment',
+  editTextOnCreate: true,
   // One click — engine convention is `clicks + 1`.
   totalStep: 2,
   // Single-point overlay → the engine's default circle handle at the

@@ -53,6 +53,7 @@
 
 import type { OverlayTemplate, OverlayFigure } from '../../component/Overlay'
 import { calcTextWidth } from '../../common/utils/canvas'
+import { wrapText } from '../figure/text'
 
 interface CalloutOverlayData {
   text?: string
@@ -62,6 +63,9 @@ interface CalloutOverlayData {
   fontFamily?: string
   backgroundColor?: string
   borderColor?: string
+  /** TV `wordWrap`/`wordWrapWidth`: wrap at this text width (excludes padding). */
+  wordWrap?: boolean
+  wordWrapWidth?: number
 }
 
 interface OverlayStyleSlice {
@@ -302,6 +306,7 @@ function buildBubblePolygon (
 
 const callout: OverlayTemplate = {
   name: 'callout',
+  editTextOnCreate: true,
   totalStep: 3,
   // Only the anchor (index 0) gets the engine's default point handle.
   // The bubble centre (index 1) IS the bubble polygon — putting a
@@ -331,9 +336,12 @@ const callout: OverlayTemplate = {
     // the placeholder so the bubble doesn't collapse before the user
     // starts typing.
     const sizingText = textValue.length > 0 ? textValue : '+ Add text'
-    const lines = sizingText.split('\n')
-    const maxLineWidth = lines.length === 1
-      ? calcTextWidth(sizingText, fontSize, fontWeight, fontFamily)
+    const wrap = data.wordWrap === true && typeof data.wordWrapWidth === 'number' && data.wordWrapWidth > 0
+    const lines = wrap
+      ? wrapText(sizingText, data.wordWrapWidth ?? 0, fontSize, fontWeight, fontFamily)
+      : sizingText.split('\n')
+    const maxLineWidth = wrap
+      ? data.wordWrapWidth ?? 0
       : Math.max(...lines.map(l => calcTextWidth(l, fontSize, fontWeight, fontFamily)))
     const bubbleWidth = Math.max(maxLineWidth + LABEL_PADDING_H * 2, MIN_BUBBLE_WIDTH)
     const bubbleHeight = lines.length * fontSize + LABEL_PADDING_V * 2
@@ -400,7 +408,8 @@ const callout: OverlayTemplate = {
           height: bubbleHeight,
           text: textValue,
           align: 'center',
-          baseline: 'middle'
+          baseline: 'middle',
+          ...(wrap ? { wrap: true } : {})
         },
         styles: editableTextStyle,
         pointIndex: 1

@@ -76,9 +76,13 @@ const rect = (): ProOverlayTemplate => {
         return []
       }
 
-      const topLeft = coordinates[0]
-      const bottomRight = coordinates[1]
       const id = overlay.id
+      // TV's Extend Left / Right: the box runs to the pane edge on that side.
+      const ext = overlay.extendData as { extendLeft?: boolean, extendRight?: boolean } | undefined
+      const left = ext?.extendLeft === true ? 0 : Math.min(coordinates[0].x, coordinates[1].x)
+      const right = ext?.extendRight === true ? bounding.width : Math.max(coordinates[0].x, coordinates[1].x)
+      const topLeft = { x: left, y: coordinates[0].y }
+      const bottomRight = { x: right, y: coordinates[1].y }
 
       // Create rectangle as polygon with four corners
       const rectCoordinates = [

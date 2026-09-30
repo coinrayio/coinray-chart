@@ -47,7 +47,7 @@ import type { TextAttrs } from '../figure/text'
 import type { PolygonAttrs } from '../figure/polygon'
 
 import { getRayLine } from './utils'
-import { formatFibRatio, resolveFibSettings, withAlpha } from './fibonacciShared'
+import { formatFibRatio, levelLineStyle, resolveFibSettings, withAlpha } from './fibonacciShared'
 
 /** Default palette shared between price + time levels — same
  *  ratio gets the same colour on both axes so a user
@@ -86,7 +86,10 @@ const resolveLevels = (raw: unknown): FigureLevel[] => {
     return {
       value,
       enabled: l.enabled !== false,
-      color: l.color ?? FAN_DEFAULT_COLOURS[key]
+      color: l.color ?? FAN_DEFAULT_COLOURS[key],
+      lineStyle: l.lineStyle,
+      lineWidth: l.lineWidth,
+      lineDashedValue: l.lineDashedValue
     }
   })
 }
@@ -276,7 +279,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
               type: 'line',
               key: `price_ray_${l.value}_${i}`,
               attrs: { coordinates: r.coordinates },
-              styles: { ...baseLineStyle(props), color: l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor }
+              styles: levelLineStyle(baseLineStyle(props), { ...l, color: l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor })
             })
           }
         })
@@ -336,7 +339,7 @@ const fibonacciSpeedResistanceFan = (): ProOverlayTemplate => {
               type: 'line',
               key: `time_ray_${l.value}_${i}`,
               attrs: { coordinates: r.coordinates },
-              styles: { ...baseLineStyle(props), color: l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor }
+              styles: levelLineStyle(baseLineStyle(props), { ...l, color: l.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor })
             })
           }
         })

@@ -87,6 +87,22 @@ import priceLevelLine from './priceLevelLine'
 import styledSegment from './styledSegment'
 import box from './box'
 
+// TradingView-parity tools
+import parallelChannel from './parallelChannel'
+import { rangeTool } from './rangeTools'
+import { position } from './position'
+import { arrowMark } from './arrowMark'
+import { multiPoint } from './polyline'
+import crossLine from './crossLine'
+import curve from './curve'
+import arrowMarker from './arrowMarker'
+import { factories as tvLinesShapes } from './tv/linesShapes'
+import { factories as tvPitchforkGann } from './tv/pitchforkGann'
+import { factories as tvFibCycles } from './tv/fibCycles'
+import { factories as tvPatterns } from './tv/patterns'
+import { factories as tvForecastData } from './tv/forecastData'
+import { factories as tvAnnotations } from './tv/annotations'
+
 const overlays: Record<string, OverlayInnerConstructor> = {}
 
 // Standard overlays (direct templates)
@@ -111,7 +127,14 @@ const proExtensions = [
   priceLevelLine,
   styledSegment,
   box,
-  emojiMarker
+  emojiMarker,
+  parallelChannel,
+  rangeTool('price'), rangeTool('date'), rangeTool('dateAndPrice'),
+  position('long'), position('short'),
+  arrowMark('up'), arrowMark('down'), arrowMark('left'), arrowMark('right'),
+  () => brush('highlighter', { lineWidth: 20, lineColor: 'rgba(242, 54, 69, 0.2)' }),
+  multiPoint('polyline'), multiPoint('path'), crossLine, curve, arrowMarker,
+  ...tvLinesShapes, ...tvPitchforkGann, ...tvFibCycles, ...tvPatterns, ...tvForecastData, ...tvAnnotations
 ]
 
 // Register standard overlays (direct templates)

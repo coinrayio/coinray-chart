@@ -37,7 +37,8 @@
  * panel writes there too via `modifyOverlayProperties` in the host).
  */
 
-import type { OverlayTemplate } from '../../component/Overlay'
+import type { OverlayFigure, OverlayTemplate } from '../../component/Overlay'
+import { getTextRect, type TextAttrs } from '../figure/text'
 
 interface TextOverlayData {
   text?: string
@@ -45,6 +46,13 @@ interface TextOverlayData {
   textColor?: string
   fontWeight?: number | 'normal' | 'bold'
   align?: 'left' | 'center' | 'right'
+  fontStyle?: 'normal' | 'italic'
+  /** TV `drawBorder`/`borderColor`: a 1px box around the text. */
+  drawBorder?: boolean
+  borderColor?: string
+  /** TV `wordWrap`/`wordWrapWidth`: wrap the text at this width (text area, excludes padding). */
+  wordWrap?: boolean
+  wordWrapWidth?: number
 }
 
 interface TextStyleLike {
@@ -52,6 +60,7 @@ interface TextStyleLike {
   size?: number
   family?: string
   weight?: number | string
+  fontStyle?: string
   backgroundColor?: string
 }
 
@@ -66,6 +75,7 @@ const text: OverlayTemplate = {
   // `totalStep: 2` = single-click drawing (engine convention is
   // N + 1 for an N-click overlay; see view/OverlayView.ts → nextStep).
   name: 'text',
+  editTextOnCreate: true,
   totalStep: 2,
   // No default point figure — the text itself is the drag handle and
   // hit target. The default circle handle looks out of place under a
@@ -98,19 +108,36 @@ const text: OverlayTemplate = {
     if (weight !== undefined) figureStyles.weight = weight
     if (backgroundColor !== undefined) figureStyles.backgroundColor = backgroundColor
 
-    return [
-      {
-        type: 'editableText',
-        attrs: {
-          x: coordinates[0].x,
-          y: coordinates[0].y,
-          text: textValue,
-          align: data.align ?? 'center',
-          baseline: 'middle'
-        },
-        styles: figureStyles
-      }
-    ]
+    const fontStyle = styleText.fontStyle ?? data.fontStyle
+    if (fontStyle !== undefined) figureStyles.fontStyle = fontStyle
+
+    // TV pads a bordered or wrapped text box by fontSize / 6 and wraps at
+    // `wordWrapWidth` of text area. Plain text keeps today's unpadded layout.
+    const wrap = data.wordWrap === true && typeof data.wordWrapWidth === 'number' && data.wordWrapWidth > 0
+    const border = data.drawBorder === true
+    const pad = wrap || border ? (size ?? 12) / 6 : 0
+    const attrs: TextAttrs = {
+      x: coordinates[0].x,
+      y: coordinates[0].y,
+      text: textValue,
+      align: data.align ?? 'center',
+      baseline: 'middle'
+    }
+    if (pad > 0) Object.assign(figureStyles, { paddingLeft: pad, paddingRight: pad, paddingTop: pad, paddingBottom: pad })
+    if (wrap) Object.assign(attrs, { width: (data.wordWrapWidth ?? 0) + 2 * pad, wrap: true })
+
+    const figures: OverlayFigure[] = []
+    if (border && textValue !== '') {
+      // editableText forces a transparent box, so the border is its own rect.
+      figures.push({
+        type: 'rect',
+        attrs: getTextRect(attrs, figureStyles),
+        styles: { style: backgroundColor !== undefined ? 'stroke_fill' : 'stroke', color: backgroundColor ?? 'transparent', borderColor: data.borderColor ?? color ?? '#2962FF', borderSize: 1 },
+        ignoreEvent: true
+      })
+    }
+    figures.push({ type: 'editableText', attrs, styles: figureStyles })
+    return figures
   },
 
   // Persist inline-edited text back into extendData so it survives
