@@ -1326,11 +1326,6 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   protected getCompleteOverlays (): OverlayImp[] {
     const pane = this.getWidget().getPane()
     const store = pane.getChart().getChartStore()
-    // A period switch's init load is in flight: the overlays' timestamps
-    // still resolve against the outgoing period's bars, which generally
-    // don't map to the same pixels as the incoming ones. Skip the draw
-    // rather than show them at a position `_addData` is about to invalidate.
-    if (store.isPeriodSwitchPending()) return []
     return store.getOverlaysByPaneId(pane.getId())
   }
 

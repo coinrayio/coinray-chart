@@ -35,8 +35,6 @@ export default class OverlayXAxisView extends OverlayYAxisView<XAxis> {
 
   override getCompleteOverlays (): OverlayImp[] {
     const store = this.getWidget().getPane().getChart().getChartStore()
-    // See `OverlayView.getCompleteOverlays` — same period-switch guard.
-    if (store.isPeriodSwitchPending()) return []
     return store.getOverlaysByPaneId()
   }
 

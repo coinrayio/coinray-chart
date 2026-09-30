@@ -16,6 +16,7 @@ import type Coordinate from '../../common/Coordinate'
 import type { TextStyle } from '../../common/Styles'
 
 import { createFont, calcTextWidth } from '../../common/utils/canvas'
+import { AUTO_CONTRAST, readableTextColor } from '../../common/utils/color'
 
 import type { FigureTemplate } from '../../component/Figure'
 
@@ -168,7 +169,13 @@ export function drawText (ctx: CanvasRenderingContext2D, attrs: TextAttrs | Text
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.font = createFont(size, weight, family, fontStyle)
-  ctx.fillStyle = color
+  // `color: 'auto'` means "whatever reads on my own background" — used by the
+  // y-axis pills, whose fill is a series / drawing / last-price colour the
+  // theme can't know in advance.
+  const bg = styles.backgroundColor
+  ctx.fillStyle = color === AUTO_CONTRAST
+    ? readableTextColor(typeof bg === 'string' ? bg : undefined)
+    : color
 
   texts.forEach((text, index) => {
     const rect = rects[index]
