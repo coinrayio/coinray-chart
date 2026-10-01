@@ -190,7 +190,12 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     const seriesOnly = this.scaleSeriesOnly && this.isInCandle()
     indicators.forEach(indicator => {
       shouldOhlc ||= indicator.shouldOhlc
-      indicatorPrecision = Math.min(indicatorPrecision, indicator.precision)
+      // Only an indicator that plots figures on this axis has a say in its
+      // minimum span. One that draws on its own scale (the price pane's
+      // Volume, precision 0) would otherwise pad a sub-1 price range by ±4.
+      if (indicator.figures.length > 0) {
+        indicatorPrecision = Math.min(indicatorPrecision, indicator.precision)
+      }
       if (seriesOnly) {
         return
       }
