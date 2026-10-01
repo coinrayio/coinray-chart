@@ -31,6 +31,9 @@ const light: DeepPartial<Styles> = {
       },
       low: {
         color: '#76808F'
+      },
+      highLowAxis: {
+        color: '#76808F'
       }
     },
     tooltip: {

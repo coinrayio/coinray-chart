@@ -261,18 +261,36 @@ export type CandleLastPriceMarkExtendTextStyle = LastValueMarkTextStyle & {
   position: CandleLastPriceMarkExtendTextPosition
   updateInterval: number
 }
+/** A tag drawn on the main widget flush against the axis edge, level with its value label. */
+export type NameLabelStyle = LastValueMarkTextStyle
+
 export interface CandleLastPriceMarkStyle extends ChangeColor {
   show: boolean
   compareRule: CandleColorCompareRule
   line: CandleLastPriceMarkLineStyle
   text: LastValueMarkTextStyle
+  /** Symbol ticker at the last close. */
+  nameLabel: NameLabelStyle
   extendTexts: CandleLastPriceMarkExtendTextStyle[]
+}
+
+/**
+ * High and low of the visible range as price-axis labels and lines. `show` is
+ * the master switch; `text.show` and `line.show` pick the parts.
+ */
+export interface CandleHighLowAxisStyle {
+  show: boolean
+  text: LastValueMarkTextStyle
+  line: Omit<StateLineStyle, 'color'>
+  /** Label background and line colour. */
+  color: string
 }
 
 export interface CandlePriceMarkStyle {
   show: boolean
   high: CandleHighLowPriceMarkStyle
   low: CandleHighLowPriceMarkStyle
+  highLowAxis: CandleHighLowAxisStyle
   last: CandleLastPriceMarkStyle
 }
 
@@ -299,6 +317,11 @@ export type CandleLineSeriesType = 'line' | 'line_markers' | 'step_line' | 'hlc_
 
 export function isLineSeriesType (type: CandleType): type is CandleLineSeriesType {
   return type === 'line' || type === 'line_markers' || type === 'step_line' || type === 'hlc_area' || type === 'baseline'
+}
+
+/** Whether the series draws highs and lows, so a high/low mark would point at something. */
+export function candleTypeUsesHighLow (type: CandleType): boolean {
+  return type === 'hlc_area' || type === 'high_low' || !(type === 'area' || type === 'column' || isLineSeriesType(type))
 }
 
 export type CandleColorCompareRule = 'current_open' | 'previous_close'
@@ -329,6 +352,8 @@ export type IndicatorPolygonStyle = Omit<PolygonStyle, 'color' | 'borderColor'> 
 export interface IndicatorLastValueMarkStyle {
   show: boolean
   text: LastValueMarkTextStyle
+  /** Indicator short name at its first figure's last value. */
+  nameLabel: NameLabelStyle
 }
 
 export interface IndicatorTooltipStyle extends TooltipStyle {
@@ -461,6 +486,23 @@ function getDefaultCandleStyle (): CandleStyle {
     textFamily: 'Helvetica Neue',
     textWeight: 'normal'
   }
+  const labelText = {
+    show: true,
+    style: 'fill' as const,
+    size: 12,
+    paddingLeft: 4,
+    paddingTop: 4,
+    paddingRight: 4,
+    paddingBottom: 4,
+    borderColor: 'transparent',
+    borderStyle: 'solid' as const,
+    borderSize: 0,
+    borderDashedValue: [2, 2],
+    color: Color.WHITE,
+    family: 'Helvetica Neue',
+    weight: 'normal',
+    borderRadius: 2
+  }
   return {
     type: 'candle_solid',
     bar: {
@@ -522,6 +564,17 @@ function getDefaultCandleStyle (): CandleStyle {
       show: true,
       high: { ...highLow },
       low: { ...highLow },
+      highLowAxis: {
+        show: false,
+        text: { ...labelText, borderDashedValue: [2, 2] },
+        line: {
+          show: true,
+          style: 'dashed',
+          dashedValue: [4, 4],
+          size: 1
+        },
+        color: Color.GREY
+      },
       last: {
         show: true,
         compareRule: 'current_open',
@@ -551,6 +604,7 @@ function getDefaultCandleStyle (): CandleStyle {
           weight: 'normal',
           borderRadius: 2
         },
+        nameLabel: { ...labelText, show: false, borderDashedValue: [2, 2] },
         extendTexts: []
       }
     },
@@ -653,6 +707,23 @@ function getDefaultIndicatorStyle (): IndicatorStyle {
     lastValueMark: {
       show: false,
       text: {
+        show: false,
+        style: 'fill',
+        color: Color.WHITE,
+        size: 12,
+        family: 'Helvetica Neue',
+        weight: 'normal',
+        borderStyle: 'solid',
+        borderColor: 'transparent',
+        borderSize: 0,
+        borderDashedValue: [2, 2],
+        paddingLeft: 4,
+        paddingTop: 4,
+        paddingRight: 4,
+        paddingBottom: 4,
+        borderRadius: 2
+      },
+      nameLabel: {
         show: false,
         style: 'fill',
         color: Color.WHITE,

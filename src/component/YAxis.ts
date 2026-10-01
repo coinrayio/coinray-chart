@@ -17,7 +17,7 @@ import type Nullable from '../common/Nullable'
 import { isFunction, isNumber, isString, isValid, merge } from '../common/utils/typeChecks'
 import { index10, getPrecision, nice, round } from '../common/utils/number'
 import { calcTextWidth } from '../common/utils/canvas'
-import { isLineSeriesType } from '../common/Styles'
+import { candleTypeUsesHighLow } from '../common/Styles'
 import { formatPrecision } from '../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../common/SymbolInfo'
 
@@ -220,8 +220,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     const candleStyles = chart.getStyles().candle
     const candleType = candleStyles.type
     // Close-only series must not stretch the range to wicks they never draw.
-    const usesHighLow = candleType === 'hlc_area' || candleType === 'high_low' ||
-      !(candleType === 'area' || candleType === 'column' || isLineSeriesType(candleType))
+    const usesHighLow = candleTypeUsesHighLow(candleType)
     const areaValueKey = candleType === 'area' ? candleStyles.area.value : 'close'
     const shouldCompareHighLow = (inCandle && usesHighLow) || (!inCandle && shouldOhlc)
     visibleRangeDataList.forEach((visibleData) => {
