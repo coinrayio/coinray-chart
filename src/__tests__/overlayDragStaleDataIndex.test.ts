@@ -111,4 +111,27 @@ describe('overlay drag re-derives dataIndex from timestamp at press start', () =
     expect(roundTrippedTimestamp).not.toBeNull()
     expect(Math.abs((roundTrippedTimestamp as number) - (timestamp as number))).toBeLessThanOrEqual(1)
   })
+
+  it('keeps a step-drawn point between bars on a higher timeframe instead of snapping it', () => {
+    // A trendline end drawn at 14:00 on 1h, viewed on 4h: it sits halfway into
+    // the 12:00 bar. Snapping it to the nearest bar (16:00) changed the line's
+    // angle on every timeframe switch.
+    const store = new StoreImp(createMockChart())
+    store.setSymbol(SYMBOL_A)
+    store.setPeriod({ type: 'hour', span: 4 })
+    const data: KLineData[] = []
+    for (let i = 0; i < 10; i++) data.push(candle(BASE + i * 4 * HOUR_MS))
+    store.setDataLoader(createSyncLoader(data))
+
+    const timestamp = BASE + 3 * 4 * HOUR_MS + 2 * HOUR_MS
+    const overlay = new OverlayImp({ name: 'test-line' })
+    overlay.points = [{ dataIndex: 0, timestamp, value: 100 }]
+    overlay.startPressedMove({ dataIndex: 3, timestamp, value: 100 }, store)
+
+    expect(overlay.points[0].dataIndex).toBeCloseTo(3.5, 6)
+    // A whole-bar drag keeps the offset within the bar.
+    overlay.eventPressedOtherMove({ dataIndex: 5, timestamp: data[5].timestamp, value: 100 }, store)
+    expect(overlay.points[0].dataIndex).toBeCloseTo(5.5, 6)
+    expect(overlay.points[0].timestamp).toBe(timestamp + 2 * 4 * HOUR_MS)
+  })
 })

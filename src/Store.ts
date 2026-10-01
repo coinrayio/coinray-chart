@@ -2447,7 +2447,7 @@ export default class StoreImp implements Store {
       if (!overlay.visible || overlay.isDrawing()) return
       const coordinates = overlay.points.map(point => {
         const dataIndex = isNumber(point.timestamp)
-          ? this.timestampToDataIndex(point.timestamp)
+          ? this.timestampToFloatIndex(point.timestamp)
           : point.dataIndex
         return {
           x: isNumber(dataIndex) ? this.dataIndexToCoordinate(dataIndex) : 0,

@@ -631,14 +631,15 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const yAxis = pane.getAxisComponent() as unknown as Nullable<YAxis>
     const xAxis = chart.getXAxisPane().getAxisComponent()
     const bounding = this.getWidget().getBounding()
-    const isContinuous = overlay.isContinuousDrawing()
 
     const coordinates = points.map(point => {
+      // Exact (fractional) index for every overlay, not the nearest bar: a
+      // point drawn at 14:00 on 1h must stay at 14:00 on 4h — halfway into
+      // the 12:00 bar — or the drawing's geometry changes with the timeframe
+      // (a trendline's ends snapped up to 8px and its angle swung).
       let dataIndex: Nullable<number> = null
-      if (isContinuous && isNumber(point.timestamp)) {
+      if (isNumber(point.timestamp)) {
         dataIndex = chartStore.timestampToFloatIndex(point.timestamp)
-      } else if (isNumber(point.timestamp)) {
-        dataIndex = chartStore.timestampToDataIndex(point.timestamp)
       } else if (isNumber(point.dataIndex)) {
         dataIndex = point.dataIndex
       }
@@ -902,7 +903,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const chartStore = chart.getChartStore()
     const dataIndex = isNumber(anchor.dataIndex)
       ? anchor.dataIndex
-      : (isNumber(anchor.timestamp) ? chartStore.timestampToDataIndex(anchor.timestamp) : null)
+      : (isNumber(anchor.timestamp) ? chartStore.timestampToFloatIndex(anchor.timestamp) : null)
     if (dataIndex === null || !isNumber(anchor.value)) return coordinate
 
     const anchorX = chart.getXAxisPane().getAxisComponent().convertToPixel(dataIndex)
@@ -1067,16 +1068,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const chart = pane.getChart()
     const chartStore = chart.getChartStore()
     const yAxis = pane.getAxisComponent() as unknown as Nullable<YAxis>
-    // For continuous drawing overlays, use float indices for smooth rendering
-    const isContinuous = overlay.isContinuousDrawing()
     const coordinates = points.map(point => {
       let dataIndex: Nullable<number> = null
-      if (isContinuous && isNumber(point.timestamp)) {
-        // Use timestampToFloatIndex for sub-bar precision
+      if (isNumber(point.timestamp)) {
+        // Exact index, as in the figure pass above — never the nearest bar.
         dataIndex = chartStore.timestampToFloatIndex(point.timestamp)
-      } else if (isNumber(point.timestamp)) {
-        // For regular overlays, use integer timestamp lookup
-        dataIndex = chartStore.timestampToDataIndex(point.timestamp)
       } else if (isNumber(point.dataIndex)) {
         // Fallback to dataIndex if no timestamp
         dataIndex = point.dataIndex
