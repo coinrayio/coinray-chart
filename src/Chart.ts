@@ -832,7 +832,11 @@ export default class ChartImp implements Chart {
     if (result) {
       let shouldSort = false
       if (!isValid(this.getDrawPaneById(paneOpts.id))) {
-        this._createPane(IndicatorPane, paneOpts.id, paneOpts)
+        // A new pane starts on the side the candle pane's scale is on, so a
+        // chart with the scale moved left does not grow right-hand panes.
+        const candleAxis = this._candlePane.getAxisComponent() as unknown as YAxis
+        const position = paneOpts.axis?.position ?? candleAxis.position
+        this._createPane(IndicatorPane, paneOpts.id, { ...paneOpts, axis: { ...paneOpts.axis, position } })
         paneOpts.height ??= PANE_DEFAULT_HEIGHT
         shouldSort = true
       }
