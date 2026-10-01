@@ -17,11 +17,13 @@ import YAxisImp, { type YAxisTemplate, type YAxisConstructor } from '../../compo
 import normal from './normal'
 import percentage from './percentage'
 import logarithm from './logarithm'
+import indexed100 from './indexed100'
 
 const yAxises: Record<string, YAxisConstructor> = {
   normal: YAxisImp.extend(normal),
   percentage: YAxisImp.extend(percentage),
-  logarithm: YAxisImp.extend(logarithm)
+  logarithm: YAxisImp.extend(logarithm),
+  indexed100: YAxisImp.extend(indexed100)
 }
 
 function registerYAxis (axis: YAxisTemplate): void {
