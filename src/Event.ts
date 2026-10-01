@@ -411,11 +411,28 @@ export default class Event implements EventHandler {
           })
         }
       }
+      if (!consumed && pane !== null && name === WidgetNameConstants.Y_AXIS) {
+        this._fireYAxisRightClick(pane, event)
+      }
       if (consumed) {
         this._chart.updatePane(UpdateLevel.Overlay)
       }
     }
     return false
+  }
+
+  // The crosshair is cleared over the axis, so the payload names the pane itself.
+  private _fireYAxisRightClick (pane: Pane, event: MouseTouchEvent): void {
+    const chartStore = this._chart.getChartStore()
+    if (chartStore.hasAction('onYAxisRightClick')) {
+      chartStore.executeAction('onYAxisRightClick', {
+        paneId: pane.getId(),
+        x: event.x,
+        y: event.y,
+        pageX: event.pageX,
+        pageY: event.pageY
+      })
+    }
   }
 
   mouseMiddleClickEvent (e: MouseTouchEvent): boolean {
@@ -682,6 +699,13 @@ export default class Event implements EventHandler {
 
   longTapEvent (e: MouseTouchEvent): boolean {
     const { pane, widget } = this._findWidgetByEvent(e)
+    if (widget !== null && pane !== null && widget.getName() === WidgetNameConstants.Y_AXIS) {
+      const event = this._makeWidgetEvent(e, widget)
+      if (!widget.dispatchEvent('mouseRightClickEvent', event)) {
+        this._fireYAxisRightClick(pane, event)
+      }
+      return true
+    }
     if (widget !== null && widget.getName() === WidgetNameConstants.MAIN) {
       const event = this._makeWidgetEvent(e, widget)
       this._touchCoordinate = { x: event.x, y: event.y }
