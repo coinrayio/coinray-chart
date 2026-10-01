@@ -586,10 +586,22 @@ export default class ChartImp implements Chart {
     return null
   }
 
+  // Panes that were off auto (a manual range or a price/bar lock) are reported
+  // so a host that persists the lock can put it back once the new data is in.
   private _resetYAxisAutoCalcTickFlag (): void {
+    const released: string[] = []
     this._drawPanes.forEach(pane => {
-      (pane.getAxisComponent() as AxisImp).setAutoCalcTickFlag(true)
+      const axis = pane.getAxisComponent() as AxisImp
+      if (!axis.getAutoCalcTickFlag()) {
+        released.push(pane.getId())
+      }
+      axis.setAutoCalcTickFlag(true)
     })
+    if (this._chartStore.hasAction('onYAxisAutoScaleRelease')) {
+      released.forEach(paneId => {
+        this._chartStore.executeAction('onYAxisAutoScaleRelease', { paneId, reason: 'reset' })
+      })
+    }
   }
 
   setSymbol (symbol: PickPartial<SymbolInfo, 'pricePrecision' | 'volumePrecision'>): void {

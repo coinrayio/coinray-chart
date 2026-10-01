@@ -481,7 +481,8 @@ export default class Event implements EventHandler {
           return consumed
         }
         case WidgetNameConstants.Y_AXIS: {
-          const yAxis = (pane as DrawPane<YAxis>).getAxisComponent()
+          const axisPane = pane as DrawPane<YAxis>
+          const yAxis = axisPane.getAxisComponent()
           if (!yAxis.getAutoCalcTickFlag()) {
             yAxis.setAutoCalcTickFlag(true)
             this._chart.layout({
@@ -489,6 +490,10 @@ export default class Event implements EventHandler {
               update: true,
               buildYAxisTick: true
             })
+            const chartStore = this._chart.getChartStore()
+            if (chartStore.hasAction('onYAxisAutoScaleRelease')) {
+              chartStore.executeAction('onYAxisAutoScaleRelease', { paneId: axisPane.getId(), reason: 'doubleClick' })
+            }
             return true
           }
           break
@@ -524,7 +529,8 @@ export default class Event implements EventHandler {
             this._flingScrollRequestId = null
           }
           this._flingStartTime = new Date().getTime()
-          const yAxis = (pane as DrawPane<YAxis>).getAxisComponent()
+          const axisPane = pane as DrawPane<YAxis>
+          const yAxis = axisPane.getAxisComponent()
           if (!yAxis.getAutoCalcTickFlag()) {
             const range = yAxis.getRange()
             this._prevYAxisRange = { ...range }
