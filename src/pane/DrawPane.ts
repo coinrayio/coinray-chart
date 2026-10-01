@@ -59,6 +59,9 @@ export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
 
   setOptions (options: PaneOptions): this {
     const paneId = this.getId()
+    // A manual range means nothing across a transform change; reverse, position
+    // or gap changes keep it.
+    let resetAuto = !isValid(this._axis)
     if (paneId === PaneIdConstants.CANDLE || paneId === PaneIdConstants.X_AXIS) {
       const axisName = options.axis?.name
       if (
@@ -66,18 +69,22 @@ export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
         (isValid(axisName) && this._options.axis.name !== axisName)
       ) {
         this._axis = this.createAxisComponent(axisName ?? 'normal')
+        resetAuto = true
       }
     } else {
       if (!isValid(this._axis)) {
         this._axis = this.createAxisComponent('normal')
       }
     }
-    if (this._axis instanceof YAxisImp) {
+    if (resetAuto && this._axis instanceof YAxisImp) {
       this._axis.setAutoCalcTickFlag(true)
     }
-    merge(this._options, options)
+    // The lock request is one-shot: kept in _options it would re-lock on every call.
+    const { priceToBarRatio, ...persistedAxis } = options.axis ?? {}
+    merge(this._options, options.axis === undefined ? options : { ...options, axis: persistedAxis })
     this._axis.override({
       ...this._options.axis,
+      ...(priceToBarRatio === undefined ? {} : { priceToBarRatio }),
       name: options.axis?.name ?? 'normal'
     })
     let container: Nullable<HTMLElement> = null
