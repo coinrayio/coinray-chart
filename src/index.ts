@@ -27,7 +27,8 @@
 import type {
   Styles,
   LineType, PolygonType, TooltipShowRule, TooltipShowType, FeatureType, TooltipFeaturePosition,
-  CandleType, CandleTooltipRectPosition, CandleLineStyle, CandleBaselineStyle, CandleHlcAreaStyle
+  CandleType, CandleTooltipRectPosition, CandleLineStyle, CandleBaselineStyle, CandleHlcAreaStyle,
+  CandleHighLowAxisStyle, NameLabelStyle
 } from './common/Styles'
 import type Nullable from './common/Nullable'
 import type DeepPartial from './common/DeepPartial'
@@ -217,7 +218,7 @@ export {
   type FigureTemplate,
   // Style / enum types
   type LineType, type PolygonType, type TooltipShowRule, type TooltipShowType, type FeatureType, type TooltipFeaturePosition, type CandleTooltipRectPosition,
-  type CandleType, type CandleLineStyle, type CandleBaselineStyle, type CandleHlcAreaStyle, type FormatDateType, type BarSpaceLimit, type ZoomAnchor,
+  type CandleType, type CandleLineStyle, type CandleBaselineStyle, type CandleHlcAreaStyle, type CandleHighLowAxisStyle, type NameLabelStyle, type FormatDateType, type BarSpaceLimit, type ZoomAnchor,
   type DomPosition, type ActionType, type IndicatorSeries, type OverlayMode, type OverlayDrawingMode, type OverlayTextChangeEvent, type OverlayTextChangeCallback, type OverlayNudgeDirection,
   // Pro overlay types
   type OverlayProperties, type ProOverlayTemplate, type OverlayPropertiesStore, type FigureLevel,
