@@ -16,7 +16,7 @@
  * Pin overlay — TradingView-style map-pin bar marker.
  *
  * Pass 1: one-click pin with a tear-drop body + circle hole. The
- * shape comes from the drawing-bar icon verbatim, drawn with
+ * shape is the drawing-bar's own pin glyph, drawn with
  * `fill-rule: evenodd` so both outlines render as visible rings
  * while the centres stay genuinely transparent.
  *
@@ -78,18 +78,18 @@ const DEFAULT_TOOLTIP_TEXT_COLOR = '#ffffff'
 const DEFAULT_FONT_SIZE = 14
 const DEFAULT_FONT_FAMILY = 'Helvetica Neue'
 
-// Pin path — verbatim from the `lineToolPin` icon (28×28 viewBox;
-// visible pin spans x: 6→22, y: 3→25; tip at (14, 25); head circle
-// centred at (14, 11)). Four sub-paths combine under
-// fillRule='evenodd' so the body and ring around the head hole both
-// render as visible outlines with a transparent centre.
-const PIN_PATH = 'M21 11.25c0 1.97-1.03 4.2-2.6 6.53a67.74 67.74 0 0 1-4.23 5.45l-.17.2-.17-.2a67.74 67.74 0 0 1-4.23-5.45C8.03 15.44 7 13.22 7 11.25A7.13 7.13 0 0 1 14 4c3.84 0 7 3.22 7 7.25Zm-6.07 12.63-.28.34L14 25l-.65-.78-.28-.34C9.9 20.06 6 15.4 6 11.25A8.13 8.13 0 0 1 14 3c4.42 0 8 3.7 8 8.25 0 4.14-3.89 8.81-7.07 12.63ZM17 11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm1 0a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z'
+// Pin path — Superchart's own pin glyph (`drawing/text-and-notes/pin` in
+// the design-system `chartIcons`), scaled from its 32 grid to this 28×28
+// box: tip at (14, 24.75), head circle centred at (14, 11). Four contours
+// combine under fillRule='evenodd' so the body and the ring around the head
+// render as outlines with a transparent centre.
+const PIN_PATH = 'M20.25 11C20.25 9.34 19.59 7.75 18.42 6.58C17.25 5.41 15.66 4.75 14 4.75C12.34 4.75 10.75 5.41 9.58 6.58C8.41 7.75 7.75 9.34 7.75 11C7.75 12.56 8.31 14.18 9.46 16.19C10.52 18.02 12.04 20.12 14 22.74C15.96 20.12 17.48 18.02 18.54 16.19C19.69 14.18 20.25 12.56 20.25 11ZM21.75 11C21.75 12.94 21.06 14.82 19.84 16.94C18.62 19.05 16.84 21.46 14.6 24.45C14.46 24.64 14.24 24.75 14 24.75C13.76 24.75 13.54 24.64 13.4 24.45C11.16 21.46 9.38 19.05 8.16 16.94C6.94 14.82 6.25 12.94 6.25 11C6.25 8.94 7.07 6.97 8.52 5.52C9.97 4.07 11.94 3.25 14 3.25C16.06 3.25 18.03 4.07 19.48 5.52C20.93 6.97 21.75 8.94 21.75 11ZM16.25 11C16.25 9.76 15.24 8.75 14 8.75C12.76 8.75 11.75 9.76 11.75 11C11.75 12.24 12.76 13.25 14 13.25C15.24 13.25 16.25 12.24 16.25 11ZM17.75 11C17.75 13.07 16.07 14.75 14 14.75C11.93 14.75 10.25 13.07 10.25 11C10.25 8.93 11.93 7.25 14 7.25C16.07 7.25 17.75 8.93 17.75 11Z'
 
 const PATH_TIP_X = 14
-const PATH_TIP_Y = 25
-// Head centre lives at icon coords (14, 11) → relative to the
-// anchor (tip): (-0, -14). Tooltip's V-pointer tip aligns here.
-const HEAD_CENTRE_OFFSET_Y = 14
+const PATH_TIP_Y = 24.75
+// Head centre at icon coords (14, 11) → relative to the anchor (tip):
+// (0, -13.75). Tooltip's V-pointer tip aligns here.
+const HEAD_CENTRE_OFFSET_Y = 13.75
 const BOUNDING_W = 28
 const BOUNDING_H = 28
 
