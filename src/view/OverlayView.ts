@@ -45,6 +45,10 @@ import View from './View'
 const SELECTION_RECT_FILL = 'rgba(41, 98, 255, 0.12)'
 const SELECTION_RECT_STROKE = 'rgba(41, 98, 255, 0.9)'
 
+/** Overlays at this `zLevel` or higher paint above the crosshair line
+ *  (e.g. the trade handles, which are controls rather than drawings). */
+export const OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR = 1000
+
 export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   private _activeTextEditor: Nullable<{
     input: HTMLInputElement | HTMLTextAreaElement
@@ -1015,23 +1019,36 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   override drawImp (ctx: CanvasRenderingContext2D): void {
+    this._drawPass(ctx, false)
+    this._drawSelectionRect(ctx)
+  }
+
+  /**
+   * Second pass, run by the widget after the crosshair: the overlays at
+   * `OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR` or higher, so the crosshair line runs
+   * behind them. Doesn't `clear()`, so the first pass's hit regions stay.
+   */
+  drawAboveCrosshair (ctx: CanvasRenderingContext2D): void {
+    this._drawPass(ctx, true)
+  }
+
+  private _drawPass (ctx: CanvasRenderingContext2D, aboveCrosshair: boolean): void {
     // Scopes the hit-area debug halo to overlays — see `setDrawingOverlay`.
     setDrawingOverlay(true)
     try {
       const overlays = this.getCompleteOverlays()
       overlays.forEach(overlay => {
-        if (overlay.visible) {
+        if (overlay.visible && (overlay.zLevel >= OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR) === aboveCrosshair) {
           this._drawOverlay(ctx, overlay)
         }
       })
       const progressOverlay = this.getProgressOverlay()
-      if (isValid(progressOverlay) && progressOverlay.visible) {
+      if (!aboveCrosshair && isValid(progressOverlay) && progressOverlay.visible) {
         this._drawOverlay(ctx, progressOverlay)
       }
     } finally {
       setDrawingOverlay(false)
     }
-    this._drawSelectionRect(ctx)
   }
 
   /**

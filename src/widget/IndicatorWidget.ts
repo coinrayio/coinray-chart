@@ -66,6 +66,7 @@ export default class IndicatorWidget extends DrawWidget<DrawPane<YAxis>> {
     if (this.getPane().getOptions().state !== 'minimize') {
       this._overlayView.draw(ctx)
       this._crosshairLineView.draw(ctx)
+      this._overlayView.drawAboveCrosshair(ctx)
       this.updateOverlayContent(ctx)
     }
     this._tooltipView.draw(ctx)
