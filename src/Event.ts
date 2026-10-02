@@ -57,6 +57,9 @@ export default class Event implements EventHandler {
   private _pinchScale = 1
 
   private _mouseDownWidget: Nullable<Widget> = null
+  // The axis a touch started on: a touch axis drag stays with it after the
+  // finger leaves the narrow strip, as `pressedMouseMoveEvent` does for mouse.
+  private _touchAxisWidget: Nullable<Widget> = null
 
   // Marquee drag (Cmd/Ctrl + drag on empty chart space) — where the press
   // landed, in pane-local pixels, plus which pane it belongs to. Non-null for
@@ -477,6 +480,8 @@ export default class Event implements EventHandler {
 
   touchStartEvent (e: MouseTouchEvent): boolean {
     const { pane, widget } = this._findWidgetByEvent(e)
+    const startName = widget?.getName()
+    this._touchAxisWidget = startName === WidgetNameConstants.X_AXIS || startName === WidgetNameConstants.Y_AXIS ? widget : null
     if (widget !== null) {
       const event = this._makeWidgetEvent(e, widget)
       event.preventDefault?.()
@@ -531,6 +536,17 @@ export default class Event implements EventHandler {
   }
 
   touchMoveEvent (e: MouseTouchEvent): boolean {
+    const axisWidget = this._touchAxisWidget
+    if (axisWidget !== null) {
+      // Same as the mouse path: keyed off the axis widget's own box, with the
+      // scale deltas read from page coordinates, so it holds off-strip.
+      const event = this._makeWidgetEvent(e, axisWidget)
+      if (axisWidget.getName() === WidgetNameConstants.X_AXIS) {
+        event.preventDefault?.()
+        return this._processXAxisScrollingEvent(axisWidget as Widget<DrawPane<XAxis>>, event)
+      }
+      return this._processYAxisScalingEvent(axisWidget as Widget<DrawPane<YAxis>>, event)
+    }
     const { pane, widget } = this._findWidgetByEvent(e)
     if (widget !== null) {
       const event = this._makeWidgetEvent(e, widget)
@@ -565,7 +581,9 @@ export default class Event implements EventHandler {
   }
 
   touchEndEvent (e: MouseTouchEvent): boolean {
-    const { widget } = this._findWidgetByEvent(e)
+    // An axis drag ends on its own axis, wherever the finger lifted.
+    const widget = this._touchAxisWidget ?? this._findWidgetByEvent(e).widget
+    this._touchAxisWidget = null
     if (widget !== null) {
       const event = this._makeWidgetEvent(e, widget)
       const name = widget.getName()
