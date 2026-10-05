@@ -17,6 +17,7 @@ import type PickPartial from './common/PickPartial'
 import type DeepPartial from './common/DeepPartial'
 import type PickRequired from './common/PickRequired'
 import type { KLineData, VisibleRangeData } from './common/Data'
+import type { FootprintBarData } from './common/Footprint'
 import type VisibleRange from './common/VisibleRange'
 import type Coordinate from './common/Coordinate'
 import { getDefaultVisibleRange } from './common/VisibleRange'
@@ -205,6 +206,10 @@ export interface Store {
   /** Per-bar colour for the main candles (Pine `barcolor`): body, border and
    *  wick of a bar take the returned colour; `null` keeps the bar's own. */
   setBarColorResolver: (resolver: Nullable<(data: KLineData) => Nullable<string>>) => void
+  /** Per-bar footprint data for `candle.type: 'footprint'`; a bar it returns
+   *  `null` for is drawn as a candle. Setting it (even to the same function)
+   *  repaints the candle pane, which is how a host signals new data. */
+  setFootprintResolver: (resolver: Nullable<(data: KLineData) => Nullable<FootprintBarData>>) => void
   /** Further gate on drawing an overlay, on top of its own `visible`: an
    *  overlay is drawn only while this returns true for it. The host re-lays
    *  out (any indicator or overlay change does) when its answer changes. */
@@ -393,6 +398,7 @@ export default class StoreImp implements Store {
   private _scrollEnabled = true
 
   private _barColorResolver: Nullable<(data: KLineData) => Nullable<string>> = null
+  private _footprintResolver: Nullable<(data: KLineData) => Nullable<FootprintBarData>> = null
 
   private _overlayVisibilityResolver: Nullable<(overlay: Overlay) => boolean> = null
 
@@ -1693,6 +1699,15 @@ export default class StoreImp implements Store {
 
   getBarColor (data: KLineData): Nullable<string> {
     return this._barColorResolver?.(data) ?? null
+  }
+
+  setFootprintResolver (resolver: Nullable<(data: KLineData) => Nullable<FootprintBarData>>): void {
+    this._footprintResolver = resolver
+    this._chart.updatePane(UpdateLevel.Main, PaneIdConstants.CANDLE)
+  }
+
+  getFootprint (data: KLineData): Nullable<FootprintBarData> {
+    return this._footprintResolver?.(data) ?? null
   }
 
   setCrosshair (

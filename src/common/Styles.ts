@@ -310,7 +310,7 @@ export interface CandleTooltipStyle extends TooltipStyle {
 
 export type CandleType =
   'candle_solid' | 'candle_stroke' | 'candle_up_stroke' | 'candle_down_stroke' | 'ohlc' | 'area' | 'heikin_ashi' |
-  'line' | 'line_markers' | 'step_line' | 'hlc_area' | 'baseline' | 'column' | 'high_low'
+  'line' | 'line_markers' | 'step_line' | 'hlc_area' | 'baseline' | 'column' | 'high_low' | 'footprint'
 
 /** Types drawn as one continuous series by CandleLineView, rather than per-bar shapes. */
 export type CandleLineSeriesType = 'line' | 'line_markers' | 'step_line' | 'hlc_area' | 'baseline'
@@ -336,6 +336,35 @@ export interface CandleBarColor extends ChangeColor {
   noChangeWickColor: string
 }
 
+/**
+ * The volume footprint (`candle.type: 'footprint'`). Per bar: a thin OHLC body on
+ * the left, then a bid column and an ask column of per-price cells. Bars without
+ * footprint data, and every bar while bars are narrower than `minBarWidth`, are
+ * drawn as solid candles instead.
+ */
+export interface CandleFootprintStyle {
+  /** Cell fill for sell-aggressor volume; its opacity scales with the cell's share of the largest visible cell. */
+  bidColor: string
+  /** Cell fill for buy-aggressor volume. */
+  askColor: string
+  /** Ask at P against bid at P - row (and the mirror) at or above this ratio is an imbalance. */
+  imbalanceRatio: number
+  imbalanceBidColor: string
+  imbalanceAskColor: string
+  /** Outline of the point-of-control row. */
+  pocColor: string
+  showNumbers: boolean
+  textColor: string
+  textSize: number
+  textFamily: string
+  /** Below this bar width (px) the whole chart falls back to candles. */
+  minBarWidth: number
+  /** Price step per row, `0` for auto. Not read by the engine: the host's
+   *  footprint data source buckets at it. Lives here so it persists with the
+   *  rest of the chart type's settings. */
+  rowSize: number
+}
+
 export interface CandleStyle {
   type: CandleType
   bar: CandleBarColor
@@ -343,6 +372,7 @@ export interface CandleStyle {
   line: CandleLineStyle
   baseline: CandleBaselineStyle
   hlcArea: CandleHlcAreaStyle
+  footprint: CandleFootprintStyle
   priceMark: CandlePriceMarkStyle
   tooltip: CandleTooltipStyle
 }
@@ -559,6 +589,20 @@ function getDefaultCandleStyle (): CandleStyle {
       closeLineColor: Color.BLUE,
       upFillColor: hexToRgb(Color.GREEN, 0.2),
       downFillColor: hexToRgb(Color.RED, 0.2)
+    },
+    footprint: {
+      bidColor: Color.RED,
+      askColor: Color.GREEN,
+      imbalanceRatio: 3,
+      imbalanceBidColor: Color.RED,
+      imbalanceAskColor: Color.GREEN,
+      pocColor: '#FDC700',
+      showNumbers: true,
+      textColor: Color.WHITE,
+      textSize: 10,
+      textFamily: 'Helvetica Neue',
+      minBarWidth: 60,
+      rowSize: 0
     },
     priceMark: {
       show: true,

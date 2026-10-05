@@ -18,6 +18,7 @@ import type PickPartial from './common/PickPartial'
 import type Bounding from './common/Bounding'
 import { createDefaultBounding } from './common/Bounding'
 import type { KLineData } from './common/Data'
+import type { FootprintBarData } from './common/Footprint'
 import type Coordinate from './common/Coordinate'
 import type Point from './common/Point'
 import { UpdateLevel } from './common/Updater'
@@ -1200,6 +1201,10 @@ export default class ChartImp implements Chart {
 
   setOverlayVisibilityResolver (resolver: Nullable<(overlay: Overlay) => boolean>): void {
     this._chartStore.setOverlayVisibilityResolver(resolver)
+  }
+
+  setFootprintResolver (resolver: Nullable<(data: KLineData) => Nullable<FootprintBarData>>): void {
+    this._chartStore.setFootprintResolver(resolver)
   }
 
   isScrollEnabled (): boolean {

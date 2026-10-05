@@ -28,8 +28,12 @@ import type {
   Styles,
   LineType, PolygonType, TooltipShowRule, TooltipShowType, FeatureType, TooltipFeaturePosition,
   CandleType, CandleTooltipRectPosition, CandleLineStyle, CandleBaselineStyle, CandleHlcAreaStyle,
-  CandleHighLowAxisStyle, NameLabelStyle
+  CandleHighLowAxisStyle, NameLabelStyle, CandleFootprintStyle
 } from './common/Styles'
+import {
+  type FootprintRow, type FootprintBarData, type FootprintImbalances,
+  footprintImbalances, footprintPoc, formatFootprintVolume
+} from './common/Footprint'
 import type Nullable from './common/Nullable'
 import type DeepPartial from './common/DeepPartial'
 import type { KLineData } from './common/Data'
@@ -206,6 +210,9 @@ export {
   createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
   // Trade-arrow glyph point geometry — internal to Superchart, not consumer-facing
   wideArrowGeometry,
+  // Volume footprint helpers, shared with the host's footprint store
+  footprintImbalances, footprintPoc, formatFootprintVolume,
+  type FootprintRow, type FootprintBarData, type FootprintImbalances, type CandleFootprintStyle,
   // Default fibonacci levels
   FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
   // Replay engine type — exported for consumer type annotations (sc.replay: ReplayEngine | null)

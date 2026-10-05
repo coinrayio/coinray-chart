@@ -17,7 +17,9 @@ import type { VisibleRangeData } from '../common/Data'
 import type BarSpace from '../common/BarSpace'
 import { isValid } from '../common/utils/typeChecks'
 import type { EventHandler } from '../common/EventHandler'
-import type { CandleType, CandleLineSeriesType, CandleBarColor, RectStyle } from '../common/Styles'
+import type { CandleType, CandleLineSeriesType, CandleBarColor, CandleFootprintStyle, RectStyle } from '../common/Styles'
+import { type FootprintBarData, footprintImbalances, formatFootprintVolume } from '../common/Footprint'
+import { createFont } from '../common/utils/canvas'
 
 import type { FigureCreate } from '../component/Figure'
 import type { RectAttrs } from '../extension/figure/rect'
@@ -57,6 +59,24 @@ export default class CandleBarView extends ChildrenView {
       const yAxis = pane.getAxisComponent()
       const boundingHeight = this.getWidget().getBounding().height
 
+      // Footprint: per-bar cells where the host has data and bars are wide
+      // enough to read; every other bar, and every bar below the width
+      // threshold, is a solid candle.
+      let footprint: Nullable<{ style: CandleFootprintStyle, maxCell: number }> = null
+      if (type === 'footprint') {
+        const style = pane.getChart().getStyles().candle.footprint
+        if (isMain && chartStore.getBarSpace().gapBar >= style.minBarWidth) {
+          let maxCell = 0
+          chartStore.getVisibleRangeDataList().forEach(({ data: { current } }) => {
+            if (!isValid(current)) return
+            chartStore.getFootprint(current)?.rows.forEach(([, bid, ask]) => {
+              maxCell = Math.max(maxCell, bid, ask)
+            })
+          })
+          footprint = { style, maxCell }
+        }
+      }
+
       this.eachChildren((visibleData, barSpace) => {
         const { x, data: { current, prev } } = visibleData
         if (isValid(current)) {
@@ -93,86 +113,93 @@ export default class CandleBarView extends ChildrenView {
           // Body and wick widths already share a parity (Store), so nothing to correct.
           const correction = 0
           let rects: Array<FigureCreate<RectAttrs | RectAttrs[], Partial<RectStyle>>> = []
-          switch (type) {
-            case 'candle_solid':
-            case 'heikin_ashi': {
-              rects = this._createSolidBar(x, priceY, barSpace, colors, correction)
-              break
-            }
-            case 'candle_stroke': {
-              rects = this._createStrokeBar(x, priceY, barSpace, colors, correction)
-              break
-            }
-            case 'candle_up_stroke': {
-              if (close > open) {
-                rects = this._createStrokeBar(x, priceY, barSpace, colors, correction)
-              } else {
+          const footprintData = footprint !== null ? chartStore.getFootprint(current) : null
+          if (footprint !== null && footprintData !== null && footprintData.rows.length > 0) {
+            this._drawFootprint(ctx, x, barSpace, footprintData, footprint.style, footprint.maxCell)
+            rects = this._createFootprintBody(x, priceY, barSpace, colors)
+          } else {
+            switch (type) {
+              case 'footprint':
+              case 'candle_solid':
+              case 'heikin_ashi': {
                 rects = this._createSolidBar(x, priceY, barSpace, colors, correction)
+                break
               }
-              break
-            }
-            case 'candle_down_stroke': {
-              if (open > close) {
+              case 'candle_stroke': {
                 rects = this._createStrokeBar(x, priceY, barSpace, colors, correction)
-              } else {
-                rects = this._createSolidBar(x, priceY, barSpace, colors, correction)
+                break
               }
-              break
-            }
-            case 'column': {
-              rects = [{
-                name: 'rect',
-                attrs: {
-                  x: x - barSpace.halfGapBar,
-                  y: closeY,
-                  width: barSpace.gapBar + correction,
-                  height: Math.max(1, boundingHeight - closeY)
-                },
-                styles: { color: colors[0] }
-              }]
-              break
-            }
-            case 'high_low': {
-              rects = [{
-                name: 'rect',
-                attrs: {
-                  x: x - barSpace.halfGapBar,
-                  y: priceY[0],
-                  width: barSpace.gapBar + correction,
-                  height: Math.max(1, priceY[3] - priceY[0])
-                },
-                styles: { color: colors[0] }
-              }]
-              break
-            }
-            case 'ohlc': {
-              rects = [
-                {
-                  name: 'rect',
-                  attrs: [
-                    {
-                      x: x - halfOhlcSize,
-                      y: priceY[0],
-                      width: ohlcSize,
-                      height: priceY[3] - priceY[0]
-                    },
-                    {
-                      x: x - barSpace.halfGapBar,
-                      y: openY + ohlcSize > priceY[3] ? priceY[3] - ohlcSize : openY,
-                      width: barSpace.halfGapBar - halfOhlcSize,
-                      height: ohlcSize
-                    },
-                    {
-                      x: x + halfOhlcSize,
-                      y: closeY + ohlcSize > priceY[3] ? priceY[3] - ohlcSize : closeY,
-                      width: barSpace.halfGapBar - halfOhlcSize,
-                      height: ohlcSize
-                    }
-                  ],
-                  styles: { color: colors[0] }
+              case 'candle_up_stroke': {
+                if (close > open) {
+                  rects = this._createStrokeBar(x, priceY, barSpace, colors, correction)
+                } else {
+                  rects = this._createSolidBar(x, priceY, barSpace, colors, correction)
                 }
-              ]
-              break
+                break
+              }
+              case 'candle_down_stroke': {
+                if (open > close) {
+                  rects = this._createStrokeBar(x, priceY, barSpace, colors, correction)
+                } else {
+                  rects = this._createSolidBar(x, priceY, barSpace, colors, correction)
+                }
+                break
+              }
+              case 'column': {
+                rects = [{
+                  name: 'rect',
+                  attrs: {
+                    x: x - barSpace.halfGapBar,
+                    y: closeY,
+                    width: barSpace.gapBar + correction,
+                    height: Math.max(1, boundingHeight - closeY)
+                  },
+                  styles: { color: colors[0] }
+                }]
+                break
+              }
+              case 'high_low': {
+                rects = [{
+                  name: 'rect',
+                  attrs: {
+                    x: x - barSpace.halfGapBar,
+                    y: priceY[0],
+                    width: barSpace.gapBar + correction,
+                    height: Math.max(1, priceY[3] - priceY[0])
+                  },
+                  styles: { color: colors[0] }
+                }]
+                break
+              }
+              case 'ohlc': {
+                rects = [
+                  {
+                    name: 'rect',
+                    attrs: [
+                      {
+                        x: x - halfOhlcSize,
+                        y: priceY[0],
+                        width: ohlcSize,
+                        height: priceY[3] - priceY[0]
+                      },
+                      {
+                        x: x - barSpace.halfGapBar,
+                        y: openY + ohlcSize > priceY[3] ? priceY[3] - ohlcSize : openY,
+                        width: barSpace.halfGapBar - halfOhlcSize,
+                        height: ohlcSize
+                      },
+                      {
+                        x: x + halfOhlcSize,
+                        y: closeY + ohlcSize > priceY[3] ? priceY[3] - ohlcSize : closeY,
+                        width: barSpace.halfGapBar - halfOhlcSize,
+                        height: ohlcSize
+                      }
+                    ],
+                    styles: { color: colors[0] }
+                  }
+                ]
+                break
+              }
             }
           }
           rects.forEach(rect => {
@@ -195,6 +222,87 @@ export default class CandleBarView extends ChildrenView {
       type: candleStyles.type as CandleBarOptions['type'],
       styles: candleStyles.bar
     }
+  }
+
+  /** Left edge and width of the thin OHLC body a footprint bar keeps. */
+  private _footprintBodyWidth (barSpace: BarSpace): number {
+    return Math.max(3, Math.round(barSpace.gapBar * 0.08))
+  }
+
+  private _createFootprintBody (x: number, priceY: number[], barSpace: BarSpace, colors: string[]): Array<FigureCreate<RectAttrs | RectAttrs[], Partial<RectStyle>>> {
+    const left = x - barSpace.halfGapBar
+    const width = this._footprintBodyWidth(barSpace)
+    const wickX = left + Math.floor(width / 2)
+    return [
+      {
+        name: 'rect',
+        attrs: { x: wickX, y: priceY[0], width: 1, height: priceY[3] - priceY[0] },
+        styles: { color: colors[2] }
+      },
+      {
+        name: 'rect',
+        attrs: { x: left, y: priceY[1], width, height: Math.max(1, priceY[2] - priceY[1]) },
+        styles: { color: colors[0] }
+      }
+    ]
+  }
+
+  private _drawFootprint (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    barSpace: BarSpace,
+    data: FootprintBarData,
+    style: CandleFootprintStyle,
+    maxCell: number
+  ): void {
+    const yAxis = this.getWidget().getPane().getAxisComponent()
+    const bodyWidth = this._footprintBodyWidth(barSpace)
+    const gap = 2
+    const left = x - barSpace.halfGapBar + bodyWidth + gap
+    const columnWidth = Math.max(1, Math.floor((barSpace.gapBar - bodyWidth - gap) / 2))
+    const { rowSize, rows, poc } = data
+    const imbalances = footprintImbalances(rows, rowSize, style.imbalanceRatio)
+    const font = createFont(style.textSize, 'normal', style.textFamily)
+    const boldFont = createFont(style.textSize, 'bold', style.textFamily)
+
+    ctx.save()
+    // Earlier figures (dashed grid, price lines) can leave a dash pattern set.
+    ctx.setLineDash([])
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
+    rows.forEach(([price, bid, ask], i) => {
+      const top = Math.round(yAxis.convertToPixel(price + rowSize))
+      const bottom = Math.round(yAxis.convertToPixel(price))
+      const height = Math.max(1, bottom - top)
+      const cells: Array<[number, number, string, boolean, string]> = [
+        [left, bid, style.bidColor, imbalances.bid.has(i), style.imbalanceBidColor],
+        [left + columnWidth, ask, style.askColor, imbalances.ask.has(i), style.imbalanceAskColor]
+      ]
+      cells.forEach(([cellX, volume, color, imbalance, imbalanceColor]) => {
+        if (volume > 0) {
+          ctx.globalAlpha = maxCell > 0 ? 0.12 + 0.68 * (volume / maxCell) : 0.12
+          ctx.fillStyle = color
+          ctx.fillRect(cellX, top, columnWidth - 1, height - 1)
+          ctx.globalAlpha = 1
+        }
+        if (imbalance) {
+          ctx.strokeStyle = imbalanceColor
+          ctx.lineWidth = 1
+          ctx.strokeRect(cellX + 0.5, top + 0.5, columnWidth - 2, height - 2)
+        }
+        if (style.showNumbers && height >= style.textSize + 2) {
+          ctx.font = imbalance ? boldFont : font
+          ctx.fillStyle = imbalance ? imbalanceColor : style.textColor
+          ctx.fillText(formatFootprintVolume(volume), cellX + columnWidth / 2, top + height / 2, columnWidth - 2)
+        }
+      })
+      if (poc !== null && Math.abs(price - poc) < rowSize / 2) {
+        ctx.strokeStyle = style.pocColor
+        ctx.lineWidth = 1
+        ctx.strokeRect(left + 0.5, top + 0.5, columnWidth * 2 - 2, height - 2)
+      }
+    })
+    ctx.restore()
   }
 
   private _createSolidBar (x: number, priceY: number[], barSpace: BarSpace, colors: string[], correction: number): Array<FigureCreate<RectAttrs | RectAttrs[], Partial<RectStyle>>> {
