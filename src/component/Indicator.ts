@@ -236,14 +236,20 @@ export type IndicatorConstructor<D = unknown, C = unknown, E = unknown> = new ()
 
 export type EachFigureCallback<D> = (figure: IndicatorFigure<D>, figureStyles: IndicatorFigureStyle, index: number) => void
 
-export function eachFigures<D = unknown> (
-  indicator: Indicator,
-  dataIndex: number,
-  defaultStyles: IndicatorStyle,
-  eachFigureCallback: EachFigureCallback<D>
-): void {
-  const result = indicator.result
-  const figures = indicator.figures
+/** A figure with the default style it gets from its type and position among its type. */
+export interface IndicatorFigureDefaults {
+  figure: IndicatorFigure
+  styles: IndicatorFigureStyle
+  index: number
+}
+
+/**
+ * The per-figure part of `eachFigures` that does not depend on the bar. A view
+ * drawing every visible bar resolves this once per indicator per frame and
+ * passes it in, rather than re-reading the style arrays and copying a style
+ * object for every figure of every bar.
+ */
+export function getFigureDefaults (indicator: Indicator, defaultStyles: IndicatorStyle): IndicatorFigureDefaults[] {
   const styles = indicator.styles
 
   const circleStyles = formatValue(styles, 'circles', defaultStyles.circles) as IndicatorPolygonStyle[]
@@ -262,7 +268,8 @@ export function eachFigures<D = unknown> (
   // eslint-disable-next-line @typescript-eslint/init-declarations  -- ignore
   let defaultFigureStyles
   let figureIndex = 0
-  figures.forEach(figure => {
+  const defaults: IndicatorFigureDefaults[] = []
+  indicator.figures.forEach(figure => {
     switch (figure.type) {
       case 'circle': {
         figureIndex = circleCount
@@ -287,19 +294,38 @@ export function eachFigures<D = unknown> (
       default: { break }
     }
     if (isValid(figure.type)) {
-      const ss = figure.styles?.({
-        data: {
-          prev: result[dataIndex - 1],
-          current: result[dataIndex],
-          next: result[dataIndex + 1]
-        },
-        indicator,
-        defaultStyles
-      })
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- ignore
-      eachFigureCallback(figure, { ...defaultFigureStyles, ...ss }, figureIndex)
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
+      defaults.push({ figure, styles: defaultFigureStyles, index: figureIndex })
     }
   })
+  return defaults
+}
+
+/**
+ * Calls back once per typed figure with its style at `dataIndex`. The style
+ * object is shared between bars when the figure has no `styles` callback, so a
+ * callback must not mutate it.
+ */
+export function eachFigures<D = unknown> (
+  indicator: Indicator,
+  dataIndex: number,
+  defaultStyles: IndicatorStyle,
+  eachFigureCallback: EachFigureCallback<D>,
+  figureDefaults: IndicatorFigureDefaults[] = getFigureDefaults(indicator, defaultStyles)
+): void {
+  const result = indicator.result
+  for (const { figure, styles, index } of figureDefaults) {
+    const ss = figure.styles?.({
+      data: {
+        prev: result[dataIndex - 1],
+        current: result[dataIndex],
+        next: result[dataIndex + 1]
+      },
+      indicator,
+      defaultStyles
+    })
+    eachFigureCallback(figure as IndicatorFigure<D>, isValid(ss) ? { ...styles, ...ss } : styles, index)
+  }
 }
 
 export default class IndicatorImp<D = unknown, C = unknown, E = unknown> implements Indicator<D, C, E> {

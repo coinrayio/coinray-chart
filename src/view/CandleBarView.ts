@@ -15,16 +15,20 @@
 import type Nullable from '../common/Nullable'
 import type { VisibleRangeData } from '../common/Data'
 import type BarSpace from '../common/BarSpace'
-import { isValid } from '../common/utils/typeChecks'
-import type { EventHandler } from '../common/EventHandler'
+import { isString, isValid } from '../common/utils/typeChecks'
+import type { MouseTouchEvent } from '../common/EventHandler'
+import RectBatch from '../common/RectBatch'
 import type { CandleType, CandleLineSeriesType, CandleBarColor, CandleFootprintStyle, RectStyle } from '../common/Styles'
 import { type FootprintBarData, footprintImbalances, formatFootprintVolume } from '../common/Footprint'
 import { createFont } from '../common/utils/canvas'
 
 import type { FigureCreate } from '../component/Figure'
-import type { RectAttrs } from '../extension/figure/rect'
+import { checkCoordinateOnRect, type RectAttrs } from '../extension/figure/rect'
 
 import ChildrenView from './ChildrenView'
+import type DrawWidget from '../widget/DrawWidget'
+import type DrawPane from '../pane/DrawPane'
+import type { YAxis } from '../component/YAxis'
 
 import { PaneIdConstants } from '../pane/types'
 
@@ -34,12 +38,38 @@ export interface CandleBarOptions {
 }
 
 export default class CandleBarView extends ChildrenView {
-  private readonly _boundCandleBarClickEvent = (data: VisibleRangeData) => () => {
-    this.getWidget().getPane().getChart().getChartStore().executeAction('onCandleBarClick', data)
+  /**
+   * The main pane's bars as drawn, for `onCandleBarClick`. Bars are painted in
+   * batches rather than as one figure each, so the view hit-tests them itself
+   * instead of through a child figure per bar.
+   */
+  private _barHits: Array<{ rects: RectAttrs[], data: VisibleRangeData }> = []
+  private _clickedBar: Nullable<VisibleRangeData> = null
+
+  constructor (widget: DrawWidget<DrawPane<YAxis>>) {
+    super(widget)
+    this.registerEvent('mouseClickEvent', () => {
+      if (this._clickedBar !== null) {
+        this.getWidget().getPane().getChart().getChartStore().executeAction('onCandleBarClick', this._clickedBar)
+      }
+      return false
+    })
+  }
+
+  override checkEventOn (event: MouseTouchEvent): boolean {
+    this._clickedBar = null
+    // Last drawn first, as children were dispatched.
+    for (let i = this._barHits.length - 1; i > -1; i--) {
+      if (checkCoordinateOnRect(event, this._barHits[i].rects)) {
+        this._clickedBar = this._barHits[i].data
+        return true
+      }
+    }
     return false
   }
 
   override drawImp (ctx: CanvasRenderingContext2D): void {
+    this._barHits = []
     const pane = this.getWidget().getPane()
     const isMain = pane.getId() === PaneIdConstants.CANDLE
     const chartStore = pane.getChart().getChartStore()
@@ -77,6 +107,7 @@ export default class CandleBarView extends ChildrenView {
         }
       }
 
+      const batch = new RectBatch()
       this.eachChildren((visibleData, barSpace) => {
         const { x, data: { current, prev } } = visibleData
         if (isValid(current)) {
@@ -202,17 +233,36 @@ export default class CandleBarView extends ChildrenView {
               }
             }
           }
-          rects.forEach(rect => {
-            let handler: Nullable<EventHandler> = null
-            if (isMain) {
-              handler = {
-                mouseClickEvent: this._boundCandleBarClickEvent(visibleData)
+          // Indexed loops, no spread or destructuring: this runs per visible
+          // bar and the engine compiles to ES5, where those become helper calls.
+          const hitRects: RectAttrs[] = []
+          for (let layer = 0; layer < rects.length; layer++) {
+            const rect = rects[layer]
+            const attrs = Array.isArray(rect.attrs) ? rect.attrs : [rect.attrs]
+            const styles = rect.styles
+            const style = styles.style ?? 'fill'
+            const color = styles.color
+            const borderColor = styles.borderColor
+            const fill = (style === 'fill' || style === 'stroke_fill') && isString(color)
+            const stroke = (style === 'stroke' || style === 'stroke_fill') && isString(borderColor)
+            // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
+            for (let i = 0; i < attrs.length; i++) {
+              const r = attrs[i]
+              const filled = fill && batch.fill(layer, color, r)
+              if (stroke) {
+                batch.stroke(layer, borderColor, r, filled)
+              }
+              if (isMain) {
+                hitRects.push(r)
               }
             }
-            this.createFigure(rect, handler ?? undefined)?.draw(ctx)
-          })
+          }
+          if (isMain) {
+            this._barHits.push({ rects: hitRects, data: visibleData })
+          }
         }
       }, true)
+      batch.draw(ctx)
     }
   }
 

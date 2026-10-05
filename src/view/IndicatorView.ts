@@ -15,12 +15,19 @@
 import type Nullable from '../common/Nullable'
 import type { CandleColorCompareRule, SmoothLineStyle } from '../common/Styles'
 import { formatValue } from '../common/utils/format'
-import { isNumber, isValid } from '../common/utils/typeChecks'
+import { isNumber, isString, isValid } from '../common/utils/typeChecks'
 import type Coordinate from '../common/Coordinate'
 
-import { eachFigures, type IndicatorFigure, type IndicatorFigureAttrs, type IndicatorFigureStyle } from '../component/Indicator'
+import { eachFigures, getFigureDefaults, type IndicatorFigure, type IndicatorFigureAttrs, type IndicatorFigureStyle } from '../component/Indicator'
+import type { RectAttrs } from '../extension/figure/rect'
+import RectBatch from '../common/RectBatch'
 
 import CandleBarView, { type CandleBarOptions } from './CandleBarView'
+
+/** A bar `RectBatch` paints exactly as `drawRect` would: a solid colour fill, square corners. */
+function isPlainFill (styles: IndicatorFigureStyle): boolean {
+  return (styles.style ?? 'fill') === 'fill' && isString(styles.color) && (styles.borderRadius === undefined || styles.borderRadius === 0)
+}
 
 export default class IndicatorView extends CandleBarView {
   override getCandleBarOptions (): Nullable<CandleBarOptions> {
@@ -90,9 +97,15 @@ export default class IndicatorView extends CandleBarView {
           })
           ctx.restore()
         }
-        if (!isCover) {
+        // A custom-drawn indicator can leave its figures empty (volume does);
+        // then there is nothing for the per-bar pass to do.
+        const figureDefaults = isCover ? [] : getFigureDefaults(indicator, defaultStyles)
+        if (figureDefaults.length > 0) {
           const result = indicator.result
           const lines: Array<Array<{ coordinates: Coordinate[], styles: Partial<SmoothLineStyle> }>> = []
+          // Plain filled bars (histograms) paint per colour at the end; anything
+          // with a border, a radius or a gradient still draws as a figure.
+          const bars = new RectBatch()
 
           this.eachChildren((data, barSpace) => {
             const { bar, halfGapBar } = barSpace
@@ -197,7 +210,10 @@ export default class IndicatorView extends CandleBarView {
                   }
                 }
                 const type = figure.type!
-                if (isValid<IndicatorFigureAttrs>(attrs) && type !== 'line') {
+                if (isValid<IndicatorFigureAttrs>(attrs) && type === 'bar' && isPlainFill(figureStyles)) {
+                  const color = figureStyles.color as string
+                  ;([] as RectAttrs[]).concat(attrs as RectAttrs | RectAttrs[]).forEach(r => { bars.fill(figureIndex, color, r) })
+                } else if (isValid<IndicatorFigureAttrs>(attrs) && type !== 'line') {
                   this.createFigure({
                     name: type === 'bar' ? 'rect' : type,
                     attrs,
@@ -205,8 +221,9 @@ export default class IndicatorView extends CandleBarView {
                   })?.draw(ctx)
                 }
               }
-            })
+            }, figureDefaults)
           })
+          bars.draw(ctx)
 
           // merge line and render
           lines.forEach(items => {

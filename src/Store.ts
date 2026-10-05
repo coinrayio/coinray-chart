@@ -413,6 +413,13 @@ export default class StoreImp implements Store {
   private _barSpace = DEFAULT_BAR_SPACE
 
   /**
+   * `window.devicePixelRatio`, read once per bar-space or visible-range change
+   * rather than on every `dataIndexToCoordinate`: that getter is a DOM call, and
+   * with thousands of bars times every view it was a quarter of a frame.
+   */
+  private _pixelRatio = windowPixelRatio()
+
+  /**
    * Bar space limit
    */
   private readonly _barSpaceLimit: BarSpaceLimit = {
@@ -1018,7 +1025,8 @@ export default class StoreImp implements Store {
    * body one device-pixel pair at a time, not a whole CSS-pixel pair.
    */
   private _calcOptimalBarSpace (): void {
-    const pixelRatio = windowPixelRatio()
+    this._pixelRatio = windowPixelRatio()
+    const pixelRatio = this._pixelRatio
     const specialBarSpace = 4
     const ratio = 1 - BAR_GAP_RATIO * Math.atan(Math.max(specialBarSpace, this._barSpace) - specialBarSpace) / (Math.PI * 0.5)
     const wick = Math.max(1, Math.floor(pixelRatio))
@@ -1033,6 +1041,12 @@ export default class StoreImp implements Store {
   }
 
   private _adjustVisibleRange (): void {
+    // The ratio changes when the window moves to another screen or the page is
+    // zoomed; picking that up here, on the next scroll, zoom, resize or data
+    // change, also re-sizes the candle bodies for the new pixel grid.
+    if (windowPixelRatio() !== this._pixelRatio) {
+      this._calcOptimalBarSpace()
+    }
     const totalBarCount = this._dataList.length
     const visibleBarCount = this._totalBarSpace / this._barSpace
 
@@ -1475,7 +1489,7 @@ export default class StoreImp implements Store {
     // Rounded to device pixels, not CSS pixels (as TradingView does): with a
     // fractional bar space two neighbouring gaps can differ by one device pixel,
     // half of what whole-CSS-pixel rounding gave on a 2x screen, and zoom stays continuous.
-    const ratio = windowPixelRatio()
+    const ratio = this._pixelRatio
     const dataCount = this._dataList.length
     const deltaFromRight = dataCount + this._lastBarRightSideDiffBarCount - dataIndex
     return Math.round((this._totalBarSpace - (deltaFromRight - 0.5) * this._barSpace) * ratio) / ratio
