@@ -1194,6 +1194,10 @@ export default class ChartImp implements Chart {
     this._chartStore.setScrollEnabled(enabled)
   }
 
+  setBarColorResolver (resolver: Nullable<(data: KLineData) => Nullable<string>>): void {
+    this._chartStore.setBarColorResolver(resolver)
+  }
+
   isScrollEnabled (): boolean {
     return this._chartStore.isScrollEnabled()
   }

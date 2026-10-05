@@ -202,6 +202,9 @@ export interface Store {
   getZoomAnchor: () => ZoomAnchor
   setScrollEnabled: (enabled: boolean) => void
   isScrollEnabled: () => boolean
+  /** Per-bar colour for the main candles (Pine `barcolor`): body, border and
+   *  wick of a bar take the returned colour; `null` keeps the bar's own. */
+  setBarColorResolver: (resolver: Nullable<(data: KLineData) => Nullable<string>>) => void
   resetData: () => void
   getReplayEngine: () => ReplayEngine
 
@@ -384,6 +387,8 @@ export default class StoreImp implements Store {
    * Scroll enabled flag
    */
   private _scrollEnabled = true
+
+  private _barColorResolver: Nullable<(data: KLineData) => Nullable<string>> = null
 
   /**
    * Total space of drawing area
@@ -1663,6 +1668,15 @@ export default class StoreImp implements Store {
 
   isScrollEnabled (): boolean {
     return this._scrollEnabled
+  }
+
+  setBarColorResolver (resolver: Nullable<(data: KLineData) => Nullable<string>>): void {
+    this._barColorResolver = resolver
+    this._chart.updatePane(UpdateLevel.Main, PaneIdConstants.CANDLE)
+  }
+
+  getBarColor (data: KLineData): Nullable<string> {
+    return this._barColorResolver?.(data) ?? null
   }
 
   setCrosshair (

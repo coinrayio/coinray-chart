@@ -79,6 +79,8 @@ export default class CandleBarView extends ChildrenView {
             colors[1] = styles.noChangeBorderColor
             colors[2] = styles.noChangeWickColor
           }
+          const barColor = isMain ? chartStore.getBarColor(current) : null
+          if (barColor !== null) colors.fill(barColor, 0, 3)
           const openY = yAxis.convertToPixel(open)
           const closeY = yAxis.convertToPixel(close)
           const priceY = [
