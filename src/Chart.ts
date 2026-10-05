@@ -1198,6 +1198,10 @@ export default class ChartImp implements Chart {
     this._chartStore.setBarColorResolver(resolver)
   }
 
+  setOverlayVisibilityResolver (resolver: Nullable<(overlay: Overlay) => boolean>): void {
+    this._chartStore.setOverlayVisibilityResolver(resolver)
+  }
+
   isScrollEnabled (): boolean {
     return this._chartStore.isScrollEnabled()
   }

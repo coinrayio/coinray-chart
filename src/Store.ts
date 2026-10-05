@@ -46,7 +46,7 @@ import { getIndicatorClass } from './extension/indicator/index'
 
 import type OverlayImp from './component/Overlay'
 import type Point from './common/Point'
-import { type OverlayCreate, OVERLAY_ID_PREFIX, type OverlayFilter, type OverlayFigure, type OverlayOverride, type OverlayMode } from './component/Overlay'
+import { type Overlay, type OverlayCreate, OVERLAY_ID_PREFIX, type OverlayFilter, type OverlayFigure, type OverlayOverride, type OverlayMode } from './component/Overlay'
 import { getOverlayInnerClass } from './extension/overlay/index'
 
 import { getStyles as getExtensionStyles } from './extension/styles/index'
@@ -205,6 +205,10 @@ export interface Store {
   /** Per-bar colour for the main candles (Pine `barcolor`): body, border and
    *  wick of a bar take the returned colour; `null` keeps the bar's own. */
   setBarColorResolver: (resolver: Nullable<(data: KLineData) => Nullable<string>>) => void
+  /** Further gate on drawing an overlay, on top of its own `visible`: an
+   *  overlay is drawn only while this returns true for it. The host re-lays
+   *  out (any indicator or overlay change does) when its answer changes. */
+  setOverlayVisibilityResolver: (resolver: Nullable<(overlay: Overlay) => boolean>) => void
   resetData: () => void
   getReplayEngine: () => ReplayEngine
 
@@ -389,6 +393,8 @@ export default class StoreImp implements Store {
   private _scrollEnabled = true
 
   private _barColorResolver: Nullable<(data: KLineData) => Nullable<string>> = null
+
+  private _overlayVisibilityResolver: Nullable<(overlay: Overlay) => boolean> = null
 
   /**
    * Total space of drawing area
@@ -1675,6 +1681,16 @@ export default class StoreImp implements Store {
     this._chart.updatePane(UpdateLevel.Main, PaneIdConstants.CANDLE)
   }
 
+  setOverlayVisibilityResolver (resolver: Nullable<(overlay: Overlay) => boolean>): void {
+    this._overlayVisibilityResolver = resolver
+    this._chart.updatePane(UpdateLevel.Overlay)
+  }
+
+  /** The overlay's `visible`, and the host's resolver if it set one. */
+  isOverlayShown (overlay: Overlay): boolean {
+    return overlay.visible && (this._overlayVisibilityResolver?.(overlay) ?? true)
+  }
+
   getBarColor (data: KLineData): Nullable<string> {
     return this._barColorResolver?.(data) ?? null
   }
@@ -2461,7 +2477,7 @@ export default class StoreImp implements Store {
     const bottom = Math.max(rect.y1, rect.y2)
     const ids: string[] = []
     this.getOverlaysByPaneId(rect.paneId).forEach(overlay => {
-      if (!overlay.visible || overlay.isDrawing()) return
+      if (!this.isOverlayShown(overlay) || overlay.isDrawing()) return
       const coordinates = overlay.points.map(point => {
         const dataIndex = isNumber(point.timestamp)
           ? this.timestampToDataIndex(point.timestamp)

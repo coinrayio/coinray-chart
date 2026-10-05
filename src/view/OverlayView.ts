@@ -1092,14 +1092,15 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     // Scopes the hit-area debug halo to overlays — see `setDrawingOverlay`.
     setDrawingOverlay(true)
     try {
+      const chartStore = this.getWidget().getPane().getChart().getChartStore()
       const overlays = this.getCompleteOverlays()
       overlays.forEach(overlay => {
-        if (overlay.visible) {
+        if (chartStore.isOverlayShown(overlay)) {
           this._drawOverlay(ctx, overlay)
         }
       })
       const progressOverlay = this.getProgressOverlay()
-      if (isValid(progressOverlay) && progressOverlay.visible) {
+      if (isValid(progressOverlay) && chartStore.isOverlayShown(progressOverlay)) {
         this._drawOverlay(ctx, progressOverlay)
       }
     } finally {
