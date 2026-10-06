@@ -97,6 +97,7 @@ import type {
 import { registerStyles } from './extension/styles/index'
 import { registerXAxis } from './extension/x-axis'
 import { registerYAxis } from './extension/y-axis'
+import { OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR } from './view/OverlayView'
 
 const charts = new Map<string, ChartImp>()
 let chartBaseId = 1
@@ -202,6 +203,8 @@ export {
   setOverlayDragDebug,
   registerIndicator, getSupportedIndicators, getIndicatorTemplate,
   registerOverlay, getSupportedOverlays, getOverlayClass,
+  // Overlays at this zLevel or higher paint above the crosshair line.
+  OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR,
   registerLocale, getSupportedLocales,
   registerStyles,
   registerXAxis, registerYAxis,

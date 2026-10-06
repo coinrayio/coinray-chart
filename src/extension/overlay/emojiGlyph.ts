@@ -18,8 +18,9 @@
  *
  * The picker encodes its three modes into a single string value:
  *   * Unicode emoji (`'🚀'`) — rendered as a `text` figure.
- *   * `'svg:<d>'` icon string — Tabler-stroke SVG path, rendered as
- *     a `path` figure scaled to the requested render size.
+ *   * `'svg:<d>'` icon string — SVG path, rendered as a `path` figure
+ *     scaled to the requested render size. Stroked by default; a
+ *     leading `F` (`'svg:F<d>'`) marks a filled (outlined) glyph.
  *   * Stickers — reserved; current build dispenses unicode glyphs
  *     so they fall into the text branch.
  *
@@ -32,6 +33,14 @@ import type { OverlayFigure } from '../../component/Overlay'
 
 /** Prefix the host attaches to icon-mode picker values. */
 export const ICON_VALUE_PREFIX = 'svg:'
+
+/**
+ * Marks an icon path as filled: `'svg:F<d>'`. The host's icon library is
+ * outlined artwork (shapes, not centre lines), which only reads correctly
+ * filled. Paths start with a command letter, so a leading `F` is unambiguous;
+ * older stroke-style values (no mark) keep rendering as strokes.
+ */
+export const FILLED_ICON_MARK = 'F'
 
 /**
  * Tabler-style source icons all use a 24×24 viewBox. The helper
@@ -104,7 +113,9 @@ export function glyphFigure (params: GlyphFigureParams): OverlayFigure {
   const base: { key?: string } = key !== undefined ? { key } : {}
   if (value.startsWith(ICON_VALUE_PREFIX)) {
     const scale = size / ICON_SOURCE_VIEWBOX
-    const source = value.slice(ICON_VALUE_PREFIX.length)
+    let source = value.slice(ICON_VALUE_PREFIX.length)
+    const filled = source.startsWith(FILLED_ICON_MARK)
+    if (filled) source = source.slice(FILLED_ICON_MARK.length)
     const scaledD = scalePath(angle === undefined || angle === 0 ? source : rotatePath(source, angle), scale)
     return {
       ...base,
@@ -120,7 +131,7 @@ export function glyphFigure (params: GlyphFigureParams): OverlayFigure {
         path: scaledD
       },
       styles: {
-        style: iconStyle ?? 'stroke',
+        style: iconStyle ?? (filled ? 'fill' : 'stroke'),
         color,
         lineWidth: iconLineWidth ?? 2
       }

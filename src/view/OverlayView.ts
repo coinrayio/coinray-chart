@@ -45,6 +45,10 @@ import View from './View'
 const SELECTION_RECT_FILL = 'rgba(41, 98, 255, 0.12)'
 const SELECTION_RECT_STROKE = 'rgba(41, 98, 255, 0.9)'
 
+/** Overlays at this `zLevel` or higher paint above the crosshair line
+ *  (e.g. the trade handles, which are controls rather than drawings). */
+export const OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR = 1000
+
 export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   // Where the current drag started, pane-local, for Shift axis-locking.
   private _pressStart: Nullable<Coordinate> = null
@@ -642,14 +646,15 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const yAxis = pane.getAxisComponent() as unknown as Nullable<YAxis>
     const xAxis = chart.getXAxisPane().getAxisComponent()
     const bounding = this.getWidget().getBounding()
-    const isContinuous = overlay.isContinuousDrawing()
 
     const coordinates = points.map(point => {
+      // Exact (fractional) index for every overlay, not the nearest bar: a
+      // point drawn at 14:00 on 1h must stay at 14:00 on 4h — halfway into
+      // the 12:00 bar — or the drawing's geometry changes with the timeframe
+      // (a trendline's ends snapped up to 8px and its angle swung).
       let dataIndex: Nullable<number> = null
-      if (isContinuous && isNumber(point.timestamp)) {
+      if (isNumber(point.timestamp)) {
         dataIndex = chartStore.timestampToFloatIndex(point.timestamp)
-      } else if (isNumber(point.timestamp)) {
-        dataIndex = chartStore.timestampToDataIndex(point.timestamp)
       } else if (isNumber(point.dataIndex)) {
         dataIndex = point.dataIndex
       }
@@ -973,7 +978,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const chart = pane.getChart()
     const dataIndex = isNumber(point.dataIndex)
       ? point.dataIndex
-      : (isNumber(point.timestamp) ? chart.getChartStore().timestampToDataIndex(point.timestamp) : null)
+      : (isNumber(point.timestamp) ? chart.getChartStore().timestampToFloatIndex(point.timestamp) : null)
     if (dataIndex === null || !isNumber(point.value)) return null
     return {
       x: chart.getXAxisPane().getAxisComponent().convertToPixel(dataIndex),
@@ -1089,24 +1094,37 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   override drawImp (ctx: CanvasRenderingContext2D): void {
+    this._drawPass(ctx, false)
+    this._drawSelectionRect(ctx)
+  }
+
+  /**
+   * Second pass, run by the widget after the crosshair: the overlays at
+   * `OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR` or higher, so the crosshair line runs
+   * behind them. Doesn't `clear()`, so the first pass's hit regions stay.
+   */
+  drawAboveCrosshair (ctx: CanvasRenderingContext2D): void {
+    this._drawPass(ctx, true)
+  }
+
+  private _drawPass (ctx: CanvasRenderingContext2D, aboveCrosshair: boolean): void {
     // Scopes the hit-area debug halo to overlays — see `setDrawingOverlay`.
     setDrawingOverlay(true)
     try {
       const chartStore = this.getWidget().getPane().getChart().getChartStore()
       const overlays = this.getCompleteOverlays()
       overlays.forEach(overlay => {
-        if (chartStore.isOverlayShown(overlay)) {
+        if (chartStore.isOverlayShown(overlay) && (overlay.zLevel >= OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR) === aboveCrosshair) {
           this._drawOverlay(ctx, overlay)
         }
       })
       const progressOverlay = this.getProgressOverlay()
-      if (isValid(progressOverlay) && chartStore.isOverlayShown(progressOverlay)) {
+      if (!aboveCrosshair && isValid(progressOverlay) && chartStore.isOverlayShown(progressOverlay)) {
         this._drawOverlay(ctx, progressOverlay)
       }
     } finally {
       setDrawingOverlay(false)
     }
-    this._drawSelectionRect(ctx)
   }
 
   /**
@@ -1143,16 +1161,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const chart = pane.getChart()
     const chartStore = chart.getChartStore()
     const yAxis = pane.getAxisComponent() as unknown as Nullable<YAxis>
-    // For continuous drawing overlays, use float indices for smooth rendering
-    const isContinuous = overlay.isContinuousDrawing()
     const coordinates = points.map(point => {
       let dataIndex: Nullable<number> = null
-      if (isContinuous && isNumber(point.timestamp)) {
-        // Use timestampToFloatIndex for sub-bar precision
+      if (isNumber(point.timestamp)) {
+        // Exact index, as in the figure pass above — never the nearest bar.
         dataIndex = chartStore.timestampToFloatIndex(point.timestamp)
-      } else if (isNumber(point.timestamp)) {
-        // For regular overlays, use integer timestamp lookup
-        dataIndex = chartStore.timestampToDataIndex(point.timestamp)
       } else if (isNumber(point.dataIndex)) {
         // Fallback to dataIndex if no timestamp
         dataIndex = point.dataIndex

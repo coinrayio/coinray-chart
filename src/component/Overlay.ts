@@ -786,13 +786,12 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   startPressedMove (point: Partial<Point>, chartStore: ChartStore): void {
     // Re-derive dataIndex from timestamp before snapshotting, mirroring the
     // render path — a history load can shift bar indexes without touching
-    // timestamps, leaving a stored dataIndex stale.
-    const useFloatIndex = this.isContinuousDrawing()
+    // timestamps, leaving a stored dataIndex stale. Exact (fractional) like
+    // the render path, so a drag on a higher timeframe moves a point by whole
+    // bars without first snapping it to the nearest one.
     this.points.forEach(p => {
       if (isNumber(p.timestamp)) {
-        p.dataIndex = useFloatIndex
-          ? chartStore.timestampToFloatIndex(p.timestamp)
-          : chartStore.timestampToDataIndex(p.timestamp)
+        p.dataIndex = chartStore.timestampToFloatIndex(p.timestamp)
       }
     })
     this._prevPressedPoint = { ...point }

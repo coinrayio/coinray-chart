@@ -59,6 +59,10 @@ export default class YAxisWidget extends DrawWidget<DrawPane<YAxis>> {
   override updateOverlay (ctx: CanvasRenderingContext2D): void {
     if (this.getPane().getOptions().state !== 'minimize') {
       this._overlayYAxisView.draw(ctx)
+      // Overlays raised above the crosshair (the trade handles) draw in their
+      // own pass; without it their price-scale tags never show. The crosshair's
+      // own label still goes on top.
+      this._overlayYAxisView.drawAboveCrosshair(ctx)
       this._crosshairHorizontalLabelView.draw(ctx)
     }
   }
