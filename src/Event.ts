@@ -131,6 +131,15 @@ export default class Event implements EventHandler {
       this._chart.getChartStore().zoom(scale, { x: event.x, y: event.y }, 'main', atCursor)
       return true
     }
+    if (name === WidgetNameConstants.X_AXIS) {
+      // TradingView: the wheel over the time axis zooms, holding the right
+      // edge (the last bar while it's on screen, per the xAxis anchor);
+      // Cmd/Ctrl zooms at the cursor instead.
+      const atCursor = event.metaKey === true || event.ctrlKey === true
+      const x = atCursor ? event.x : widget!.getBounding().width
+      this._chart.getChartStore().zoom(scale, { x }, 'xAxis', atCursor)
+      return true
+    }
     if (name === WidgetNameConstants.Y_AXIS) {
       const yAxis = (widget as Widget<DrawPane<YAxis>>).getPane().getAxisComponent()
       if (!yAxis.scrollZoomEnabled) {
