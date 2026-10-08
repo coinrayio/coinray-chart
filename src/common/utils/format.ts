@@ -93,9 +93,21 @@ export function formatTimestampToDateTime (dateTimeFormat: Intl.DateTimeFormat, 
 
 export function formatTimestampByTemplate (dateTimeFormat: Intl.DateTimeFormat, timestamp: number, template: string): string {
   const date = formatTimestampToDateTime(dateTimeFormat, timestamp)
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- ignore
-  return template.replace(/YYYY|MM|DD|HH|mm|ss/g, key => date[key])
+  return template.replace(/YYYY|YY|MMM|MM|DD|D|ddd|HH|mm|ss/g, key => {
+    switch (key) {
+      // Two-digit year, as TradingView writes it in the crosshair label (`'26`).
+      case 'YY': return date.YYYY.slice(-2)
+      case 'MMM': return MONTH_NAMES[+date.MM - 1] ?? date.MM
+      // Day of month without the leading zero: the time axis labels a day as `8`.
+      case 'D': return `${+date.DD}`
+      case 'ddd': return WEEKDAY_NAMES[new Date(Date.UTC(+date.YYYY, +date.MM - 1, +date.DD)).getUTCDay()]
+      default: return date[key as keyof DateTime]
+    }
+  })
 }
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function formatPrecision (value: string | number, precision?: number): string {
   const v = +value

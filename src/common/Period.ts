@@ -19,13 +19,14 @@ export interface Period {
   span: number
 }
 
-export const PeriodTypeXAxisFormat: Record<PeriodType, string> = {
-  second: 'HH:mm:ss',
-  minute: 'HH:mm',
-  hour: 'MM-DD HH:mm',
-  day: 'YYYY-MM-DD',
-  week: 'YYYY-MM-DD',
-  month: 'YYYY-MM',
+/** The time label on the x-axis under the crosshair, in TradingView's form: `04 Oct '26  11:00`. */
+export const PeriodTypeCrosshairLabelFormat: Record<PeriodType, string> = {
+  second: "DD MMM 'YY  HH:mm:ss",
+  minute: "DD MMM 'YY  HH:mm",
+  hour: "DD MMM 'YY  HH:mm",
+  day: "DD MMM 'YY",
+  week: "DD MMM 'YY",
+  month: "MMM 'YY",
   year: 'YYYY'
 }
 

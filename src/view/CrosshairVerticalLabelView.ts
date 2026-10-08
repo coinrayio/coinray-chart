@@ -24,7 +24,7 @@ import type ChartStore from '../Store'
 
 import CrosshairHorizontalLabelView from './CrosshairHorizontalLabelView'
 import type { TextAttrs } from '../extension/figure/text'
-import { PeriodTypeCrosshairTooltipFormat } from '../common/Period'
+import { PeriodTypeCrosshairLabelFormat } from '../common/Period'
 
 export default class CrosshairVerticalLabelView extends CrosshairHorizontalLabelView<XAxis> {
   override compare (crosshair: Crosshair): boolean {
@@ -37,7 +37,12 @@ export default class CrosshairVerticalLabelView extends CrosshairHorizontalLabel
 
   override getText (crosshair: Crosshair, chartStore: ChartStore): string {
     const timestamp = crosshair.timestamp!
-    return chartStore.getInnerFormatter().formatDate(timestamp, PeriodTypeCrosshairTooltipFormat[chartStore.getPeriod()?.type ?? 'day'], 'crosshair')
+    const type = chartStore.getPeriod()?.type ?? 'day'
+    let format = PeriodTypeCrosshairLabelFormat[type]
+    if (chartStore.getShowSeconds() && (type === 'minute' || type === 'hour')) {
+      format = `${format}:ss`
+    }
+    return chartStore.getInnerFormatter().formatDate(timestamp, format, 'crosshair')
   }
 
   override getTextAttrs (text: string, textWidth: number, crosshair: Crosshair, bounding: Bounding, _axis: Axis, styles: StateTextStyle): TextAttrs {

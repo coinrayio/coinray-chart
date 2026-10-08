@@ -20,7 +20,10 @@ import AxisImp, { type AxisTemplate, type Axis, type AxisRange, type AxisTick } 
 
 import type DrawPane from '../pane/DrawPane'
 import { calcTextWidth } from '../common/utils/canvas'
-import { PeriodTypeXAxisFormat } from '../common/Period'
+import {
+  LocalClock, timeMarkWeight, selectTimeTickMarks, timeMarkTemplate, boldWeightThreshold,
+  type TimeTickMark
+} from '../common/timeTickMarks'
 
 export type XAxisTemplate = Pick<AxisTemplate, 'name' | 'scrollZoomEnabled' | 'createTicks'>
 
@@ -72,44 +75,60 @@ export default abstract class XAxisImp extends AxisImp implements XAxis {
   }
 
   protected override createTicksImp (): AxisTick[] {
-    const { realFrom, realTo, from } = this.getRange()
+    const { realFrom, realTo } = this.getRange()
     const chartStore = this.getParent().getChart().getChartStore()
     const formatDate = chartStore.getInnerFormatter().formatDate
-    const period = chartStore.getPeriod()
     const ticks: AxisTick[] = []
 
-    const barSpace = chartStore.getBarSpace().bar
-    const textStyles = chartStore.getStyles().xAxis.tickText
-    const tickTextWidth = Math.max(calcTextWidth('YYYY-MM-DD HH:mm:ss', textStyles.size, textStyles.weight, textStyles.family), this.getBounding().width / 8)
-    let tickBetweenBarCount = Math.ceil(tickTextWidth / barSpace)
-    if (tickBetweenBarCount % 2 !== 0) {
-      tickBetweenBarCount += 1
-    }
-    const startDataIndex = Math.max(0, Math.floor(realFrom / tickBetweenBarCount) * tickBetweenBarCount)
+    const dataList = chartStore.getDataList()
+    if (dataList.length > 0) {
+      const textStyles = chartStore.getStyles().xAxis.tickText
+      // ALTD-1915.5 tail: "Show seconds" puts `:ss` on every time label.
+      const withSeconds = chartStore.getShowSeconds() || chartStore.getPeriod()?.type === 'second'
+      // TradingView adds a finer level once its labels would be about 80px
+      // apart at a 12px font (78px: no, 84px: yes); seconds need more room.
+      const minSpacing = Math.max(
+        textStyles.size * 20 / 3,
+        calcTextWidth(withSeconds ? '00:00:00' : '00:00', textStyles.size, 'bold', textStyles.family) + textStyles.size * 3
+      )
+      const minBarsBetween = Math.max(1, Math.ceil(minSpacing / chartStore.getBarSpace().bar))
 
-    // ALTD-1915.5 tail — when the user opts into "Show seconds",
-    // append `:ss` on the sub-hour periods (`minute` / `hour`).
-    // `second` already includes seconds; day+ have no HH:mm to
-    // extend.
-    // ALTD-1915.5 tail — when the user opts into "Show seconds",
-    // append `:ss` on the sub-hour periods (`minute` / `hour`).
-    // `second` already includes seconds; day+ have no HH:mm to
-    // extend.
-    const periodType = period?.type ?? 'day'
-    let format = PeriodTypeXAxisFormat[periodType]
-    if (chartStore.getShowSeconds() && (periodType === 'minute' || periodType === 'hour')) {
-      format = `${format}:ss`
-    }
-
-    for (let i = startDataIndex; i < realTo; i += tickBetweenBarCount) {
-      if (i >= from) {
-        const timestamp = chartStore.dataIndexToTimestamp(i)
+      // Run past both ends of what's visible, so a label at the edge isn't
+      // one that only won because its heavier neighbour was cut off. Rounded
+      // out to blocks so panning near an edge doesn't redo the whole series
+      // every frame.
+      const block = 256
+      const first = Math.min(0, Math.floor((realFrom - minBarsBetween) / block) * block)
+      const last = Math.max(dataList.length - 1, Math.ceil((realTo + minBarsBetween) / block) * block)
+      const marks = this._tickMarks(first, last, minBarsBetween)
+      const visible = marks.filter(m => m.index >= realFrom && m.index < realTo)
+      const bold = boldWeightThreshold(visible)
+      const width = this.getBounding().width
+      // Panning re-labels the same timestamps every frame; formatting and
+      // measuring them is cached until the font, timezone or formatter changes.
+      const labelsKey = `${textStyles.size}|${textStyles.weight}|${textStyles.family}|${withSeconds}`
+      const userFormatDate = chartStore.getFormatter().formatDate
+      if (labelsKey !== this._labelsKey || this._labelsFormat !== chartStore.getDateTimeFormat() || this._labelsFormatter !== userFormatDate || this._labels.size > 5000) {
+        this._labels.clear()
+        this._labelsKey = labelsKey
+        this._labelsFormat = chartStore.getDateTimeFormat()
+        this._labelsFormatter = userFormatDate
+      }
+      for (const mark of visible) {
+        const timestamp = chartStore.dataIndexToTimestamp(mark.index)
         if (isNumber(timestamp)) {
-          ticks.push({
-            coord: this.convertToPixel(i),
-            value: timestamp,
-            text: formatDate(timestamp, format, 'xAxis')
-          })
+          const coord = this.convertToPixel(mark.index)
+          const isBold = mark.weight >= bold
+          const cacheKey = `${timestamp}|${mark.weight}|${isBold}`
+          let label = this._labels.get(cacheKey)
+          if (label === undefined) {
+            const text = formatDate(timestamp, timeMarkTemplate(mark.weight, withSeconds), 'xAxis')
+            label = { text, half: calcTextWidth(text, textStyles.size, isBold ? 'bold' : textStyles.weight, textStyles.family) / 2 }
+            this._labels.set(cacheKey, label)
+          }
+          // A label the edge would cut in half (`un` for `Jun`) is left out.
+          if (coord - label.half < 0 || coord + label.half > width) continue
+          ticks.push({ coord, value: timestamp, text: label.text, bold: isBold })
         }
       }
     }
@@ -122,6 +141,51 @@ export default abstract class XAxisImp extends AxisImp implements XAxis {
       })
     }
     return ticks
+  }
+
+  private readonly _labels = new Map<string, { text: string, half: number }>()
+  private _labelsKey = ''
+  private _labelsFormat: Nullable<Intl.DateTimeFormat> = null
+  private _labelsFormatter: unknown = null
+  private _clock: Nullable<LocalClock> = null
+  private _weightsKey = ''
+  private _weights: number[] = []
+  private _marksKey = ''
+  private _marks: TimeTickMark[] = []
+
+  /**
+   * Tick marks over bars `first..last`, cached: bar weights only change with
+   * the data, period or timezone, and the selection only with the zoom.
+   */
+  private _tickMarks (first: number, last: number, minBarsBetween: number): TimeTickMark[] {
+    const chartStore = this.getParent().getChart().getChartStore()
+    const format = chartStore.getDateTimeFormat()
+    if (this._clock?.format !== format) {
+      this._clock = new LocalClock(format)
+      this._weightsKey = ''
+    }
+    const dataList = chartStore.getDataList()
+    const period = chartStore.getPeriod()
+    const weightsKey = `${first}|${last}|${dataList.length}|${dataList[0].timestamp}|${dataList[dataList.length - 1].timestamp}|${period?.type}${period?.span}`
+    if (weightsKey !== this._weightsKey) {
+      const clock = this._clock
+      const weights = new Array<number>(last - first + 1)
+      let prev = clock.get(chartStore.dataIndexToTimestamp(first - 1) ?? 0)
+      for (let i = first; i <= last; i++) {
+        const cur = clock.get(chartStore.dataIndexToTimestamp(i) ?? 0)
+        weights[i - first] = timeMarkWeight(prev, cur)
+        prev = cur
+      }
+      this._weights = weights
+      this._weightsKey = weightsKey
+      this._marksKey = ''
+    }
+    const marksKey = `${weightsKey}|${minBarsBetween}`
+    if (marksKey !== this._marksKey) {
+      this._marks = selectTimeTickMarks(this._weights, minBarsBetween).map(m => ({ index: m.index + first, weight: m.weight }))
+      this._marksKey = marksKey
+    }
+    return this._marks
   }
 
   override getAutoSize (): number {
