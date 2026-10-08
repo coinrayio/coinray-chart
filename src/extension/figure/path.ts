@@ -13,7 +13,6 @@
  */
 
 import type { PathStyle } from '../../common/Styles'
-import { isValid } from '../../common/utils/typeChecks'
 
 import type { FigureTemplate } from '../../component/Figure'
 import { checkCoordinateOnRect } from './rect'
@@ -116,6 +115,58 @@ function ellipticalArcToBezier (cx: number, cy: number, rx: number, ry: number, 
   return [cp1x, cp1y, cp2x, cp2y, x2, y2]
 }
 
+// Argument counts per SVG command. After consuming the first chunk for an
+// M/m, subsequent chunks within the same command letter are treated as
+// implicit L/l per SVG spec.
+const CMD_ARITY: Record<string, number> = {
+  M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0
+}
+
+interface PathCommand {
+  type: string
+  args: number[]
+}
+
+// Legend icons are drawn every frame from the same few path strings, so a
+// path is parsed once and its commands replayed.
+const parsedPaths = new Map<string, PathCommand[]>()
+
+function parsePath (path: string): PathCommand[] {
+  let parsed = parsedPaths.get(path)
+  if (parsed !== undefined) return parsed
+  parsed = []
+  const commands = path.match(/[MLHVCSQTAZ][^MLHVCSQTAZ]*/gi) ?? []
+  // SVG number regex — matches optional sign + integer / decimal
+  // (with optional leading dot) + optional exponent. This handles
+  // compressed coords like `-.17.2-.17-.2` where consecutive
+  // numbers share no whitespace separator (the previous
+  // split-on-whitespace approach failed on these).
+  const numberRe = /[+-]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/g
+  for (const command of commands) {
+    const cmdType = command[0]
+    if (cmdType.toUpperCase() === 'Z') {
+      parsed.push({ type: 'Z', args: [] })
+      continue
+    }
+    const arity = CMD_ARITY[cmdType.toUpperCase()] ?? 0
+    if (arity === 0) continue
+    const allArgs = (command.slice(1).match(numberRe) ?? []).map(Number)
+    // Iterate args in arity-sized chunks. For M / m the first
+    // chunk is the move; subsequent chunks become implicit
+    // L / l per SVG spec.
+    let effectiveType = cmdType
+    for (let i = 0; i + arity <= allArgs.length; i += arity) {
+      parsed.push({ type: effectiveType, args: allArgs.slice(i, i + arity) })
+      if (i === 0 && (cmdType === 'M' || cmdType === 'm')) {
+        effectiveType = cmdType === 'M' ? 'L' : 'l'
+      }
+    }
+  }
+  if (parsedPaths.size > 500) parsedPaths.clear()
+  parsedPaths.set(path, parsed)
+  return parsed
+}
+
 export function drawPath (ctx: CanvasRenderingContext2D, attrs: PathAttrs | PathAttrs[], styles: Partial<PathStyle>): void {
   let paths: PathAttrs[] = []
   paths = paths.concat(attrs)
@@ -125,8 +176,8 @@ export function drawPath (ctx: CanvasRenderingContext2D, attrs: PathAttrs | Path
   ctx.fillStyle = color
   ctx.setLineDash([])
   paths.forEach(({ x, y, path }) => {
-    const commands = path.match(/[MLHVCSQTAZ][^MLHVCSQTAZ]*/gi)
-    if (isValid(commands)) {
+    const commands = parsePath(path)
+    if (commands.length > 0) {
       const offsetX = x
       const offsetY = y
       // Cursor + subpath-start persist across commands — relative
@@ -137,165 +188,137 @@ export function drawPath (ctx: CanvasRenderingContext2D, attrs: PathAttrs | Path
       let startX = 0
       let startY = 0
       ctx.beginPath()
-      // Argument counts per SVG command. After consuming the first
-      // chunk for an M/m, subsequent chunks within the same command
-      // letter are treated as implicit L/l per SVG spec.
-      const CMD_ARITY: Record<string, number> = {
-        M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0
+      // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target: per frame, per icon
+      for (let c = 0; c < commands.length; c++) {
+        const { type, args } = commands[c]
+        switch (type) {
+          case 'Z':
+            ctx.closePath()
+            currentX = startX
+            currentY = startY
+            break
+          case 'M':
+            currentX = args[0] + offsetX
+            currentY = args[1] + offsetY
+            ctx.moveTo(currentX, currentY)
+            startX = currentX
+            startY = currentY
+            break
+          case 'm':
+            currentX += args[0]
+            currentY += args[1]
+            ctx.moveTo(currentX, currentY)
+            startX = currentX
+            startY = currentY
+            break
+          case 'L':
+            currentX = args[0] + offsetX
+            currentY = args[1] + offsetY
+            ctx.lineTo(currentX, currentY)
+            break
+          case 'l':
+            currentX += args[0]
+            currentY += args[1]
+            ctx.lineTo(currentX, currentY)
+            break
+          case 'H':
+            currentX = args[0] + offsetX
+            ctx.lineTo(currentX, currentY)
+            break
+          case 'h':
+            currentX += args[0]
+            ctx.lineTo(currentX, currentY)
+            break
+          case 'V':
+            currentY = args[0] + offsetY
+            ctx.lineTo(currentX, currentY)
+            break
+          case 'v':
+            currentY += args[0]
+            ctx.lineTo(currentX, currentY)
+            break
+          case 'C':
+            ctx.bezierCurveTo(
+              args[0] + offsetX, args[1] + offsetY,
+              args[2] + offsetX, args[3] + offsetY,
+              args[4] + offsetX, args[5] + offsetY
+            )
+            currentX = args[4] + offsetX
+            currentY = args[5] + offsetY
+            break
+          case 'c':
+            ctx.bezierCurveTo(
+              currentX + args[0], currentY + args[1],
+              currentX + args[2], currentY + args[3],
+              currentX + args[4], currentY + args[5]
+            )
+            currentX += args[4]
+            currentY += args[5]
+            break
+          case 'S':
+            ctx.bezierCurveTo(
+              currentX, currentY,
+              args[0] + offsetX, args[1] + offsetY,
+              args[2] + offsetX, args[3] + offsetY
+            )
+            currentX = args[2] + offsetX
+            currentY = args[3] + offsetY
+            break
+          case 's':
+            ctx.bezierCurveTo(
+              currentX, currentY,
+              currentX + args[0], currentY + args[1],
+              currentX + args[2], currentY + args[3]
+            )
+            currentX += args[2]
+            currentY += args[3]
+            break
+          case 'Q':
+            ctx.quadraticCurveTo(
+              args[0] + offsetX, args[1] + offsetY,
+              args[2] + offsetX, args[3] + offsetY
+            )
+            currentX = args[2] + offsetX
+            currentY = args[3] + offsetY
+            break
+          case 'q':
+            ctx.quadraticCurveTo(
+              currentX + args[0], currentY + args[1],
+              currentX + args[2], currentY + args[3]
+            )
+            currentX += args[2]
+            currentY += args[3]
+            break
+          case 'T':
+            ctx.quadraticCurveTo(
+              currentX, currentY,
+              args[0] + offsetX, args[1] + offsetY
+            )
+            currentX = args[0] + offsetX
+            currentY = args[1] + offsetY
+            break
+          case 't':
+            ctx.quadraticCurveTo(
+              currentX, currentY,
+              currentX + args[0], currentY + args[1]
+            )
+            currentX += args[0]
+            currentY += args[1]
+            break
+          case 'A':
+            // reference https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
+            drawEllipticalArc(ctx, currentX, currentY, args, offsetX, offsetY, false)
+            currentX = args[5] + offsetX
+            currentY = args[6] + offsetY
+            break
+          case 'a':
+            drawEllipticalArc(ctx, currentX, currentY, args, offsetX, offsetY, true)
+            currentX += args[5]
+            currentY += args[6]
+            break
+          default: { break }
+        }
       }
-      // SVG number regex — matches optional sign + integer / decimal
-      // (with optional leading dot) + optional exponent. This handles
-      // compressed coords like `-.17.2-.17-.2` where consecutive
-      // numbers share no whitespace separator (the previous
-      // split-on-whitespace approach failed on these).
-      const numberRe = /[+-]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?/g
-      commands.forEach(command => {
-        const cmdType = command[0]
-        const rawNumbers = command.slice(1).match(numberRe) ?? []
-        const allArgs = rawNumbers.map(Number)
-        // Z / z has no args — close and return.
-        if (cmdType.toUpperCase() === 'Z') {
-          ctx.closePath()
-          currentX = startX
-          currentY = startY
-          return
-        }
-        const arity = CMD_ARITY[cmdType.toUpperCase()] ?? 0
-        if (arity === 0) return
-        // Iterate args in arity-sized chunks. For M / m the first
-        // chunk is the move; subsequent chunks become implicit
-        // L / l per SVG spec.
-        let effectiveType = cmdType
-        for (let i = 0; i + arity <= allArgs.length; i += arity) {
-          const args = allArgs.slice(i, i + arity)
-          const type = effectiveType
-          if (i === 0 && (cmdType === 'M' || cmdType === 'm')) {
-            effectiveType = cmdType === 'M' ? 'L' : 'l'
-          }
-          switch (type) {
-            case 'M':
-              currentX = args[0] + offsetX
-              currentY = args[1] + offsetY
-              ctx.moveTo(currentX, currentY)
-              startX = currentX
-              startY = currentY
-              break
-            case 'm':
-              currentX += args[0]
-              currentY += args[1]
-              ctx.moveTo(currentX, currentY)
-              startX = currentX
-              startY = currentY
-              break
-            case 'L':
-              currentX = args[0] + offsetX
-              currentY = args[1] + offsetY
-              ctx.lineTo(currentX, currentY)
-              break
-            case 'l':
-              currentX += args[0]
-              currentY += args[1]
-              ctx.lineTo(currentX, currentY)
-              break
-            case 'H':
-              currentX = args[0] + offsetX
-              ctx.lineTo(currentX, currentY)
-              break
-            case 'h':
-              currentX += args[0]
-              ctx.lineTo(currentX, currentY)
-              break
-            case 'V':
-              currentY = args[0] + offsetY
-              ctx.lineTo(currentX, currentY)
-              break
-            case 'v':
-              currentY += args[0]
-              ctx.lineTo(currentX, currentY)
-              break
-            case 'C':
-              ctx.bezierCurveTo(
-                args[0] + offsetX, args[1] + offsetY,
-                args[2] + offsetX, args[3] + offsetY,
-                args[4] + offsetX, args[5] + offsetY
-              )
-              currentX = args[4] + offsetX
-              currentY = args[5] + offsetY
-              break
-            case 'c':
-              ctx.bezierCurveTo(
-                currentX + args[0], currentY + args[1],
-                currentX + args[2], currentY + args[3],
-                currentX + args[4], currentY + args[5]
-              )
-              currentX += args[4]
-              currentY += args[5]
-              break
-            case 'S':
-              ctx.bezierCurveTo(
-                currentX, currentY,
-                args[0] + offsetX, args[1] + offsetY,
-                args[2] + offsetX, args[3] + offsetY
-              )
-              currentX = args[2] + offsetX
-              currentY = args[3] + offsetY
-              break
-            case 's':
-              ctx.bezierCurveTo(
-                currentX, currentY,
-                currentX + args[0], currentY + args[1],
-                currentX + args[2], currentY + args[3]
-              )
-              currentX += args[2]
-              currentY += args[3]
-              break
-            case 'Q':
-              ctx.quadraticCurveTo(
-                args[0] + offsetX, args[1] + offsetY,
-                args[2] + offsetX, args[3] + offsetY
-              )
-              currentX = args[2] + offsetX
-              currentY = args[3] + offsetY
-              break
-            case 'q':
-              ctx.quadraticCurveTo(
-                currentX + args[0], currentY + args[1],
-                currentX + args[2], currentY + args[3]
-              )
-              currentX += args[2]
-              currentY += args[3]
-              break
-            case 'T':
-              ctx.quadraticCurveTo(
-                currentX, currentY,
-                args[0] + offsetX, args[1] + offsetY
-              )
-              currentX = args[0] + offsetX
-              currentY = args[1] + offsetY
-              break
-            case 't':
-              ctx.quadraticCurveTo(
-                currentX, currentY,
-                currentX + args[0], currentY + args[1]
-              )
-              currentX += args[0]
-              currentY += args[1]
-              break
-            case 'A':
-              // reference https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
-              drawEllipticalArc(ctx, currentX, currentY, args, offsetX, offsetY, false)
-              currentX = args[5] + offsetX
-              currentY = args[6] + offsetY
-              break
-            case 'a':
-              drawEllipticalArc(ctx, currentX, currentY, args, offsetX, offsetY, true)
-              currentX += args[5]
-              currentY += args[6]
-              break
-            default: { break }
-          }
-        }
-      })
       if (styles.style === 'fill') {
         ctx.fill(fillRule)
       } else {

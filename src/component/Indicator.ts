@@ -17,7 +17,6 @@ import type DeepPartial from '../common/DeepPartial'
 import type ExcludePickPartial from '../common/ExcludePickPartial'
 import type { KLineData, NeighborData } from '../common/Data'
 import type Bounding from '../common/Bounding'
-import type BarSpace from '../common/BarSpace'
 import type Crosshair from '../common/Crosshair'
 import type { IndicatorStyle, IndicatorPolygonStyle, SmoothLineStyle, RectStyle, TextStyle, TooltipFeatureStyle, LineStyle, LineType, TooltipLegend } from '../common/Styles'
 import { isNumber, isValid, merge, isBoolean, isString, clone, isFunction } from '../common/utils/typeChecks'
@@ -39,22 +38,12 @@ export type IndicatorFigureStyle = Partial<Omit<SmoothLineStyle, 'style'>> & Par
 
 export type IndicatorFigureAttrs = Partial<ArcAttrs> & Partial<LineStyle> & Partial<RectAttrs> & Partial<TextAttrs> & Record<string, unknown>
 
-export interface IndicatorFigureAttrsCallbackParams<D> {
-  data: NeighborData<Nullable<D>>
-  coordinate: NeighborData<Record<keyof D, number> & { x: number }>
-  bounding: Bounding
-  barSpace: BarSpace
-  xAxis: XAxis
-  yAxis: YAxis
-}
-
 export interface IndicatorFigureStylesCallbackParams<D> {
   data: NeighborData<Nullable<D>>
   indicator: Indicator<D>
   defaultStyles?: IndicatorStyle
 }
 
-export type IndicatorFigureAttrsCallback<D> = (params: IndicatorFigureAttrsCallbackParams<D>) => IndicatorFigureAttrs
 export type IndicatorFigureStylesCallback<D> = (params: IndicatorFigureStylesCallbackParams<D>) => IndicatorFigureStyle
 
 export interface IndicatorFigure<D = unknown> {
@@ -62,7 +51,11 @@ export interface IndicatorFigure<D = unknown> {
   title?: string
   type?: string
   baseValue?: number
-  attrs?: IndicatorFigureAttrsCallback<D>
+  /**
+   * Per-bar style. Evaluated once per bar and cached until the result, the
+   * figures, the indicator or the chart's styles change, so it must depend only
+   * on its params.
+   */
   styles?: IndicatorFigureStylesCallback<D>
 }
 
@@ -301,21 +294,69 @@ export function getFigureDefaults (indicator: Indicator, defaultStyles: Indicato
   return defaults
 }
 
+// Per-bar figure styles are cached. A figure's `styles` callback is a function
+// of its bar's data, the indicator and the chart's indicator styles, so it is
+// evaluated once per bar, not once per frame: panning would otherwise re-run it
+// for every visible bar on every frame. The cache is dropped when the result
+// array, the figures, the indicator (any `override`) or any chart's styles
+// change. A callback must therefore not read anything else that changes.
+let stylesEpoch = 0
+
+/** Drops every cached figure style; called when a chart's styles change. */
+export function invalidateFigureStyles (): void {
+  stylesEpoch++
+}
+
+const revisions = new WeakMap<object, number>()
+
+interface FigureStyleCache {
+  result: unknown[]
+  figures: unknown[]
+  revision: number
+  epoch: number
+  defaultStyles: IndicatorStyle
+  // [figure position in the defaults][dataIndex]
+  styles: Array<Array<IndicatorFigureStyle | undefined>>
+}
+
+const figureStyleCaches = new WeakMap<object, FigureStyleCache>()
+
+function figureStyleCache (indicator: Indicator, defaultStyles: IndicatorStyle): FigureStyleCache {
+  const revision = revisions.get(indicator) ?? 0
+  let cache = figureStyleCaches.get(indicator)
+  if (
+    cache?.result !== indicator.result ||
+    cache.figures !== indicator.figures ||
+    cache.revision !== revision ||
+    cache.epoch !== stylesEpoch ||
+    cache.defaultStyles !== defaultStyles
+  ) {
+    cache = { result: indicator.result, figures: indicator.figures, revision, epoch: stylesEpoch, defaultStyles, styles: [] }
+    figureStyleCaches.set(indicator, cache)
+  }
+  return cache
+}
+
 /**
- * Calls back once per typed figure with its style at `dataIndex`. The style
- * object is shared between bars when the figure has no `styles` callback, so a
- * callback must not mutate it.
+ * The style of `figureDefaults[position]` at `dataIndex`. When the figure has
+ * no `styles` callback this is the shared default object, so it must not be
+ * mutated.
  */
-export function eachFigures<D = unknown> (
+export function figureStyleAt (
   indicator: Indicator,
+  figureDefaults: IndicatorFigureDefaults[],
+  position: number,
   dataIndex: number,
-  defaultStyles: IndicatorStyle,
-  eachFigureCallback: EachFigureCallback<D>,
-  figureDefaults: IndicatorFigureDefaults[] = getFigureDefaults(indicator, defaultStyles)
-): void {
-  const result = indicator.result
-  for (const { figure, styles, index } of figureDefaults) {
-    const ss = figure.styles?.({
+  defaultStyles: IndicatorStyle
+): IndicatorFigureStyle {
+  const { figure, styles } = figureDefaults[position]
+  if (!isFunction(figure.styles)) return styles
+  const cache = figureStyleCache(indicator, defaultStyles)
+  const forFigure = (cache.styles[position] ??= [])
+  let style = dataIndex >= 0 ? forFigure[dataIndex] : undefined
+  if (style === undefined) {
+    const result = indicator.result
+    const ss = figure.styles({
       data: {
         prev: result[dataIndex - 1],
         current: result[dataIndex],
@@ -324,7 +365,26 @@ export function eachFigures<D = unknown> (
       indicator,
       defaultStyles
     })
-    eachFigureCallback(figure as IndicatorFigure<D>, isValid(ss) ? { ...styles, ...ss } : styles, index)
+    style = isValid(ss) ? { ...styles, ...ss } : styles
+    if (dataIndex >= 0) forFigure[dataIndex] = style
+  }
+  return style
+}
+
+/**
+ * Calls back once per typed figure with its style at `dataIndex`. The style
+ * object is shared between bars, so a callback must not mutate it.
+ */
+export function eachFigures<D = unknown> (
+  indicator: Indicator,
+  dataIndex: number,
+  defaultStyles: IndicatorStyle,
+  eachFigureCallback: EachFigureCallback<D>,
+  figureDefaults: IndicatorFigureDefaults[] = getFigureDefaults(indicator, defaultStyles)
+): void {
+  for (let i = 0; i < figureDefaults.length; i++) {
+    const { figure, index } = figureDefaults[i]
+    eachFigureCallback(figure as IndicatorFigure<D>, figureStyleAt(indicator, figureDefaults, i, dataIndex, defaultStyles), index)
   }
 }
 
@@ -383,6 +443,7 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
   }
 
   override (indicator: Partial<Indicator<D, C, E>>): void {
+    revisions.set(this, (revisions.get(this) ?? 0) + 1)
     const { result, ...currentOthers } = this
     this._prevIndicator = { ...clone(currentOthers), result }
     const {

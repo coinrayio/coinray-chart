@@ -43,6 +43,7 @@ import type { Options, Formatter, ThousandsSeparator, DecimalFold, BarSpaceLimit
 
 import type { IndicatorOverride, IndicatorCreate, IndicatorFilter } from './component/Indicator'
 import type IndicatorImp from './component/Indicator'
+import { invalidateFigureStyles } from './component/Indicator'
 import { getIndicatorClass } from './extension/indicator/index'
 
 import type OverlayImp from './component/Overlay'
@@ -635,6 +636,7 @@ export default class StoreImp implements Store {
       styles = value
     }
     merge(this._styles, styles)
+    invalidateFigureStyles()
     // `candle.tooltip.custom` should override
     if (isArray(styles?.candle?.tooltip?.legend?.template)) {
       this._styles.candle.tooltip.legend.template = styles.candle.tooltip.legend.template as TooltipLegend[]

@@ -18,7 +18,7 @@ import { formatValue } from '../common/utils/format'
 import { isNumber, isString, isValid } from '../common/utils/typeChecks'
 import type Coordinate from '../common/Coordinate'
 
-import { eachFigures, getFigureDefaults, type IndicatorFigure, type IndicatorFigureAttrs, type IndicatorFigureStyle } from '../component/Indicator'
+import { figureStyleAt, getFigureDefaults, type IndicatorFigureStyle } from '../component/Indicator'
 import type { RectAttrs } from '../extension/figure/rect'
 import RectBatch from '../common/RectBatch'
 
@@ -102,161 +102,135 @@ export default class IndicatorView extends CandleBarView {
         const figureDefaults = isCover ? [] : getFigureDefaults(indicator, defaultStyles)
         if (figureDefaults.length > 0) {
           const result = indicator.result
-          const lines: Array<Array<{ coordinates: Coordinate[], styles: Partial<SmoothLineStyle> }>> = []
-          // Plain filled bars (histograms) paint per colour at the end; anything
-          // with a border, a radius or a gradient still draws as a figure.
-          const bars = new RectBatch()
+          const visibleBars = chartStore.getVisibleRangeDataList()
+          const barSpace = chartStore.getBarSpace()
+          const { bar, halfGapBar } = barSpace
 
-          this.eachChildren((data, barSpace) => {
-            const { bar, halfGapBar } = barSpace
-            const { dataIndex, x } = data
-            const prevX = xAxis.convertToPixel(dataIndex - 1)
-            const nextX = xAxis.convertToPixel(dataIndex + 1)
-            const prevData = result[dataIndex - 1] ?? null
-            const currentData = result[dataIndex] ?? null
-            const nextData = result[dataIndex + 1] ?? null
-            const prevCoordinate = { x: prevX }
-            const currentCoordinate = { x }
-            const nextCoordinate = { x: nextX }
-            indicator.figures.forEach(({ key }) => {
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-              const prevValue = prevData?.[key]
-              if (isNumber(prevValue)) {
-                prevCoordinate[key] = yAxis.convertToPixel(prevValue)
-              }
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-              const currentValue = currentData?.[key]
-              if (isNumber(currentValue)) {
-                currentCoordinate[key] = yAxis.convertToPixel(currentValue)
-              }
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-              const nextValue = nextData?.[key]
-              if (isNumber(nextValue)) {
-                nextCoordinate[key] = yAxis.convertToPixel(nextValue)
-              }
-            })
-            eachFigures(indicator, dataIndex, defaultStyles, (figure: IndicatorFigure, figureStyles: IndicatorFigureStyle, figureIndex: number) => {
-              if (isValid(currentData?.[figure.key])) {
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-                const valueY = currentCoordinate[figure.key]
-                let attrs = figure.attrs?.({
-                  data: { prev: prevData, current: currentData, next: nextData },
-                  coordinate: { prev: prevCoordinate, current: currentCoordinate, next: nextCoordinate },
-                  bounding,
-                  barSpace,
-                  xAxis,
-                  yAxis
-                })
-                if (!isValid<IndicatorFigureAttrs>(attrs)) {
-                  switch (figure.type) {
-                    case 'circle': {
-                      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-                      attrs = { x, y: valueY, r: Math.max(1, halfGapBar) }
-                      break
-                    }
-                    case 'rect':
-                    case 'bar': {
-                      const baseValue = figure.baseValue ?? yAxis.getRange().from
-                      const baseValueY = yAxis.convertToPixel(baseValue)
-                      let height = Math.abs(baseValueY - (valueY as number))
-                      if (baseValue !== currentData?.[figure.key]) {
-                        height = Math.max(1, height)
-                      }
-                      let y = 0
-                      if (valueY > baseValueY) {
-                        y = baseValueY
-                      } else {
-                        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-                        y = valueY
-                      }
-                      // Column plots take a FIXED 1px separator, not the
-                      // candle's proportional gap. A histogram is read as a
-                      // band — a colour ribbon like Chop Zone carries its whole
-                      // meaning in adjacent columns touching — where a candle
-                      // is read as a discrete mark and wants air around it.
-                      // Measured against TradingView / Altrady: their gap is
-                      // 1px at every bar spacing, ~85% duty, while borrowing
-                      // `halfGapBar * 2` here gave 60% at a 10px bar space.
-                      // That also loses a pixel to the floor, so a column came
-                      // out narrower than the candle above it and, being
-                      // always even, could never line up with one.
-                      const columnWidth = Math.max(1, Math.round(bar) - 1)
-                      attrs = {
-                        x: x - Math.floor(columnWidth / 2),
-                        y,
-                        width: columnWidth,
-                        height
-                      }
-                      break
-                    }
-                    case 'line': {
-                      if (!isValid(lines[figureIndex])) {
-                        lines[figureIndex] = []
-                      }
-                      if (isNumber(currentCoordinate[figure.key]) && isNumber(nextCoordinate[figure.key])) {
-                        lines[figureIndex].push({
-                          coordinates: [
-                            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-                            { x: currentCoordinate.x, y: currentCoordinate[figure.key] },
-                            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
-                            { x: nextCoordinate.x, y: nextCoordinate[figure.key] }
-                          ],
-                          styles: figureStyles as unknown as SmoothLineStyle
-                        })
-                      }
-                      break
-                    }
-                    default: { break }
+          // A bar's `next` is the following bar's `current` and the one after's
+          // `prev`, so each bar's pixel coordinates are converted once and
+          // shared. Bars are visited in ascending order and the first lookup is
+          // the first bar's own, so an array offset from it covers every lookup.
+          // Indexed loops: the engine compiles to ES5, where `for…of` and
+          // `forEach` closures cost per bar.
+          const keys = indicator.figures.map(f => f.key)
+          type BarCoordinate = Record<string, number> & { x: number }
+          const coordinates: Array<BarCoordinate | undefined> = []
+          let base = NaN
+          const coordinateAt = (dataIndex: number): BarCoordinate => {
+            if (Number.isNaN(base)) base = dataIndex
+            let coordinate = coordinates[dataIndex - base]
+            if (coordinate === undefined) {
+              coordinate = { x: xAxis.convertToPixel(dataIndex) }
+              const values = result[dataIndex] as Nullable<Record<string, unknown>>
+              if (isValid(values)) {
+                // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
+                for (let k = 0; k < keys.length; k++) {
+                  const value = values[keys[k]]
+                  if (isNumber(value)) {
+                    coordinate[keys[k]] = yAxis.convertToPixel(value)
                   }
                 }
-                const type = figure.type!
-                if (isValid<IndicatorFigureAttrs>(attrs) && type === 'bar' && isPlainFill(figureStyles)) {
-                  const color = figureStyles.color as string
-                  ;([] as RectAttrs[]).concat(attrs as RectAttrs | RectAttrs[]).forEach(r => { bars.fill(figureIndex, color, r) })
-                } else if (isValid<IndicatorFigureAttrs>(attrs) && type !== 'line') {
+              }
+              if (dataIndex >= base) coordinates[dataIndex - base] = coordinate
+            }
+            return coordinate
+          }
+
+          // Circles and bars, bar by bar and figure by figure as they have always
+          // been drawn, so overlapping shapes stack the same way. Plain filled
+          // bars (histograms) paint per colour at the end; anything with a
+          // border, a radius or a gradient still draws as a figure.
+          const shapes: number[] = []
+          const lineFigures: number[] = []
+          figureDefaults.forEach(({ figure }, position) => {
+            if (figure.type === 'line') lineFigures.push(position)
+            else if (figure.type === 'circle' || figure.type === 'bar' || figure.type === 'rect') shapes.push(position)
+          })
+          const bars = new RectBatch()
+          if (shapes.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
+            for (let v = 0; v < visibleBars.length; v++) {
+              const { dataIndex, x } = visibleBars[v]
+              const currentData = result[dataIndex] as Nullable<Record<string, unknown>>
+              if (!isValid(currentData)) continue
+              const currentCoordinate = coordinateAt(dataIndex)
+              // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
+              for (let f = 0; f < shapes.length; f++) {
+                const position = shapes[f]
+                const { figure, index: figureIndex } = figureDefaults[position]
+                const value = currentData[figure.key]
+                if (!isValid(value)) continue
+                const figureStyles = figureStyleAt(indicator, figureDefaults, position, dataIndex, defaultStyles)
+                const valueY = currentCoordinate[figure.key]
+                if (figure.type === 'circle') {
                   this.createFigure({
-                    name: type === 'bar' ? 'rect' : type,
-                    attrs,
+                    name: 'circle',
+                    attrs: { x, y: valueY, r: Math.max(1, halfGapBar) },
                     styles: figureStyles
                   })?.draw(ctx)
+                  continue
+                }
+                const baseValue = figure.baseValue ?? yAxis.getRange().from
+                const baseValueY = yAxis.convertToPixel(baseValue)
+                let height = Math.abs(baseValueY - valueY)
+                if (baseValue !== value) {
+                  height = Math.max(1, height)
+                }
+                const y = valueY > baseValueY ? baseValueY : valueY
+                // Column plots take a FIXED 1px separator, not the
+                // candle's proportional gap. A histogram is read as a
+                // band — a colour ribbon like Chop Zone carries its whole
+                // meaning in adjacent columns touching — where a candle
+                // is read as a discrete mark and wants air around it.
+                // Measured against TradingView / Altrady: their gap is
+                // 1px at every bar spacing, ~85% duty, while borrowing
+                // `halfGapBar * 2` here gave 60% at a 10px bar space.
+                // That also loses a pixel to the floor, so a column came
+                // out narrower than the candle above it and, being
+                // always even, could never line up with one.
+                const columnWidth = Math.max(1, Math.round(bar) - 1)
+                const rect: RectAttrs = { x: x - Math.floor(columnWidth / 2), y, width: columnWidth, height }
+                if (figure.type === 'bar' && isPlainFill(figureStyles)) {
+                  bars.fill(figureIndex, figureStyles.color as string, rect)
+                } else {
+                  this.createFigure({ name: 'rect', attrs: rect, styles: figureStyles })?.draw(ctx)
                 }
               }
-            }, figureDefaults)
-          })
+            }
+          }
           bars.draw(ctx)
 
-          // merge line and render
-          lines.forEach(items => {
-            if (items.length > 1) {
-              const mergeLines = [
-                {
-                  coordinates: [items[0].coordinates[0], items[0].coordinates[1]],
-                  styles: items[0].styles
-                }
-              ]
-              for (let i = 1; i < items.length; i++) {
-                const lastMergeLine = mergeLines[mergeLines.length - 1]
-                const current = items[i]
-                const lastMergeLineLastCoordinate = lastMergeLine.coordinates[lastMergeLine.coordinates.length - 1]
-                if (
-                  lastMergeLineLastCoordinate.x === current.coordinates[0].x &&
-                  lastMergeLineLastCoordinate.y === current.coordinates[0].y &&
-                  lastMergeLine.styles.style === current.styles.style &&
-                  lastMergeLine.styles.color === current.styles.color &&
-                  lastMergeLine.styles.size === current.styles.size &&
-                  lastMergeLine.styles.smooth === current.styles.smooth &&
-                  lastMergeLine.styles.dashedValue?.[0] === current.styles.dashedValue?.[0] &&
-                  lastMergeLine.styles.dashedValue?.[1] === current.styles.dashedValue?.[1]
-                ) {
-                  lastMergeLine.coordinates.push(current.coordinates[1])
-                } else {
-                  mergeLines.push({
-                    coordinates: [current.coordinates[0], current.coordinates[1]],
-                    styles: current.styles
-                  })
-                }
+          // Lines, figure by figure, after everything else. A segment that
+          // continues the previous one in the same style extends it into one
+          // polyline; a line of a single segment isn't drawn.
+          // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
+          for (let f = 0; f < lineFigures.length; f++) {
+            const position = lineFigures[f]
+            const key = figureDefaults[position].figure.key
+            const polylines: Array<{ coordinates: Coordinate[], styles: Partial<SmoothLineStyle> }> = []
+            let segments = 0
+            // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
+            for (let v = 0; v < visibleBars.length; v++) {
+              const { dataIndex } = visibleBars[v]
+              const currentData = result[dataIndex] as Nullable<Record<string, unknown>>
+              if (!isValid(currentData?.[key])) continue
+              const current = coordinateAt(dataIndex)
+              const next = coordinateAt(dataIndex + 1)
+              const fromY = current[key]
+              const toY = next[key]
+              if (!isNumber(fromY) || !isNumber(toY)) continue
+              const styles = figureStyleAt(indicator, figureDefaults, position, dataIndex, defaultStyles) as unknown as SmoothLineStyle
+              const last = polylines[polylines.length - 1] as typeof polylines[number] | undefined
+              const end = last?.coordinates[last.coordinates.length - 1]
+              if (last !== undefined && end?.x === current.x && end.y === fromY && isSameLineStyle(last.styles, styles)) {
+                last.coordinates.push({ x: next.x, y: toY })
+              } else {
+                polylines.push({ coordinates: [{ x: current.x, y: fromY }, { x: next.x, y: toY }], styles })
               }
-              mergeLines.forEach(({ coordinates, styles }) => {
+              segments++
+            }
+            if (segments > 1) {
+              polylines.forEach(({ coordinates, styles }) => {
                 this.createFigure({
                   name: 'line',
                   attrs: { coordinates },
@@ -264,10 +238,19 @@ export default class IndicatorView extends CandleBarView {
                 })?.draw(ctx)
               })
             }
-          })
+          }
         }
       }
     })
     ctx.restore()
   }
+}
+
+function isSameLineStyle (a: Partial<SmoothLineStyle>, b: Partial<SmoothLineStyle>): boolean {
+  return a.style === b.style &&
+    a.color === b.color &&
+    a.size === b.size &&
+    a.smooth === b.smooth &&
+    a.dashedValue?.[0] === b.dashedValue?.[0] &&
+    a.dashedValue?.[1] === b.dashedValue?.[1]
 }
