@@ -1818,6 +1818,11 @@ export default class StoreImp implements Store {
         // could only ever show the last one, and the resolved x/y may be
         // magnet-snapped.
         this.executeAction('onCrosshairChange', { ...this._crosshair, ...cr })
+      } else if (!(notExecuteAction ?? false) && this.hasAction('onCrosshairChange') && isString(prevCrosshair.paneId) && !isString(cr.paneId)) {
+        // Cleared (the pointer left the pane, or moved onto an axis): say so,
+        // with no position and no bar. Without it a listener that follows the
+        // crosshair (a cursor button, a legend) is left showing the last one.
+        this.executeAction('onCrosshairChange', {})
       }
       if (!(notInvalidate ?? false)) {
         this._chart.updatePane(UpdateLevel.Overlay)

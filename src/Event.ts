@@ -18,9 +18,10 @@ import type Coordinate from './common/Coordinate'
 import { UpdateLevel } from './common/Updater'
 import type Crosshair from './common/Crosshair'
 import { requestAnimationFrame, cancelAnimationFrame } from './common/utils/compatible'
-import { isValid } from './common/utils/typeChecks'
+import { isFunction, isValid } from './common/utils/typeChecks'
 import { yAxisWheelRangeFactor } from './common/utils/yAxisWheelZoom'
 
+import { checkOverlayFigureEvent } from './component/Overlay'
 import type { AxisRange } from './component/Axis'
 import type YAxis from './component/YAxis'
 import type XAxis from './component/XAxis'
@@ -515,8 +516,29 @@ export default class Event implements EventHandler {
     return false
   }
 
-  mouseLeaveEvent (): boolean {
-    this._chart.getChartStore().setCrosshair()
+  mouseLeaveEvent (e: MouseTouchEvent): boolean {
+    const chartStore = this._chart.getChartStore()
+    // Leaving the chart is leaving whatever was under the pointer. Without
+    // this, a hovered drawing keeps its hover (and any tooltip it draws) until
+    // the pointer comes back, and re-entering the same widget sends no enter.
+    const { widget } = this._mouseMoveTriggerWidgetInfo
+    widget?.dispatchEvent('mouseLeaveEvent', this._makeWidgetEvent(e, widget))
+    this._mouseMoveTriggerWidgetInfo = { pane: null, widget: null }
+    const hover = chartStore.getHoverOverlayInfo()
+    if (hover.overlay !== null) {
+      chartStore.setHoverOverlayInfo(
+        { paneId: hover.paneId, overlay: null, figureType: 'none', figureIndex: -1, figure: null },
+        () => false,
+        (overlay, figure) => {
+          if (isFunction(overlay.onMouseLeave) && checkOverlayFigureEvent('onMouseLeave', figure)) {
+            overlay.onMouseLeave({ chart: this._chart, overlay, figure: figure ?? undefined, ...e })
+            return true
+          }
+          return false
+        }
+      )
+    }
+    chartStore.setCrosshair()
     return true
   }
 
