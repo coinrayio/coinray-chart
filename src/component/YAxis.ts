@@ -31,6 +31,8 @@ import AxisImp, {
 import type DrawPane from '../pane/DrawPane'
 
 import { PaneIdConstants } from '../pane/types'
+import { getRebaseFactor, isBoundToAxis, isRebased } from './Indicator'
+import type IndicatorImp from './Indicator'
 
 export type YAxisTemplate = AxisTemplate
 
@@ -40,6 +42,8 @@ export interface YAxis extends Axis, Required<YAxisTemplate> {
   getPriceToBarRatio: () => Nullable<number>
   isFromZero: () => boolean
   isInCandle: () => boolean
+  /** The pane's secondary axis: auto-ranges over the indicators bound to it alone. */
+  isSecondary: () => boolean
   convertToNicePixel: (value: number) => number
 }
 
@@ -49,6 +53,8 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
   reverse = false
   inside = false
   scaleSeriesOnly = false
+  /** Set by the pane on its secondary axis, right after construction. */
+  secondary = false
   priceToBarRatio: Nullable<number> = null
   position: AxisPosition = 'right'
   gap = {
@@ -130,6 +136,14 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
   }
 
   // Ratio is in real space, the space the pixel mapping is linear in.
+  /** The pane's indicators plotted against this axis. */
+  protected getBoundIndicators (): IndicatorImp[] {
+    const parent = this.getParent()
+    const secondary = this.secondary
+    return parent.getChart().getChartStore().getIndicatorsByPaneId(parent.getId())
+      .filter(indicator => isBoundToAxis(indicator, secondary) && (!secondary || indicator.visible))
+  }
+
   private _lockFromRange (range: AxisRange): void {
     const height = this.getBounding().height
     const barSpace = this.getParent().getChart().getChartStore().getBarSpace().bar
@@ -185,7 +199,11 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     let specifyMin = Number.MAX_SAFE_INTEGER
     let specifyMax = Number.MIN_SAFE_INTEGER
     let indicatorPrecision = Number.MAX_SAFE_INTEGER
-    const indicators = chartStore.getIndicatorsByPaneId(paneId)
+    const indicators = this.getBoundIndicators()
+    // A rebased indicator is scaled to meet the candles at the left edge; the
+    // range has to cover it where it is drawn, not where its own values are.
+    const rebaseFactors = indicators.map(indicator =>
+      isRebased(indicator, paneId) ? getRebaseFactor(chart, indicator) : 1)
     // Only the candle pane has a price series to scale to; elsewhere the flag is moot.
     const seriesOnly = this.scaleSeriesOnly && this.isInCandle()
     indicators.forEach(indicator => {
@@ -247,14 +265,16 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
       if (seriesOnly) {
         return
       }
-      indicators.forEach(({ result, figures }) => {
+      indicators.forEach(({ result, figures }, position) => {
         const data = result[dataIndex] ?? {}
+        const factor = rebaseFactors[position]
         figures.forEach(figure => {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- ignore
           const value = data[figure.key]
           if (isNumber(value)) {
-            min = Math.min(min, value)
-            max = Math.max(max, value)
+            const drawn = value * factor
+            min = Math.min(min, drawn)
+            max = Math.max(max, drawn)
           }
         })
       })
@@ -335,7 +355,11 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
    * @return {boolean}
    */
   isInCandle (): boolean {
-    return this.getParent().getId() === PaneIdConstants.CANDLE
+    return !this.secondary && this.getParent().getId() === PaneIdConstants.CANDLE
+  }
+
+  isSecondary (): boolean {
+    return this.secondary
   }
 
   /**
@@ -374,10 +398,10 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     }
 
     const pane = this.getParent()
-    const height = pane.getYAxisWidget()?.getBounding().height ?? 0
+    const height = this.getBounding().height
     const chartStore = pane.getChart().getChartStore()
     const optimalTicks: AxisTick[] = []
-    const indicators = chartStore.getIndicatorsByPaneId(pane.getId())
+    const indicators = this.getBoundIndicators()
     const styles = chartStore.getStyles()
     let precision = 0
     let shouldFormatBigNumber = false
@@ -453,7 +477,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     }
 
     const priceMarkStyles = styles.candle.priceMark
-    const lastPriceMarkTextVisible = priceMarkStyles.show && priceMarkStyles.last.show && priceMarkStyles.last.text.show
+    const lastPriceMarkTextVisible = !this.secondary && priceMarkStyles.show && priceMarkStyles.last.show && priceMarkStyles.last.text.show
     let lastPriceTextWidth = 0
 
     const crosshairStyles = styles.crosshair
@@ -481,7 +505,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
       }
 
       if (crosshairHorizontalTextVisible) {
-        const indicators = chartStore.getIndicatorsByPaneId(pane.getId())
+        const indicators = this.getBoundIndicators()
         let indicatorPrecision = 0
         let shouldFormatBigNumber = false
         indicators.forEach(indicator => {
@@ -522,7 +546,14 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
   }
 
   protected override getBounding (): Bounding {
-    return this.getParent().getYAxisWidget()!.getBounding()
+    const parent = this.getParent()
+    // Both widgets span the pane's height; the secondary one is the one measured.
+    return (this.secondary ? parent.getSecondaryYAxisWidget() : null)?.getBounding() ?? parent.getYAxisWidget()!.getBounding()
+  }
+
+  private getHeight (): number {
+    const parent = this.getParent()
+    return ((this.secondary ? parent.getSecondaryYAxisWidget() : null) ?? parent.getYAxisWidget())?.getBounding().height ?? 0
   }
 
   convertFromPixel (pixel: number): number {
@@ -537,14 +568,14 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
   convertToPixel (value: number): number {
     const range = this.getRange()
     const realValue = this.valueToRealValue(value, { range })
-    const height = this.getParent().getYAxisWidget()?.getBounding().height ?? 0
+    const height = this.getHeight()
     const { realFrom, realRange } = range
     const rate = (realValue - realFrom) / realRange
     return this.reverse ? Math.round(rate * height) : Math.round((1 - rate) * height)
   }
 
   convertToNicePixel (value: number): number {
-    const height = this.getParent().getYAxisWidget()?.getBounding().height ?? 0
+    const height = this.getHeight()
     const pixel = this.convertToPixel(value)
     return Math.round(Math.max(height * 0.05, Math.min(pixel, height * 0.98)))
   }

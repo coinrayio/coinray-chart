@@ -54,7 +54,7 @@ import {
 } from './common/utils/format'
 import { calcTextWidth } from './common/utils/canvas'
 import type { ActionType } from './common/Action'
-import type { Indicator, IndicatorCreate, IndicatorSeries, IndicatorTemplate } from './component/Indicator'
+import type { Indicator, IndicatorCreate, IndicatorSeries, IndicatorTemplate, IndicatorYAxis } from './component/Indicator'
 import type { Overlay, OverlayCreate, OverlayEvent, OverlayTemplate, OverlayMode, OverlayDrawingMode, OverlayTextChangeEvent, OverlayTextChangeCallback } from './component/Overlay'
 import type { FigureTemplate } from './component/Figure'
 import { setHitAreaDebug } from './component/Figure'
@@ -224,7 +224,7 @@ export {
   // Core consumer types
   type Chart, type Nullable, type DeepPartial, type KLineData, type Point, type Styles, type Options,
   type Overlay, type OverlayCreate, type OverlayEvent, type OverlayTemplate,
-  type Indicator, type IndicatorCreate, type IndicatorTemplate,
+  type Indicator, type IndicatorCreate, type IndicatorTemplate, type IndicatorYAxis,
   type FigureTemplate,
   // Style / enum types
   type LineType, type PolygonType, type TooltipShowRule, type TooltipShowType, type FeatureType, type TooltipFeaturePosition, type CandleTooltipRectPosition,

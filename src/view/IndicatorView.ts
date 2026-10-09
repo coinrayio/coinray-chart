@@ -18,10 +18,11 @@ import { formatValue } from '../common/utils/format'
 import { isNumber, isString, isValid } from '../common/utils/typeChecks'
 import type Coordinate from '../common/Coordinate'
 
-import { figureStyleAt, getFigureDefaults, type IndicatorFigureStyle } from '../component/Indicator'
+import { figureStyleAt, getFigureDefaults, getRebaseFactor, isRebased, type IndicatorFigureStyle } from '../component/Indicator'
 import type { RectAttrs } from '../extension/figure/rect'
 import RectBatch from '../common/RectBatch'
 
+import type { YAxis } from '../component/YAxis'
 import CandleBarView, { type CandleBarOptions } from './CandleBarView'
 
 /** A bar `RectBatch` paints exactly as `drawRect` would: a solid colour fill, square corners. */
@@ -72,13 +73,19 @@ export default class IndicatorView extends CandleBarView {
     const chart = pane.getChart()
     const bounding = widget.getBounding()
     const xAxis = chart.getXAxisPane().getAxisComponent()
-    const yAxis = pane.getAxisComponent()
+    const primaryAxis = pane.getAxisComponent()
+    const secondaryAxis = pane.getSecondaryYAxis()
     const chartStore = chart.getChartStore()
     const indicators = chartStore.getIndicatorsByPaneId(pane.getId())
     const defaultStyles = chartStore.getStyles().indicator
     ctx.save()
     indicators.forEach(indicator => {
-      if (indicator.visible) {
+      // An indicator bound to the secondary axis has nothing to draw against
+      // until the pane has built it.
+      const yAxis = indicator.yAxis === 'secondary' ? secondaryAxis : primaryAxis
+      if (indicator.visible && yAxis !== null) {
+        const factor = isRebased(indicator, pane.getId()) ? getRebaseFactor(chart, indicator) : 1
+        const toPixel = (value: number): number => yAxis.convertToPixel(value * factor)
         if (indicator.zLevel < 0) {
           ctx.globalCompositeOperation = 'destination-over'
         } else {
@@ -93,7 +100,7 @@ export default class IndicatorView extends CandleBarView {
             indicator,
             bounding,
             xAxis,
-            yAxis
+            yAxis: factor === 1 ? yAxis : rebasedAxis(yAxis, factor)
           })
           ctx.restore()
         }
@@ -127,7 +134,7 @@ export default class IndicatorView extends CandleBarView {
                 for (let k = 0; k < keys.length; k++) {
                   const value = values[keys[k]]
                   if (isNumber(value)) {
-                    coordinate[keys[k]] = yAxis.convertToPixel(value)
+                    coordinate[keys[k]] = toPixel(value)
                   }
                 }
               }
@@ -170,8 +177,8 @@ export default class IndicatorView extends CandleBarView {
                   })?.draw(ctx)
                   continue
                 }
+                const baseValueY = isNumber(figure.baseValue) ? toPixel(figure.baseValue) : yAxis.convertToPixel(yAxis.getRange().from)
                 const baseValue = figure.baseValue ?? yAxis.getRange().from
-                const baseValueY = yAxis.convertToPixel(baseValue)
                 let height = Math.abs(baseValueY - valueY)
                 if (baseValue !== value) {
                   height = Math.max(1, height)
@@ -244,6 +251,18 @@ export default class IndicatorView extends CandleBarView {
     })
     ctx.restore()
   }
+}
+
+/**
+ * `yAxis` as a custom `draw` should see it for a rebased indicator: values the
+ * indicator knows convert to the pixel they are drawn at, and back.
+ */
+function rebasedAxis (yAxis: YAxis, factor: number): YAxis {
+  const axis = Object.create(yAxis) as YAxis
+  axis.convertToPixel = value => yAxis.convertToPixel(value * factor)
+  axis.convertFromPixel = pixel => yAxis.convertFromPixel(pixel) / factor
+  axis.convertToNicePixel = value => yAxis.convertToNicePixel(value * factor)
+  return axis
 }
 
 function isSameLineStyle (a: Partial<SmoothLineStyle>, b: Partial<SmoothLineStyle>): boolean {

@@ -110,6 +110,11 @@ export default abstract class DrawWidget<P extends DrawPane = DrawPane> extends 
     }
   }
 
+  /** The axis this widget draws for: the pane's own, unless the widget is the secondary y-axis. */
+  getAxis (): ReturnType<P['getAxisComponent']> {
+    return this.getPane().getAxisComponent() as ReturnType<P['getAxisComponent']>
+  }
+
   destroy (): void {
     this._mainCanvas.destroy()
     this._overlayCanvas.destroy()

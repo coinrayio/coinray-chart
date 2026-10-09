@@ -18,7 +18,7 @@ import type { SymbolInfo } from '../common/SymbolInfo'
 import { calcTextWidth } from '../common/utils/canvas'
 import { isNumber, isString, isValid } from '../common/utils/typeChecks'
 
-import { eachFigures, type Indicator, type IndicatorFigure, type IndicatorFigureStyle } from '../component/Indicator'
+import { eachFigures, getRebaseFactor, isBoundToAxis, isRebased, type Indicator, type IndicatorFigure, type IndicatorFigureStyle } from '../component/Indicator'
 import type { YAxis } from '../component/YAxis'
 
 import View from './View'
@@ -36,7 +36,8 @@ export interface NameLabelParams {
   symbol: Nullable<SymbolInfo>
   dataList: KLineData[]
   indicators: Indicator[]
-  convertToNicePixel: (value: number) => number
+  /** `indicator` is given for an indicator's label, so a rebased one can be scaled to where it is drawn. */
+  convertToNicePixel: (value: number, indicator?: Indicator) => number
 }
 
 function lastPriceColor (styles: CandleLastPriceMarkStyle, dataList: KLineData[]): string {
@@ -81,7 +82,7 @@ export function collectNameLabels ({ isCandle, styles, symbol, dataList, indicat
         if (isNumber(value)) {
           labels.push({
             text: indicator.shortName,
-            y: convertToNicePixel(value),
+            y: convertToNicePixel(value, indicator),
             color: figureStyles.color,
             style: indicatorStyles.lastValueMark.nameLabel
           })
@@ -96,22 +97,38 @@ export default class NameLabelView extends View<YAxis> {
   override drawImp (ctx: CanvasRenderingContext2D): void {
     const widget = this.getWidget()
     const pane = widget.getPane()
+    const chart = pane.getChart()
+    const chartStore = chart.getChartStore()
+    const paneIndicators = chartStore.getIndicatorsByPaneId(pane.getId())
+    const primary = pane.getAxisComponent()
+    this.drawLabels(ctx, primary, paneIndicators.filter(indicator => isBoundToAxis(indicator, false)), true)
+    const secondary = pane.getSecondaryYAxis()
+    if (secondary !== null) {
+      this.drawLabels(ctx, secondary, paneIndicators.filter(indicator => isBoundToAxis(indicator, true)), false)
+    }
+  }
+
+  private drawLabels (ctx: CanvasRenderingContext2D, yAxis: YAxis, indicators: Indicator[], isPrimary: boolean): void {
+    const widget = this.getWidget()
+    const pane = widget.getPane()
     const bounding = widget.getBounding()
-    const chartStore = pane.getChart().getChartStore()
-    const yAxis = pane.getAxisComponent()
+    const chart = pane.getChart()
+    const chartStore = chart.getChartStore()
     const labels = collectNameLabels({
-      isCandle: yAxis.isInCandle(),
+      isCandle: isPrimary && yAxis.isInCandle(),
       styles: chartStore.getStyles(),
       symbol: chartStore.getSymbol(),
       dataList: chartStore.getDataList(true),
-      indicators: chartStore.getIndicatorsByPaneId(pane.getId()),
-      convertToNicePixel: value => yAxis.convertToNicePixel(value)
+      indicators,
+      convertToNicePixel: (value, indicator) => yAxis.convertToNicePixel(
+        isValid(indicator) && isRebased(indicator, pane.getId()) ? value * getRebaseFactor(chart, indicator) : value
+      )
     })
     if (labels.length === 0) {
       return
     }
     // An inside axis overlays the main widget, so the tag sits clear of it.
-    const axisWidth = yAxis.inside ? (pane.getYAxisWidget()?.getBounding().width ?? 0) : 0
+    const axisWidth = yAxis.inside ? ((isPrimary ? pane.getYAxisWidget() : pane.getSecondaryYAxisWidget())?.getBounding().width ?? 0) : 0
     const onRight = yAxis.position === 'right'
     const x = onRight ? bounding.width - axisWidth : axisWidth
     labels.forEach(({ text, y, color, style }) => {

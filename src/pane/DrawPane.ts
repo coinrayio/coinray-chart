@@ -150,12 +150,46 @@ export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
         }
       }
     }
+    const secondaryWidget = this.getSecondaryYAxisWidget()
+    if (secondaryWidget !== null) {
+      secondaryWidget.setBounding(contentBounding)
+      if (this.getSecondaryYAxis()!.position === 'left') {
+        if (isValid(leftYAxisBounding)) {
+          secondaryWidget.setBounding({ ...leftYAxisBounding, left: 0 })
+        }
+      } else {
+        if (isValid(rightYAxisBounding)) {
+          secondaryWidget.setBounding(rightYAxisBounding)
+          if (mainBoundingValid) {
+            secondaryWidget.setBounding({
+              left: (mainBounding.left ?? 0) +
+                (mainBounding.width ?? 0) +
+                (mainBounding.right ?? 0) -
+                (rightYAxisBounding.width ?? 0)
+            })
+          }
+        }
+      }
+    }
     return this
   }
 
   getMainWidget (): DrawWidget<DrawPane<C>> { return this._mainWidget }
 
   getYAxisWidget (): Nullable<YAxisWidget> { return this._yAxisWidget }
+
+  /** The secondary y-axis, only while an indicator is bound to it. Panes without one return null. */
+  getSecondaryYAxis (): Nullable<YAxis> { return null }
+
+  /** The widget of the secondary y-axis, only while it exists. */
+  getSecondaryYAxisWidget (): Nullable<YAxisWidget> { return null }
+
+  /**
+   * Creates, updates or retires the secondary axis to match the indicators
+   * bound to it. Called by the chart's layout before any axis is measured.
+   * @return whether the axis appeared or went away
+   */
+  syncSecondaryYAxis (): boolean { return false }
 
   override updateImp (level: UpdateLevel): void {
     this._mainWidget.update(level)

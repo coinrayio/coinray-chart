@@ -112,7 +112,8 @@ export default class Event implements EventHandler {
 
   mouseWheelHortEvent (e: MouseTouchEvent, distance: number): boolean {
     // Sideways/Shift+wheel over the price axis must not scroll time; TradingView does nothing there.
-    if (this._findWidgetByEvent(e).widget?.getName() === WidgetNameConstants.Y_AXIS) {
+    const hortName = this._findWidgetByEvent(e).widget?.getName()
+    if (hortName === WidgetNameConstants.Y_AXIS || hortName === WidgetNameConstants.Y_AXIS_SECONDARY) {
       return true
     }
     const store = this._chart.getChartStore()
@@ -138,6 +139,10 @@ export default class Event implements EventHandler {
       const atCursor = event.metaKey === true || event.ctrlKey === true
       const x = atCursor ? event.x : widget!.getBounding().width
       this._chart.getChartStore().zoom(scale, { x }, 'xAxis', atCursor)
+      return true
+    }
+    if (name === WidgetNameConstants.Y_AXIS_SECONDARY) {
+      // The secondary axis auto-ranges only; swallow the wheel so the page doesn't scroll.
       return true
     }
     if (name === WidgetNameConstants.Y_AXIS) {
@@ -234,7 +239,8 @@ export default class Event implements EventHandler {
         }
         case WidgetNameConstants.SEPARATOR:
         case WidgetNameConstants.X_AXIS:
-        case WidgetNameConstants.Y_AXIS: {
+        case WidgetNameConstants.Y_AXIS:
+        case WidgetNameConstants.Y_AXIS_SECONDARY: {
           const consumed = widget.dispatchEvent('mouseMoveEvent', event)
           this._chart.getChartStore().setCrosshair()
           return consumed
@@ -975,6 +981,18 @@ export default class Event implements EventHandler {
             y >= yAxisBounding.top && y <= yAxisBounding.top + yAxisBounding.height
           ) {
             widget = yAxisWidget
+          }
+        }
+      }
+      if (!isValid(widget)) {
+        const secondaryWidget = pane.getSecondaryYAxisWidget()
+        if (secondaryWidget !== null) {
+          const secondaryBounding = secondaryWidget.getBounding()
+          if (
+            x >= secondaryBounding.left && x <= secondaryBounding.left + secondaryBounding.width &&
+            y >= secondaryBounding.top && y <= secondaryBounding.top + secondaryBounding.height
+          ) {
+            widget = secondaryWidget
           }
         }
       }
