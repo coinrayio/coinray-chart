@@ -1650,6 +1650,10 @@ export default class StoreImp implements Store {
       if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
         zoomCoordinate.x = lastBarX
       }
+    } else if (anchor === 'right_edge') {
+      // TradingView's default (right_bar_stays_on_scroll): the bar at the right
+      // edge stays there, so a gap right of the last bar scales with the zoom.
+      zoomCoordinate.x = this._totalBarSpace
     }
     const x = zoomCoordinate.x!
     const floatIndex = this.coordinateToFloatIndex(x)

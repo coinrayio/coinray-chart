@@ -9,7 +9,7 @@ outline: deep
 <!--@include: @/@views/api/references/instance/setZoomAnchor.md-->
 
 ### Parameters {#parameters}
-- `anchor: ZoomAnchor` zoom anchor point type for main and xAxis pane, supports `cursor` ， `last_bar` 和 `{ main: 'cursor' | 'last_bar', xAxis: 'cursor' | 'last_bar' }`.
+- `anchor: ZoomAnchor` zoom anchor point type for main and xAxis pane, supports `cursor`, `last_bar`, `right_edge` 和 `{ main: 'cursor' | 'last_bar' | 'right_edge', xAxis: 'cursor' | 'last_bar' | 'right_edge' }`.
 
 ### Returns {#returns}
 `setZoomAnchor` returns `undefined` .
