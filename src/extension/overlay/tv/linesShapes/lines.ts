@@ -39,6 +39,7 @@ import segment from '../../segment'
 import { channelText } from './channelText'
 import { TV_BLUE, tvDashedValue } from '../../tvLine'
 import { endCapFigures, type EndCaps } from '../../endCaps'
+import { farLineStartHandle } from '../../extraHandles'
 import { formatPrecision } from '../../../../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../../../../common/SymbolInfo'
 
@@ -116,6 +117,11 @@ function channel (name: string, second: SecondLine, look: ChannelLook): () => Pr
       name,
       totalStep: 4,
       needDefaultPointFigure: true,
+      // TV's fourth handle: the far line's other end.
+      ...farLineStartHandle((cs, x) => {
+        const { slope, y } = second(cs[0], cs[1], cs[2].y)
+        return cs[1].y + y + slope * (x - cs[1].x)
+      }),
       needDefaultXAxisFigure: true,
       needDefaultYAxisFigure: true,
       // Handle 2 only sets a price; keep it on point 1's time so it sits on the line's end.

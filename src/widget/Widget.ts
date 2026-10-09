@@ -23,6 +23,7 @@ import type Pane from '../pane/Pane'
 import { isString, merge } from '../common/utils/typeChecks'
 import type { MouseTouchEvent } from '../common/EventHandler'
 import type Nullable from '../common/Nullable'
+import type Coordinate from '../common/Coordinate'
 
 export default abstract class Widget<P extends Pane = Pane> extends Eventful implements Updater {
   /**
@@ -45,6 +46,7 @@ export default abstract class Widget<P extends Pane = Pane> extends Eventful imp
   private _cursor = 'crosshair'
 
   private _forceCursor: Nullable<string> = null
+  private _pinnedCrosshair: Nullable<Partial<Coordinate>> = null
 
   constructor (rootContainer: HTMLElement, pane: P) {
     super()
@@ -91,6 +93,15 @@ export default abstract class Widget<P extends Pane = Pane> extends Eventful imp
 
   getForceCursor (): Nullable<string> {
     return this._forceCursor
+  }
+
+  /** Where a drag in progress wants the crosshair, set during its pressed move; see `OverlayEvent.pinCrosshair`. */
+  setPinnedCrosshair (coordinate: Nullable<Partial<Coordinate>>): void {
+    this._pinnedCrosshair = coordinate
+  }
+
+  getPinnedCrosshair (): Nullable<Partial<Coordinate>> {
+    return this._pinnedCrosshair
   }
 
   update (level?: UpdateLevel): void {

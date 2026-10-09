@@ -36,6 +36,7 @@ import {
   arcCoordinates, doubleCurveCoordinates, doubleCurveHandles, ellipseCoordinates, rotatedRectangleCorners
 } from './geometry'
 import { createToolProperties, type ToolProperties } from './properties'
+import type { OverlayExtraHandle } from '../../../../component/Overlay'
 
 interface Figure { type: string, key: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }
 
@@ -76,12 +77,48 @@ const shapeLook = (border: string, fill: string): DeepPartial<OverlayProperties>
 
 const midpoint = (a: Coordinate, b: Coordinate): Coordinate => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
 
+/** Point 2's side of the axis `a`→`b` and its distance from it, along the axis's unit normal. */
+function across (a: Coordinate, b: Coordinate, c: Coordinate): { nx: number, ny: number, d: number } {
+  const len = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1e-9)
+  const nx = -(b.y - a.y) / len
+  const ny = (b.x - a.x) / len
+  return { nx, ny, d: (c.x - a.x) * nx + (c.y - a.y) * ny }
+}
+
+/**
+ * TV hides the third point's own handle on these and shows the shape's: both
+ * ends of the ellipse's minor axis, the rectangle's corners on point 2's side.
+ */
+const widthHandles: Record<string, (a: Coordinate, b: Coordinate, c: Coordinate) => OverlayExtraHandle[]> = {
+  ellipse: (a, b, c) => {
+    const { nx, ny, d } = across(a, b, c)
+    const m = midpoint(a, b)
+    return [{ x: m.x + nx * d, y: m.y + ny * d }, { x: m.x - nx * d, y: m.y - ny * d }]
+  },
+  rotatedRectangle: (a, b, c) => {
+    const { nx, ny, d } = across(a, b, c)
+    return [{ x: a.x + nx * d, y: a.y + ny * d }, { x: b.x + nx * d, y: b.y + ny * d }]
+  }
+}
+
 /** Third-point shapes: a line until the third click, then `outline` (null = still a line). `withText` adds TV's centred label. */
 function thirdPointShape (name: string, look: DeepPartial<OverlayProperties>, outline: (a: Coordinate, b: Coordinate, c: Coordinate) => Coordinate[] | null, strokeArc: boolean, withText = false): () => ProOverlayTemplate {
   return () => {
     const tool = toolWithLook(look)
+    const handles = widthHandles[name] as ((a: Coordinate, b: Coordinate, c: Coordinate) => OverlayExtraHandle[]) | undefined
     return {
       ...shapeBase(name, 4),
+      ...(handles !== undefined
+        ? {
+            needDefaultPointFigure: [0, 1],
+            createExtraHandles: ({ coordinates }) => coordinates.length < 3 ? [] : handles(coordinates[0], coordinates[1], coordinates[2]),
+            // Any of them sets the width: point 2 goes where the cursor is.
+            moveExtraHandle: ({ overlay, coordinate, toPoint }) => {
+              const q = toPoint(coordinate)
+              Object.assign(overlay.points[2], { timestamp: q.timestamp, dataIndex: q.dataIndex, value: q.value })
+            }
+          }
+        : {}),
       createPointFigures: ({ coordinates, overlay }) => {
         if (coordinates.length < 2) return []
         const [a, b] = coordinates

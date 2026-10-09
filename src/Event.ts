@@ -296,14 +296,20 @@ export default class Event implements EventHandler {
           }
           // eslint-disable-next-line @typescript-eslint/init-declarations -- ignore
           let crosshair: Crosshair | undefined
+          widget.setPinnedCrosshair(null)
           const consumed = widget.dispatchEvent('pressedMouseMoveEvent', event)
+          const pinned = widget.getPinnedCrosshair()
           if (!consumed) {
             this._processMainScrollingEvent(widget as Widget<DrawPane<YAxis>>, event)
           } else {
             // Explicitly update overlay when event was consumed (e.g., continuous drawing)
             this._chart.updatePane(UpdateLevel.Overlay)
           }
-          if (!consumed || widget.getForceCursor() === 'pointer') {
+          if (consumed && pinned !== null) {
+            // A drag that knows where its line landed (a snapped point, a
+            // price-stepped order) keeps the crosshair on it, whatever its cursor.
+            crosshair = { x: pinned.x ?? event.x, y: pinned.y ?? event.y, paneId: pane?.getId() }
+          } else if (!consumed || widget.getForceCursor() === 'pointer') {
             crosshair = { x: event.x, y: event.y, paneId: pane?.getId() }
           }
           this._chart.getChartStore().setCrosshair(crosshair, { forceInvalidate: true })
