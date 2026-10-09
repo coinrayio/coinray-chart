@@ -61,7 +61,7 @@ import { PaneIdConstants } from './pane/types'
 import type Chart from './Chart'
 
 const DEFAULT_BAR_SPACE_LIMIT = {
-  MIN: 1,
+  MIN: 0.5,
   MAX: 50
 }
 
@@ -1243,10 +1243,15 @@ export default class StoreImp implements Store {
   }
 
   setBarSpace (barSpace: number, adjustBeforeFunc?: () => void): void {
-    if (barSpace < this._barSpaceLimit.min || barSpace > this._barSpaceLimit.max || this._barSpace === barSpace) {
+    // Clamped, not refused, so a zoom reaches the limit rather than stopping a
+    // step short of it. Like TradingView, a bar is never wider than half the
+    // chart.
+    const max = this._totalBarSpace > 0 ? Math.min(this._barSpaceLimit.max, this._totalBarSpace / 2) : this._barSpaceLimit.max
+    const clamped = Math.min(Math.max(barSpace, this._barSpaceLimit.min), Math.max(max, this._barSpaceLimit.min))
+    if (!Number.isFinite(clamped) || this._barSpace === clamped) {
       return
     }
-    this._barSpace = barSpace
+    this._barSpace = clamped
     this._calcOptimalBarSpace()
     adjustBeforeFunc?.()
     this._adjustVisibleRange()
