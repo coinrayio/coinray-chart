@@ -77,4 +77,15 @@ describe('onCrosshairChange', () => {
     store.setCrosshair({ x, y: 42, paneId: 'candle_pane' })
     expect(payload).toMatchObject({ x, y: 42, kLineData: { timestamp: store.getDataList()[5].timestamp } })
   })
+
+  it('reports a clear once, with no position and no bar', () => {
+    const store = buildStore(10)
+    const payloads: unknown[] = []
+    store.subscribeAction('onCrosshairChange', (data) => { payloads.push(data) })
+    store.setCrosshair({ x: store.dataIndexToCoordinate(5), y: 42, paneId: 'candle_pane' })
+    store.setCrosshair()
+    store.setCrosshair()
+    expect(payloads).toHaveLength(2)
+    expect(payloads[1]).toEqual({})
+  })
 })

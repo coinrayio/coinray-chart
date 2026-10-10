@@ -100,3 +100,19 @@ describe('candle body width', () => {
     }
   })
 })
+
+describe('bar space limits, as TradingView', () => {
+  it('clamps to the limit instead of refusing a step past it', () => {
+    const store = storeWithBars(500)
+    store.setBarSpace(0.6)
+    store.setBarSpace(0.1)
+    expect(store.getBarSpace().bar).toBe(0.5)
+  })
+
+  it('never makes a bar wider than half the chart', () => {
+    const store = storeWithBars(500)
+    store.setBarSpaceLimit({ max: 10_000 })
+    store.setBarSpace(5000)
+    expect(store.getBarSpace().bar).toBe(550)
+  })
+})

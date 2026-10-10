@@ -18,9 +18,10 @@ import type Coordinate from './common/Coordinate'
 import { UpdateLevel } from './common/Updater'
 import type Crosshair from './common/Crosshair'
 import { requestAnimationFrame, cancelAnimationFrame } from './common/utils/compatible'
-import { isValid } from './common/utils/typeChecks'
+import { isFunction, isValid } from './common/utils/typeChecks'
 import { yAxisWheelRangeFactor } from './common/utils/yAxisWheelZoom'
 
+import { checkOverlayFigureEvent } from './component/Overlay'
 import type { AxisRange } from './component/Axis'
 import type YAxis from './component/YAxis'
 import type XAxis from './component/XAxis'
@@ -69,11 +70,11 @@ export default class Event implements EventHandler {
 
   private _prevYAxisRange: Nullable<AxisRange> = null
 
-  private _xAxisStartScaleCoordinate: Nullable<Coordinate> = null
-  private _xAxisStartScaleDistance = 0
-  private _xAxisScale = 1
+  /** An axis drag's start: the time axis' local x and bar space, the price
+   *  axis' local y. Null between drags. */
+  private _xAxisStartScale: Nullable<{ x: number, barSpace: number }> = null
 
-  private _yAxisStartScaleDistance = 0
+  private _yAxisStartScaleY: Nullable<number> = null
 
   private _mouseMoveTriggerWidgetInfo: EventTriggerWidgetInfo = { pane: null, widget: null }
 
@@ -104,7 +105,9 @@ export default class Event implements EventHandler {
       const event = this._makeWidgetEvent(e, widget)
       const zoomScale = (scale - this._pinchScale) * 5
       this._pinchScale = scale
-      this._chart.getChartStore().zoom(zoomScale, { x: event.x, y: event.y }, 'main')
+      // TradingView: a pinch zooms at the point between the fingers (fixed
+      // when it starts), whatever anchor the wheel uses.
+      this._chart.getChartStore().zoom(zoomScale, { x: event.x, y: event.y }, 'main', true)
       return true
     }
     return false
@@ -301,14 +304,20 @@ export default class Event implements EventHandler {
           }
           // eslint-disable-next-line @typescript-eslint/init-declarations -- ignore
           let crosshair: Crosshair | undefined
+          widget.setPinnedCrosshair(null)
           const consumed = widget.dispatchEvent('pressedMouseMoveEvent', event)
+          const pinned = widget.getPinnedCrosshair()
           if (!consumed) {
             this._processMainScrollingEvent(widget as Widget<DrawPane<YAxis>>, event)
           } else {
             // Explicitly update overlay when event was consumed (e.g., continuous drawing)
             this._chart.updatePane(UpdateLevel.Overlay)
           }
-          if (!consumed || widget.getForceCursor() === 'pointer') {
+          if (consumed && pinned !== null) {
+            // A drag that knows where its line landed (a snapped point, a
+            // price-stepped order) keeps the crosshair on it, whatever its cursor.
+            crosshair = { x: pinned.x ?? event.x, y: pinned.y ?? event.y, paneId: pane?.getId() }
+          } else if (!consumed || widget.getForceCursor() === 'pointer') {
             crosshair = { x: event.x, y: event.y, paneId: pane?.getId() }
           }
           this._chart.getChartStore().setCrosshair(crosshair, { forceInvalidate: true })
@@ -359,10 +368,8 @@ export default class Event implements EventHandler {
     this._mouseDownWidget = null
     this._startScrollCoordinate = null
     this._prevYAxisRange = null
-    this._xAxisStartScaleCoordinate = null
-    this._xAxisStartScaleDistance = 0
-    this._xAxisScale = 1
-    this._yAxisStartScaleDistance = 0
+    this._xAxisStartScale = null
+    this._yAxisStartScaleY = null
     return consumed
   }
 
@@ -521,8 +528,29 @@ export default class Event implements EventHandler {
     return false
   }
 
-  mouseLeaveEvent (): boolean {
-    this._chart.getChartStore().setCrosshair()
+  mouseLeaveEvent (e: MouseTouchEvent): boolean {
+    const chartStore = this._chart.getChartStore()
+    // Leaving the chart is leaving whatever was under the pointer. Without
+    // this, a hovered drawing keeps its hover (and any tooltip it draws) until
+    // the pointer comes back, and re-entering the same widget sends no enter.
+    const { widget } = this._mouseMoveTriggerWidgetInfo
+    widget?.dispatchEvent('mouseLeaveEvent', this._makeWidgetEvent(e, widget))
+    this._mouseMoveTriggerWidgetInfo = { pane: null, widget: null }
+    const hover = chartStore.getHoverOverlayInfo()
+    if (hover.overlay !== null) {
+      chartStore.setHoverOverlayInfo(
+        { paneId: hover.paneId, overlay: null, figureType: 'none', figureIndex: -1, figure: null },
+        () => false,
+        (overlay, figure) => {
+          if (isFunction(overlay.onMouseLeave) && checkOverlayFigureEvent('onMouseLeave', figure)) {
+            overlay.onMouseLeave({ chart: this._chart, overlay, figure: figure ?? undefined, ...e })
+            return true
+          }
+          return false
+        }
+      )
+    }
+    chartStore.setCrosshair()
     return true
   }
 
@@ -643,7 +671,8 @@ export default class Event implements EventHandler {
             const time = new Date().getTime() - this._flingStartTime
             const distance = event.x - this._startScrollCoordinate.x
             let v = distance / (time > 0 ? time : 1) * 20
-            if (time < 200 && Math.abs(v) > 0) {
+            // Not after a pinch: lifting the fingers isn't a flick.
+            if (!this._touchZoomed && time < 200 && Math.abs(v) > 0) {
               const store = this._chart.getChartStore()
               const flingScroll: (() => void) = () => {
                 this._flingScrollRequestId = requestAnimationFrame(() => {
@@ -675,10 +704,8 @@ export default class Event implements EventHandler {
       }
       this._startScrollCoordinate = null
       this._prevYAxisRange = null
-      this._xAxisStartScaleCoordinate = null
-      this._xAxisStartScaleDistance = 0
-      this._xAxisScale = 1
-      this._yAxisStartScaleDistance = 0
+      this._xAxisStartScale = null
+      this._yAxisStartScaleY = null
     }
     return false
   }
@@ -854,8 +881,7 @@ export default class Event implements EventHandler {
     if (consumed) {
       this._chart.updatePane(UpdateLevel.Overlay)
     }
-    this._xAxisStartScaleCoordinate = { x: event.x, y: event.y }
-    this._xAxisStartScaleDistance = event.pageX
+    this._xAxisStartScale = { x: event.x, barSpace: this._chart.getChartStore().getBarSpace().bar }
     return consumed
   }
 
@@ -863,12 +889,21 @@ export default class Event implements EventHandler {
     const consumed = widget.dispatchEvent('pressedMouseMoveEvent', event)
     if (!consumed) {
       const xAxis = widget.getPane().getAxisComponent()
-      if (xAxis.scrollZoomEnabled && this._xAxisStartScaleDistance !== 0) {
-        const scale = this._xAxisStartScaleDistance / event.pageX
-        if (Number.isFinite(scale)) {
-          const zoomScale = (scale - this._xAxisScale) * 10
-          this._xAxisScale = scale
-          this._chart.getChartStore().zoom(zoomScale, this._xAxisStartScaleCoordinate, 'xAxis')
+      const store = this._chart.getChartStore()
+      const start = this._xAxisStartScale
+      if (xAxis.scrollZoomEnabled && store.isZoomEnabled() && start !== null) {
+        // TradingView (lightweight-charts `TimeScale.scaleTo`): the bar space
+        // follows the grabbed point's distance from the right edge, so that
+        // point stays under the pointer and the same drag zooms the same on
+        // any screen. The right offset (in bars) holds still.
+        const width = store.getTotalBarSpace()
+        const from = Math.min(Math.max(width - start.x, 0), width)
+        const to = Math.min(Math.max(width - event.x, 0), width)
+        if (from > 0 && to > 0) {
+          const prev = store.getBarSpace().bar
+          store.setBarSpace(start.barSpace * to / from)
+          const realScale = store.getBarSpace().bar / prev
+          if (realScale !== 1) store.executeAction('onZoom', { scale: realScale })
         }
       }
     } else {
@@ -884,7 +919,7 @@ export default class Event implements EventHandler {
     }
     const range = widget.getPane().getAxisComponent().getRange()
     this._prevYAxisRange = { ...range }
-    this._yAxisStartScaleDistance = event.pageY
+    this._yAxisStartScaleY = event.y
     return consumed
   }
 
@@ -892,9 +927,17 @@ export default class Event implements EventHandler {
     const consumed = widget.dispatchEvent('pressedMouseMoveEvent', event)
     if (!consumed) {
       const yAxis = widget.getPane().getAxisComponent()
-      if (this._prevYAxisRange !== null && yAxis.scrollZoomEnabled && this._yAxisStartScaleDistance !== 0) {
+      if (this._prevYAxisRange !== null && yAxis.scrollZoomEnabled && this._yAxisStartScaleY !== null) {
         event.preventDefault?.()
-        this._applyYAxisRange(yAxis, this._prevYAxisRange, event.pageY / this._yAxisStartScaleDistance)
+        // TradingView (lightweight-charts `PriceScale.scaleTo`): distances
+        // from the pane's bottom, damped by a fifth of its height, so a drag
+        // zooms the same wherever the pane sits; zooming in stops at 10×.
+        const height = widget.getBounding().height
+        const damping = 0.2 * (height - 1)
+        const from = height - this._yAxisStartScaleY
+        const to = Math.max(0, height - event.y)
+        const factor = Math.max(0.1, (from + damping) / (to + damping))
+        this._applyYAxisRange(yAxis, this._prevYAxisRange, factor)
       }
     } else {
       this._chart.updatePane(UpdateLevel.Overlay)

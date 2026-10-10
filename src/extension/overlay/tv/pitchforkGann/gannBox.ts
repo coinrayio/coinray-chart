@@ -42,6 +42,7 @@ import type DeepPartial from '../../../../common/DeepPartial'
 import { DEFAULT_OVERLAY_PROPERTIES } from '../../types'
 import { fibOneColor, withAlpha } from '../../fibonacciShared'
 import { propertyStore } from './shared'
+import { boxHandles } from '../../extraHandles'
 
 export interface GannBoxLevel { value: number, color: string, visible: boolean }
 
@@ -92,6 +93,8 @@ const gannBox = (): ProOverlayTemplate => {
     name: 'tvGannBox',
     totalStep: 3,
     needDefaultPointFigure: true,
+    // TV's four corners.
+    ...boxHandles(false),
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, overlay }) => {

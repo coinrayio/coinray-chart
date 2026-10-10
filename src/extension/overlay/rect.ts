@@ -17,6 +17,7 @@ import type { PolygonStyle, TextStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
+import { boxHandles } from './extraHandles'
 
 /** Gap between the box edge and text aligned to it. */
 const TEXT_INSET = 8
@@ -92,6 +93,8 @@ const rect = (): ProOverlayTemplate => {
     name: 'rect',
     totalStep: 3,
     needDefaultPointFigure: true,
+    // TV's eight: every corner and every edge's midpoint.
+    ...boxHandles(true),
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, bounding, overlay }) => {

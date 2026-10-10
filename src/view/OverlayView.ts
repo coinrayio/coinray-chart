@@ -285,17 +285,34 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       if (overlay !== null) {
         if (checkOverlayFigureEvent('onPressedMoving', figure)) {
           if (!overlay.lock) {
-            const moveEvent = figureType !== 'point' && event.shiftKey === true
-              ? this._constrainToDragAxis(event)
+            const shift = event.shiftKey === true
+            // Shift on a body drag locks it to one axis; on a point handle it
+            // snaps that point exactly as it would while drawing.
+            const extraHandle = figureType === 'point' && figureIndex >= overlay.points.length
+            const moveEvent = shift && !extraHandle
+              ? (figureType === 'point'
+                  ? { ...event, ...this._shiftSnapPoint(overlay, event, figureIndex) }
+                  : this._constrainToDragAxis(event))
               : event
-            const point = this._coordinateToPoint(overlay, moveEvent)
+            const point = this._coordinateToPoint(overlay, moveEvent, shift && figureType === 'point')
             // When the pressed figure declares `noTranslate`, the
             // engine skips the default point-translation step
             // entirely — the overlay's `onPressedMoving` handler
             // below owns the drag (typically updating extendData
             // for in-shape resize handles like Table's borders).
             const noTranslate = (figure as { noTranslate?: boolean } | null)?.noTranslate === true
-            if (!noTranslate) {
+            if (extraHandle) {
+              const coordinates = overlay.points.map(p => this._pointToCoordinate(p))
+              if (coordinates.every(c => c !== null)) {
+                overlay.moveExtraHandle?.({
+                  overlay,
+                  index: figureIndex - overlay.points.length,
+                  coordinate: { x: event.x, y: event.y },
+                  coordinates,
+                  toPoint: (c) => this._coordinateToPoint(overlay, { ...event, ...c })
+                })
+              }
+            } else if (!noTranslate) {
               if (figureType === 'point') {
                 overlay.eventPressedPointMove(point, figureIndex)
               } else {
@@ -311,13 +328,33 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
                 }
               }
             }
+            // A handle drag puts the crosshair on the handle where it landed:
+            // candle, magnet and Shift snapping all move it off the pointer.
+            if (figureType === 'point') {
+              const at = extraHandle
+                ? (() => {
+                    const coordinates = overlay.points.map(p => this._pointToCoordinate(p))
+                    if (!coordinates.every(c => c !== null)) return null
+                    return overlay.createExtraHandles?.({ overlay, coordinates })[figureIndex - overlay.points.length] ?? null
+                  })()
+                : this._pointToCoordinate(overlay.points[figureIndex])
+              if (at !== null) this.getWidget().setPinnedCrosshair({ x: at.x, y: at.y })
+            }
             let prevented = false
-            overlay.onPressedMoving?.({ chart, overlay, figure: figure ?? undefined, ...event, preventDefault: () => { prevented = true } })
+            overlay.onPressedMoving?.({
+              chart,
+              overlay,
+              figure: figure ?? undefined,
+              ...event,
+              preventDefault: () => { prevented = true },
+              pinCrosshair: (c) => { this.getWidget().setPinnedCrosshair(c) }
+            })
             // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ignore
             if (prevented) {
               this.getWidget().setForceCursor(null)
             } else {
-              this.getWidget().setForceCursor('pointer')
+              // A handle keeps its own cursor (a resize arrow) through the drag.
+              this.getWidget().setForceCursor(figure?.cursor ?? 'pointer')
             }
           }
           return true
@@ -912,22 +949,22 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   /**
-   * Shift snap for the in-progress point, in SCREEN space: the shapes the user
+   * Shift snap for point `index` — the in-progress point while drawing, or a
+   * dragged handle while editing — in SCREEN space: the shapes the user
    * sees, not value-space ones, which would depend on the current scale. Held
    * Shift only. Per tool: a square for rect/box, a circle for the ellipse and a
    * square for the rotated rectangle (their third point sets the width), nothing
    * for circle (already round), and 45° steps from the last anchor otherwise.
    *
+   * The anchor is the point before `index`, or the next one for the first
+   * point, so dragging either end of a line snaps around the other end.
+   *
    * Returns the coordinate unchanged when there is nothing to anchor to (the
    * first click of a drawing, or an anchor with no resolvable position).
    */
-  private _snapInProgressPoint (o: Overlay, coordinate: Coordinate): Coordinate {
-    const overlayImp = o as OverlayImp
-    if (!overlayImp.isDrawing()) return coordinate
+  private _shiftSnapPoint (o: Overlay, coordinate: Coordinate, index: number): Coordinate {
     if (o.name === 'circle') return coordinate
-    // `currentStep - 1` is the point tracking the cursor, so the one before
-    // it is the last anchor the user committed.
-    const anchor = this._pointToCoordinate(o.points[o.currentStep - 2])
+    const anchor = this._pointToCoordinate(o.points[index === 0 ? 1 : index - 1])
     if (anchor === null) return coordinate
 
     const dx = coordinate.x - anchor.x
@@ -940,7 +977,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     }
 
     const widthTool = o.name === 'ellipse' || o.name === 'rotatedRectangle'
-    if (widthTool && o.currentStep === 3) {
+    if (widthTool && index === 2) {
       const axisStart = this._pointToCoordinate(o.points[0])
       if (axisStart === null) return coordinate
       const ax = anchor.x - axisStart.x
@@ -996,24 +1033,28 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       : { ...event, x: start.x }
   }
 
-  private _coordinateToPoint (o: Overlay, event: MouseTouchEvent): Partial<Point> {
+  private _coordinateToPoint (o: Overlay, event: MouseTouchEvent, shiftSnapped = false): Partial<Point> {
     const point: Partial<Point> = {}
     const pane = this.getWidget().getPane()
     const chart = pane.getChart()
     const paneId = pane.getId()
     const chartStore = chart.getChartStore()
+    const drawing = (o as OverlayImp).isDrawing()
     const shift = event.shiftKey === true
-    const coordinate = shift ? this._snapInProgressPoint(o, event) : event
+    // `currentStep - 1` is the point tracking the cursor; the first click has
+    // nothing committed to snap around.
+    const coordinate = shift && drawing && o.currentStep > 1 ? this._shiftSnapPoint(o, event, o.currentStep - 1) : event
     // Meta (Cmd) / Ctrl inverts magnet for as long as it is held: a tool drawn
     // with magnet on goes free, and one drawn with magnet off snaps at the
-    // strength the user last picked. Shift while drawing switches it off, as a
-    // magnet pull would fight the snapped geometry; not during a drag, where
-    // the grab point was magnetised and dropping it would make the drawing jump.
+    // strength the user last picked. Shift while drawing or snapping a handle
+    // switches it off, as a magnet pull would fight the snapped geometry; not
+    // during a body drag, where the grab point was magnetised and dropping it
+    // would make the drawing jump.
     const magnetInverted = event.metaKey === true || event.ctrlKey === true
     let mode = magnetInverted
       ? (o.mode === 'normal' ? chartStore.getPreferredMagnetMode() : 'normal')
       : o.mode
-    if (shift && (o as OverlayImp).isDrawing()) {
+    if (shift && (drawing || shiftSnapped)) {
       mode = 'normal'
     }
     if (this.coordinateToPointTimestampDataIndexFlag()) {
@@ -1476,18 +1517,9 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         chartStore.isOverlaySelected(overlay.id)
       ) {
         const defaultStyles = chartStore.getStyles().overlay
-        const styles = overlay.styles
-        // Derive point color from overlay's line/border color so points match the overlay
-        const overlayAny = overlay as unknown as Record<string, unknown>
-        let baseColor: string | undefined = (styles?.line as Record<string, unknown> | undefined)?.color as string | undefined
-        if (baseColor == null && typeof overlayAny.getProperties === 'function') {
-          const props = (overlayAny.getProperties as (id: string) => Record<string, unknown>)(overlay.id)
-          baseColor = (props.lineColor ?? props.borderColor) as string | undefined
-        }
-        const pointColorOverride = baseColor != null
-          ? { color: baseColor, activeColor: baseColor, borderColor: baseColor }
-          : {}
-        const pointStyles = { ...defaultStyles.point, ...pointColorOverride, ...styles?.point }
+        // One handle colour for every drawing (the theme's), never the
+        // drawing's own: a line at 0% opacity would take its handles with it.
+        const pointStyles = { ...defaultStyles.point, ...overlay.styles?.point }
         const isTvMode = pointStyles.mode === 'stroke'
         // Get chart container background color for stroke-mode fill
         let bgColor = '#000000'
@@ -1498,10 +1530,17 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
             bgColor = computed
           }
         }
-        coordinates.forEach(({ x, y }, index) => {
+        // Extra handles follow the points, numbered on from them, so hover and
+        // drag treat them exactly like point handles.
+        const extra = overlay.createExtraHandles?.({ overlay, coordinates }) ?? []
+        const handles = [
+          ...coordinates.map(({ x, y }) => ({ x, y, square: false })),
+          ...extra.map(({ x, y, square }) => ({ x, y, square: square === true }))
+        ]
+        handles.forEach(({ x, y, square }, index) => {
           // Skip points not in the allow-list (when `needDefaultPointFigure`
           // is a number[] whitelist).
-          if (allowedIndices !== null && !allowedIndices.has(index)) return
+          if (index < coordinates.length && allowedIndices !== null && !allowedIndices.has(index)) return
           let radius = pointStyles.radius
           let color = pointStyles.color
           let borderColor = pointStyles.borderColor
@@ -1517,7 +1556,27 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
             borderSize = pointStyles.activeBorderSize
           }
 
-          if (isTvMode) {
+          const cursor = overlay.handleCursor?.({ overlay, coordinates, index })
+
+          if (isTvMode && square) {
+            // TV's edge handle: a rounded square the size of the ring.
+            const half = Math.round(radius * 1.2)
+            const attrs = { x: x - half, y: y - half, width: half * 2, height: half * 2 }
+            this.createFigure({ name: 'rect', attrs, styles: { style: 'fill', color: bgColor, borderRadius: 2 } })?.draw(ctx)
+            this.createFigure(
+              {
+                name: 'rect',
+                attrs,
+                styles: { style: 'stroke', color: 'transparent', borderColor, borderSize, borderRadius: 2, borderStyle: 'solid' }
+              },
+              this._createFigureEvents(
+                overlay,
+                'point',
+                index,
+                { key: `${OVERLAY_FIGURE_KEY_PREFIX}point_${index}`, type: 'rect', attrs, styles: { borderColor }, cursor }
+              ) ?? undefined
+            )?.draw(ctx)
+          } else if (isTvMode) {
             // TV-style: stroke circle with chart bg fill, 40% wider diameter (20% larger radius)
             const tvRadius = Math.round(radius * 1.2)
             // Draw filled background circle first, then stroke on top
@@ -1544,6 +1603,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
                 index,
                 {
                   key: `${OVERLAY_FIGURE_KEY_PREFIX}point_${index}`,
+                  cursor,
                   type: 'circle',
                   attrs: { x, y, r: tvRadius },
                   styles: { borderColor }
@@ -1564,6 +1624,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
                 index,
                 {
                   key: `${OVERLAY_FIGURE_KEY_PREFIX}point_${index}`,
+                  cursor,
                   type: 'circle',
                   attrs: { x, y, r: radius + borderSize },
                   styles: { color: borderColor }

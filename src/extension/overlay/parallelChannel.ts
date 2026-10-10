@@ -82,6 +82,34 @@ const parallelChannel = (): ProOverlayTemplate => {
     name: 'parallelChannel',
     totalStep: 4,
     needDefaultPointFigure: true,
+    // TV's six: point 2 is one, then the parallel line's ends and the base
+    // line's midpoint. An end moves that end of the channel, keeping its width;
+    // the midpoint slides the base line, keeping the parallel one.
+    createExtraHandles: ({ coordinates }) => {
+      if (coordinates.length < 3) return []
+      const [a, b, c] = coordinates
+      const offset = c.y - atX(a, b, c.x).y
+      return [
+        { x: a.x, y: a.y + offset },
+        { x: b.x, y: b.y + offset },
+        { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      ]
+    },
+    moveExtraHandle: ({ overlay, index, coordinate, coordinates, toPoint }) => {
+      const [a, b, c] = coordinates
+      if (index === 2) {
+        const dy = coordinate.y - (a.y + b.y) / 2
+        overlay.points[0].value = toPoint({ x: a.x, y: a.y + dy }).value
+        overlay.points[1].value = toPoint({ x: b.x, y: b.y + dy }).value
+        return
+      }
+      const offset = c.y - atX(a, b, c.x).y
+      const end = { x: coordinate.x, y: coordinate.y - offset }
+      Object.assign(overlay.points[index], toPoint(end))
+      // Point 2 holds the width: keep it the same distance off the new base line.
+      const base = index === 0 ? atX(end, b, c.x) : atX(a, end, c.x)
+      overlay.points[2].value = toPoint({ x: c.x, y: base.y + offset }).value
+    },
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, bounding, overlay }) => {
