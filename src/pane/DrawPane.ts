@@ -30,7 +30,7 @@ import { type PaneOptions, PANE_DEFAULT_HEIGHT, PANE_MIN_HEIGHT, PaneIdConstants
 import type Chart from '../Chart'
 
 import { createDom } from '../common/utils/dom'
-import { getPixelRatio } from '../common/utils/canvas'
+import { drawCanvas, getPixelRatio } from '../common/utils/canvas'
 import YAxisImp, { type YAxis } from '../component/YAxis'
 
 export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
@@ -215,15 +215,15 @@ export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
     ctx.scale(pixelRatio, pixelRatio)
 
     const mainBounding = this._mainWidget.getBounding()
-    ctx.drawImage(
-      this._mainWidget.getImage(includeOverlay),
+    drawCanvas(
+      ctx, this._mainWidget.getImage(includeOverlay),
       mainBounding.left, 0,
       mainBounding.width, mainBounding.height
     )
     if (this._yAxisWidget !== null) {
       const yAxisBounding = this._yAxisWidget.getBounding()
-      ctx.drawImage(
-        this._yAxisWidget.getImage(includeOverlay),
+      drawCanvas(
+        ctx, this._yAxisWidget.getImage(includeOverlay),
         yAxisBounding.left, 0,
         yAxisBounding.width, yAxisBounding.height
       )

@@ -31,6 +31,16 @@ export function getPixelRatio (canvas: HTMLCanvasElement): number {
   return canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1
 }
 
+/** `drawImage` throws on a 0-sized canvas (a hidden pane, a 0-width axis), so those are skipped. */
+export function drawCanvas (
+  ctx: CanvasRenderingContext2D, source: HTMLCanvasElement,
+  x: number, y: number, width: number, height: number
+): void {
+  if (source.width > 0 && source.height > 0) {
+    ctx.drawImage(source, x, y, width, height)
+  }
+}
+
 export function createFont (size?: number, weight?: string | number, family?: string, fontStyle?: string): string {
   const style = (fontStyle != null && fontStyle !== '' && fontStyle !== 'normal') ? `${fontStyle} ` : ''
   return `${style}${weight ?? 'normal'} ${size ?? 12}px ${family ?? 'Helvetica Neue'}`

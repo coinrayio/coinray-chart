@@ -21,7 +21,7 @@ import type DrawPane from '../pane/DrawPane'
 import Widget from './Widget'
 
 import { createDom } from '../common/utils/dom'
-import { getPixelRatio } from '../common/utils/canvas'
+import { drawCanvas, getPixelRatio } from '../common/utils/canvas'
 
 export default abstract class DrawWidget<P extends DrawPane = DrawPane> extends Widget<P> {
   private readonly _mainCanvas: Canvas
@@ -133,10 +133,10 @@ export default abstract class DrawWidget<P extends DrawPane = DrawPane> extends 
     canvas.height = height * pixelRatio
     ctx.scale(pixelRatio, pixelRatio)
 
-    ctx.drawImage(this._mainCanvas.getElement(), 0, 0, width, height)
+    drawCanvas(ctx, this._mainCanvas.getElement(), 0, 0, width, height)
 
     if (includeOverlay) {
-      ctx.drawImage(this._overlayCanvas.getElement(), 0, 0, width, height)
+      drawCanvas(ctx, this._overlayCanvas.getElement(), 0, 0, width, height)
     }
     return canvas
   }

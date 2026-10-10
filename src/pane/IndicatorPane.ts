@@ -26,6 +26,7 @@ import type { UpdateLevel } from '../common/Updater'
 import type Bounding from '../common/Bounding'
 
 import DrawPane from './DrawPane'
+import { drawCanvas } from '../common/utils/canvas'
 
 export default class IndicatorPane extends DrawPane<YAxis> {
   // Built the first time an indicator binds to it, then kept: it holds no
@@ -94,7 +95,7 @@ export default class IndicatorPane extends DrawPane<YAxis> {
       const ctx = canvas.getContext('2d')!
       const bounding: Bounding = widget.getBounding()
       // `super.getImage` has already scaled the context by the pixel ratio.
-      ctx.drawImage(widget.getImage(includeOverlay), bounding.left, 0, bounding.width, bounding.height)
+      drawCanvas(ctx, widget.getImage(includeOverlay), bounding.left, 0, bounding.width, bounding.height)
     }
     return canvas
   }
