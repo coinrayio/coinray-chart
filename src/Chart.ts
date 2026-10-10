@@ -949,10 +949,16 @@ export default class ChartImp implements Chart {
       build(value as OverlayCreate)
     }
     const ids = this._chartStore.addOverlays(overlays, appointPaneFlags)
+    this._chartEvent.overlayCreated()
     if (isArray(value)) {
       return ids
     }
     return ids[0]
+  }
+
+  /** Internal: the store removed the drawing in progress. */
+  progressOverlayRemoved (): void {
+    this._chartEvent.progressOverlayRemoved()
   }
 
   getOverlays (filter?: OverlayFilter): Overlay[] {

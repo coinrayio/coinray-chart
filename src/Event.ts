@@ -18,7 +18,7 @@ import type Coordinate from './common/Coordinate'
 import { UpdateLevel } from './common/Updater'
 import type Crosshair from './common/Crosshair'
 import { requestAnimationFrame, cancelAnimationFrame } from './common/utils/compatible'
-import { isFunction, isValid } from './common/utils/typeChecks'
+import { isFunction, isNumber, isString, isValid } from './common/utils/typeChecks'
 import { yAxisWheelRangeFactor } from './common/utils/yAxisWheelZoom'
 
 import { checkOverlayFigureEvent } from './component/Overlay'
@@ -83,6 +83,27 @@ export default class Event implements EventHandler {
 
   private _measureDismiss: Nullable<() => void> = null
 
+  // Touch drawing, the TradingView mobile way: while a tool is drawing, a
+  // crosshair stands in for the finger. A drag anywhere moves it by the
+  // finger's delta, like a trackpad, so the finger never covers the point,
+  // and a tap places the point at the crosshair, not under the finger.
+  // `_touchDrawPoint` is that crosshair, main-widget-local and unsnapped (the
+  // overlay applies magnet itself); it is kept after a drawing ends so the
+  // next one starts where this one left off. `_touchDraw` is the drag in
+  // progress: where the finger and the crosshair were when it began.
+  private _touchDrawPoint: Nullable<{ paneId: string, x: number, y: number }> = null
+  private _touchDraw: Nullable<{ fingerX: number, fingerY: number, fromX: number, fromY: number }> = null
+  // A drawing being placed by touch, and whether the crosshair has moved since
+  // the last tap — what the host's step guide reads ("Move…" / "Tap…").
+  private _touchDrawSession = false
+  private _touchDrawMoved = false
+  // Whether the last press anywhere on the page was a finger — the drawing
+  // tool is picked outside the chart, so the chart's own events can't say.
+  private _lastInputTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+  private readonly _onDocumentPointerDown = (e: PointerEvent): void => {
+    this._lastInputTouch = e.pointerType === 'touch'
+  }
+
   constructor (container: HTMLElement, chart: Chart) {
     this._container = container
     this._chart = chart
@@ -91,6 +112,105 @@ export default class Event implements EventHandler {
       treatHorzDragAsPageScroll: () => false,
       isOverlayDrawing: () => chart.getChartStore().isOverlayDrawing()
     })
+    container.ownerDocument.addEventListener('pointerdown', this._onDocumentPointerDown, { capture: true, passive: true })
+  }
+
+  /** Called by the chart after `createOverlay`: a tool picked by touch shows its crosshair straight away. */
+  overlayCreated (): void {
+    if (!this._lastInputTouch || !this._isTouchDrawing()) return
+    // TradingView starts from the crosshair already on the chart, if there is one.
+    const crosshair = this._chart.getChartStore().getCrosshair()
+    if (isString(crosshair.paneId) && isNumber(crosshair.x) && isNumber(crosshair.y)) {
+      this._touchDrawPoint = { paneId: crosshair.paneId, x: crosshair.x, y: crosshair.y }
+    }
+    this._touchDrawSession = true
+    this._touchDrawMoved = false
+    this._showTouchDrawPoint(this._ensureTouchDrawPoint())
+    this._emitTouchDrawing()
+    this._chart.updatePane(UpdateLevel.Overlay)
+  }
+
+  /**
+   * Tells the host where a touch drawing stands, for a step guide:
+   * `{ id, placed, total, moved }` (`total` null for an open-ended path), or null
+   * when it is over. `moved` — the crosshair moved since the last tap, so the
+   * next step is a tap.
+   */
+  private _emitTouchDrawing (): void {
+    const chartStore = this._chart.getChartStore()
+    const info = chartStore.getProgressOverlayInfo()
+    if (!this._touchDrawSession || info === null || !this._isTouchDrawing()) {
+      this._touchDrawSession = false
+      chartStore.executeAction('onTouchDrawingChange', null)
+      return
+    }
+    const { overlay } = info
+    chartStore.executeAction('onTouchDrawingChange', {
+      id: overlay.id,
+      placed: overlay.currentStep - 1,
+      total: overlay.totalStep === Number.MAX_SAFE_INTEGER ? null : overlay.totalStep - 1,
+      moved: this._touchDrawMoved
+    })
+  }
+
+  /** The drawing in progress was removed (cancelled): its touch crosshair and step guide go too. */
+  progressOverlayRemoved (): void {
+    if (!this._touchDrawSession) return
+    this._touchCoordinate = null
+    this._touchDraw = null
+    this._chart.getChartStore().setCrosshair(undefined, { notInvalidate: true })
+    this._emitTouchDrawing()
+  }
+
+  /** Point-by-point drawing in progress. A freehand (continuous) tool still draws under the finger. */
+  private _isTouchDrawing (): boolean {
+    const info = this._chart.getChartStore().getProgressOverlayInfo()
+    return info !== null && info.overlay.isDrawing() && !info.overlay.isContinuousDrawing()
+  }
+
+  /** The touch crosshair, in the pane the drawing lives in — centred there when it has none yet. */
+  private _ensureTouchDrawPoint (): { paneId: string, x: number, y: number } {
+    const info = this._chart.getChartStore().getProgressOverlayInfo()
+    // Before the first point the drawing can still go to any pane; after, it is fixed.
+    const paneId = info !== null && !info.overlay.isStart()
+      ? info.paneId
+      : (this._touchDrawPoint?.paneId ?? info?.paneId ?? PaneIdConstants.CANDLE)
+    const pane = this._chart.getDrawPaneById(paneId) ?? this._chart.getDrawPaneById(PaneIdConstants.CANDLE)
+    const resolvedId = pane?.getId() ?? PaneIdConstants.CANDLE
+    if (this._touchDrawPoint?.paneId !== resolvedId) {
+      const bounding = pane?.getMainWidget().getBounding()
+      this._touchDrawPoint = { paneId: resolvedId, x: (bounding?.width ?? 0) / 2, y: (bounding?.height ?? 0) / 2 }
+    }
+    return this._touchDrawPoint
+  }
+
+  private _touchDrawEvent (point: Coordinate, base?: MouseTouchEvent): MouseTouchEvent {
+    return { pageX: base?.pageX ?? 0, pageY: base?.pageY ?? 0, ...(base ?? {}), x: point.x, y: point.y, isTouch: true }
+  }
+
+  /** Shows the crosshair at the touch point and previews the drawing there. */
+  private _showTouchDrawPoint (point: { paneId: string, x: number, y: number }, base?: MouseTouchEvent): void {
+    const chartStore = this._chart.getChartStore()
+    // Marks touch-crosshair mode, so a later ordinary touch away from it clears it.
+    this._touchCoordinate = { x: point.x, y: point.y }
+    chartStore.setCrosshair({ x: point.x, y: point.y, paneId: point.paneId }, { notInvalidate: true })
+    this._chart.getDrawPaneById(point.paneId)?.getMainWidget().dispatchEvent('mouseMoveEvent', this._touchDrawEvent(point, base))
+  }
+
+  /** A tap while drawing: commits the point at the crosshair (`mouseDoubleClickEvent` finishes a path). */
+  private _placeTouchDrawPoint (name: 'mouseClickEvent' | 'mouseDoubleClickEvent', base: MouseTouchEvent): void {
+    const point = this._ensureTouchDrawPoint()
+    this._chart.getDrawPaneById(point.paneId)?.getMainWidget().dispatchEvent(name, this._touchDrawEvent(point, base))
+    this._touchDrawMoved = false
+    if (this._isTouchDrawing()) {
+      // Next point, or a new drawing when the host keeps the tool armed.
+      this._showTouchDrawPoint(this._ensureTouchDrawPoint(), base)
+    } else {
+      this._touchCoordinate = null
+      this._chart.getChartStore().setCrosshair(undefined, { notInvalidate: true })
+    }
+    this._emitTouchDrawing()
+    this._chart.updatePane(UpdateLevel.Overlay)
   }
 
   pinchStartEvent (): boolean {
@@ -559,6 +679,21 @@ export default class Event implements EventHandler {
       switch (name) {
         case WidgetNameConstants.MAIN: {
           const chartStore = this._chart.getChartStore()
+          if (this._isTouchDrawing()) {
+            if (this._flingScrollRequestId !== null) {
+              cancelAnimationFrame(this._flingScrollRequestId)
+              this._flingScrollRequestId = null
+            }
+            const point = this._ensureTouchDrawPoint()
+            this._touchDraw = { fingerX: e.x, fingerY: e.y, fromX: point.x, fromY: point.y }
+            if (!this._touchDrawSession) {
+              this._touchDrawSession = true
+              this._emitTouchDrawing()
+            }
+            this._showTouchDrawPoint(point, event)
+            this._chart.updatePane(UpdateLevel.Overlay)
+            return true
+          }
           if (widget.dispatchEvent('mouseDownEvent', event)) {
             this._touchCancelCrosshair = true
             this._touchCoordinate = null
@@ -607,6 +742,22 @@ export default class Event implements EventHandler {
   }
 
   touchMoveEvent (e: MouseTouchEvent): boolean {
+    const touchDraw = this._touchDraw
+    if (touchDraw !== null) {
+      e.preventDefault?.()
+      const point = this._ensureTouchDrawPoint()
+      const bounding = this._chart.getDrawPaneById(point.paneId)?.getMainWidget().getBounding()
+      const clamp = (v: number, max: number): number => Math.min(Math.max(v, 0), max)
+      point.x = clamp(touchDraw.fromX + e.x - touchDraw.fingerX, bounding?.width ?? 0)
+      point.y = clamp(touchDraw.fromY + e.y - touchDraw.fingerY, bounding?.height ?? 0)
+      this._showTouchDrawPoint(point, e)
+      if (!this._touchDrawMoved) {
+        this._touchDrawMoved = true
+        this._emitTouchDrawing()
+      }
+      this._chart.updatePane(UpdateLevel.Overlay)
+      return true
+    }
     const axisWidget = this._touchAxisWidget
     if (axisWidget !== null) {
       // Same as the mouse path: keyed off the axis widget's own box, with the
@@ -652,6 +803,11 @@ export default class Event implements EventHandler {
   }
 
   touchEndEvent (e: MouseTouchEvent): boolean {
+    if (this._touchDraw !== null) {
+      // Lifting only ends the move; the tap that follows a still touch places the point.
+      this._touchDraw = null
+      return true
+    }
     // An axis drag ends on its own axis, wherever the finger lifted.
     const widget = this._touchAxisWidget ?? this._findWidgetByEvent(e).widget
     this._touchAxisWidget = null
@@ -705,6 +861,10 @@ export default class Event implements EventHandler {
   }
 
   tapEvent (e: MouseTouchEvent): boolean {
+    if (this._isTouchDrawing()) {
+      this._placeTouchDrawPoint('mouseClickEvent', e)
+      return true
+    }
     const { pane, widget } = this._findWidgetByEvent(e)
     let consumed = false
     if (widget !== null) {
@@ -754,10 +914,19 @@ export default class Event implements EventHandler {
   }
 
   doubleTapEvent (e: MouseTouchEvent): boolean {
+    if (this._isTouchDrawing()) {
+      // Two quick taps are two points — except on an open-ended path, where
+      // (as with a double-click) the second one finishes it.
+      const overlay = this._chart.getChartStore().getProgressOverlayInfo()?.overlay
+      this._placeTouchDrawPoint(overlay?.totalStep === Number.MAX_SAFE_INTEGER ? 'mouseDoubleClickEvent' : 'mouseClickEvent', e)
+      return true
+    }
     return this.mouseDoubleClickEvent(e)
   }
 
   longTapEvent (e: MouseTouchEvent): boolean {
+    // Holding still before a careful drag must not open the context menu (and cancel the drawing).
+    if (isValid(this._touchDraw)) return true
     const { pane, widget } = this._findWidgetByEvent(e)
     if (widget !== null && pane !== null && widget.getName() === WidgetNameConstants.Y_AXIS) {
       const event = this._makeWidgetEvent(e, widget)
@@ -1035,6 +1204,7 @@ export default class Event implements EventHandler {
   }
 
   destroy (): void {
+    this._container.ownerDocument.removeEventListener('pointerdown', this._onDocumentPointerDown, { capture: true })
     this._measureDismiss?.()
     this._event.destroy()
   }

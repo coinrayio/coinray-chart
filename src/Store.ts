@@ -2306,6 +2306,8 @@ export default class StoreImp implements Store {
         }
         if (overlay.isDrawing()) {
           this._progressOverlayInfo = null
+          // A touch drawing cancelled from outside: its crosshair and step guide go.
+          this._chart.progressOverlayRemoved()
         } else {
           let ids = idsByPaneId.get(paneId)
           if (!isValid(ids)) {
@@ -2344,6 +2346,8 @@ export default class StoreImp implements Store {
         }
         if (overlay.isDrawing()) {
           this._progressOverlayInfo = null
+          // A touch drawing cancelled from outside: its crosshair and step guide go.
+          this._chart.progressOverlayRemoved()
         } else {
           // NOTE: this re-scans paneOverlays even though getOverlaysByFilter() just
           // located `overlay` in it — left as-is. Collapsing the two scans needs
