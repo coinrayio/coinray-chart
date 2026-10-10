@@ -30,7 +30,7 @@ import type { Formatter, DecimalFold, LayoutChild, Options, ThousandsSeparator, 
 import Animation from './common/Animation'
 import { createId } from './common/utils/id'
 import { createDom } from './common/utils/dom'
-import { getPixelRatio } from './common/utils/canvas'
+import { drawCanvas, getPixelRatio } from './common/utils/canvas'
 import { isString, isArray, isValid, merge, isNumber } from './common/utils/typeChecks'
 import { logWarn } from './common/utils/logger'
 import { binarySearchNearest } from './common/utils/number'
@@ -1472,15 +1472,15 @@ export default class ChartImp implements Chart {
       const separatorPane = this._separatorPanes.get(pane)
       if (isValid(separatorPane)) {
         const separatorBounding = separatorPane.getBounding()
-        ctx.drawImage(
-          separatorPane.getImage(overlayFlag),
+        drawCanvas(
+          ctx, separatorPane.getImage(overlayFlag),
           separatorBounding.left, separatorBounding.top, separatorBounding.width, separatorBounding.height
         )
       }
 
       const bounding = pane.getBounding()
-      ctx.drawImage(
-        pane.getImage(overlayFlag),
+      drawCanvas(
+        ctx, pane.getImage(overlayFlag),
         0, bounding.top, width, bounding.height
       )
     })

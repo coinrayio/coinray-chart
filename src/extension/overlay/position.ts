@@ -115,6 +115,30 @@ export function positionStats (entry: number, stop: number, target: number, ext:
 
 interface Figure { type: string, key?: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }
 
+/**
+ * Where the trade closed: the first bar after the entry bar whose range reaches
+ * the stop or the target, up to `endIndex`. A bar that reaches both counts as a
+ * stop, since its bars can't tell which came first. `null` while still open.
+ */
+export function positionExit (
+  bars: ReadonlyArray<{ high: number, low: number }>,
+  entryIndex: number,
+  endIndex: number,
+  side: PositionSide,
+  stop: number,
+  target: number
+): { price: number, hit: 'stop' | 'target' } | null {
+  const last = Math.min(endIndex, bars.length - 1)
+  for (let i = Math.max(0, entryIndex + 1); i <= last; i++) {
+    const { high, low } = bars[i]
+    const hitStop = side === 'long' ? low <= stop : high >= stop
+    if (hitStop) return { price: stop, hit: 'stop' }
+    const hitTarget = side === 'long' ? high >= target : low <= target
+    if (hitTarget) return { price: target, hit: 'target' }
+  }
+  return null
+}
+
 const fmtMoney = (n: number): string =>
   `${n < 0 ? '\u2212' : '+'}${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -124,10 +148,10 @@ const fmtMoney = (n: number): string =>
 let gradientCtx: CanvasRenderingContext2D | null | false = false
 function zoneFill (yFar: number, yEntry: number, color: string): string | CanvasGradient {
   if (gradientCtx === false) gradientCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
-  if (gradientCtx === null) return scaleAlpha(color, 0.75)
+  if (gradientCtx === null) return scaleAlpha(color, 0.4)
   const g = gradientCtx.createLinearGradient(0, yFar, 0, yEntry)
-  g.addColorStop(0, scaleAlpha(color, 1.2))
-  g.addColorStop(1, scaleAlpha(color, 0.25))
+  g.addColorStop(0, scaleAlpha(color, 0.6))
+  g.addColorStop(1, scaleAlpha(color, 0.12))
   return g
 }
 
@@ -230,15 +254,14 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
       const left = Math.min(e.x, r.x)
       const width = Math.abs(r.x - e.x)
       const store = chart.getChartStore()
-      // Unselected, only the three lines grab the position, so the shaded
-      // box doesn't steal hovers and clicks from the candles and drawings under it.
       const selected = store.getClickOverlayInfo().overlay?.id === overlay.id || store.isOverlaySelected(overlay.id)
+      // The whole box grabs the position, not just its three lines: a click
+      // anywhere on it selects it and a hover anywhere shows the stats.
       const zone = (yFar: number, color: string | CanvasGradient, key: string): Figure => ({
         type: 'rect',
         key,
         attrs: { x: left, y: Math.min(yFar, e.y), width, height: Math.abs(yFar - e.y) },
-        styles: { style: 'fill', color, borderSize: 0 },
-        ignoreEvent: !selected
+        styles: { style: 'fill', color, borderSize: 0 }
       })
       const level = (y: number, color: string, key: string, size = 1.5, dashed = false): Figure => ({
         type: 'line', key, attrs: { coordinates: [{ x: left, y }, { x: left + width, y }] }, styles: { color, size, style: dashed ? 'dashed' : 'solid', dashedValue: props.lineDashedValue ?? [4, 4] }
@@ -261,16 +284,21 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
       const priced = isNumber(entryPrice) && isNumber(stopPrice) && isNumber(targetPrice)
       const stats = priced ? positionStats(entryPrice, stopPrice, targetPrice, ext) : null
 
-      // Live progress: shade the part of the move the last close has covered.
-      // TV marks it to the close of the bar under the right edge (the last bar, when that lies past the data).
+      // Live progress: shade the part of the move the price has covered. Once a
+      // bar reaches the target or the stop the trade is closed there and the
+      // result stays; until then it marks to the close of the bar under the
+      // right edge (the last bar, when that lies past the data).
       const dataList = chart.getDataList()
       const endIndex = isNumber(pts[3]?.dataIndex) ? pts[3].dataIndex : dataList.length - 1
       const lastClose = dataList[Math.max(0, Math.min(dataList.length - 1, endIndex))]?.close
+      const exit = priced && isNumber(pts[0]?.dataIndex)
+        ? positionExit(dataList, pts[0].dataIndex, endIndex, side, stopPrice, targetPrice)
+        : null
+      const mark = exit?.price ?? lastClose
       let pnl = 0
-      if (priced && stats !== null && isNumber(lastClose)) {
-        const mark = lastClose
+      if (priced && stats !== null && isNumber(mark)) {
         pnl = dir * (mark - entryPrice) * stats.qty
-        const yLast = (chart.convertToPixel({ value: lastClose }, { paneId: overlay.paneId }) as Partial<Coordinate>).y
+        const yLast = (chart.convertToPixel({ value: mark }, { paneId: overlay.paneId }) as Partial<Coordinate>).y
         if (isNumber(yLast)) {
           const inProfit = pnl >= 0
           const limit = inProfit ? t.y : s.y
@@ -285,8 +313,9 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
 
       figures.push(
         { type: 'rect', key: 'frame', attrs: { x: left, y: top, width, height: Math.max(t.y, s.y) - top }, styles: { style: 'stroke', borderColor: FRAME, borderSize: 1, borderRadius: 4 }, ignoreEvent: true },
-        level(t.y, profitSolid, 'target_line', props.lineWidth ?? 1.5),
-        level(s.y, stopSolid, 'stop_line', props.lineWidth ?? 1.5),
+        // Once closed, the level it didn't reach fades.
+        level(t.y, exit?.hit === 'stop' ? withAlpha(profitSolid, 0.35) : profitSolid, 'target_line', props.lineWidth ?? 1.5),
+        level(s.y, exit?.hit === 'target' ? withAlpha(stopSolid, 0.35) : stopSolid, 'stop_line', props.lineWidth ?? 1.5),
         level(e.y, props.lineColor ?? ENTRY_LINE, 'entry', props.lineWidth ?? 1, props.lineStyle === 'dashed')
       )
       if (ext.showLabels === false || !priced || stats === null) return figures
