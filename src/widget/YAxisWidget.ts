@@ -34,21 +34,37 @@ export default class YAxisWidget extends DrawWidget<DrawPane<YAxis>> {
   private readonly _overlayYAxisView = new OverlayYAxisView(this)
   private readonly _crosshairHorizontalLabelView = new CrosshairHorizontalLabelView(this)
 
-  constructor (rootContainer: HTMLElement, pane: DrawPane<YAxis>) {
+  private readonly _secondary: boolean
+
+  /**
+   * @param secondary the widget of the pane's secondary axis: ticks, the
+   * last-value marks of the indicators bound to it and the crosshair label,
+   * none of the candle or drawing marks.
+   */
+  constructor (rootContainer: HTMLElement, pane: DrawPane<YAxis>, secondary = false) {
     super(rootContainer, pane)
-    this.setCursor('ns-resize')
-    this.addChild(this._overlayYAxisView)
+    this._secondary = secondary
+    if (secondary) {
+      this.setCursor('default')
+    } else {
+      this.setCursor('ns-resize')
+      this.addChild(this._overlayYAxisView)
+    }
   }
 
   override getName (): string {
-    return WidgetNameConstants.Y_AXIS
+    return this._secondary ? WidgetNameConstants.Y_AXIS_SECONDARY : WidgetNameConstants.Y_AXIS
+  }
+
+  override getAxis (): YAxis {
+    return (this._secondary ? this.getPane().getSecondaryYAxis() : null) ?? this.getPane().getAxisComponent()
   }
 
   override updateMain (ctx: CanvasRenderingContext2D): void {
     const minimize = this.getPane().getOptions().state === 'minimize'
     this._yAxisView.draw(ctx, minimize)
     if (!minimize) {
-      if (this.getPane().getAxisComponent().isInCandle()) {
+      if (!this._secondary && this.getPane().getAxisComponent().isInCandle()) {
         this._candleHighLowAxisLabelView.draw(ctx)
         this._candleLastPriceLabelView.draw(ctx)
       }
@@ -58,11 +74,13 @@ export default class YAxisWidget extends DrawWidget<DrawPane<YAxis>> {
 
   override updateOverlay (ctx: CanvasRenderingContext2D): void {
     if (this.getPane().getOptions().state !== 'minimize') {
-      this._overlayYAxisView.draw(ctx)
-      // Overlays raised above the crosshair (the trade handles) draw in their
-      // own pass; without it their price-scale tags never show. The crosshair's
-      // own label still goes on top.
-      this._overlayYAxisView.drawAboveCrosshair(ctx)
+      if (!this._secondary) {
+        this._overlayYAxisView.draw(ctx)
+        // Overlays raised above the crosshair (the trade handles) draw in their
+        // own pass; without it their price-scale tags never show. The crosshair's
+        // own label still goes on top.
+        this._overlayYAxisView.drawAboveCrosshair(ctx)
+      }
       this._crosshairHorizontalLabelView.draw(ctx)
     }
   }

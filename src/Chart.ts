@@ -30,7 +30,7 @@ import type { Formatter, DecimalFold, LayoutChild, Options, ThousandsSeparator, 
 import Animation from './common/Animation'
 import { createId } from './common/utils/id'
 import { createDom } from './common/utils/dom'
-import { getPixelRatio } from './common/utils/canvas'
+import { drawCanvas, getPixelRatio } from './common/utils/canvas'
 import { isString, isArray, isValid, merge, isNumber } from './common/utils/typeChecks'
 import { logWarn } from './common/utils/logger'
 import { binarySearchNearest } from './common/utils/number'
@@ -439,10 +439,25 @@ export default class ChartImp implements Chart {
       })
     }
     let forceMeasureWidth = measureWidth
-    if (buildYAxisTick || forceBuildYAxisTick) {
+    // A pane's secondary axis exists only while an indicator is bound to it;
+    // settle that before any axis is built or measured.
+    let secondaryChanged = false
+    this._drawPanes.forEach(pane => {
+      if (pane.syncSecondaryYAxis()) {
+        secondaryChanged = true
+        forceMeasureWidth = true
+      }
+    })
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ignore
+    if (buildYAxisTick || forceBuildYAxisTick || secondaryChanged) {
+      const forceTicks = forceBuildYAxisTick || secondaryChanged
       this._drawPanes.forEach(pane => {
-        const success = (pane.getAxisComponent() as AxisImp).buildTicks(forceBuildYAxisTick)
+        const success = (pane.getAxisComponent() as AxisImp).buildTicks(forceTicks)
         forceMeasureWidth ||= success
+        const secondary = pane.getSecondaryYAxis()
+        if (secondary !== null) {
+          forceMeasureWidth = (secondary as unknown as AxisImp).buildTicks(forceTicks) || forceMeasureWidth
+        }
       })
     }
     if (forceMeasureWidth) {
@@ -456,20 +471,26 @@ export default class ChartImp implements Chart {
 
       this._drawPanes.forEach(pane => {
         if (pane.getId() !== PaneIdConstants.X_AXIS) {
-          const yAxis = pane.getAxisComponent() as YAxis
-          const inside = yAxis.inside
-          const yAxisWidth = yAxis.getAutoSize()
-          if (yAxis.position === 'left') {
-            leftYAxisWidth = Math.max(leftYAxisWidth, yAxisWidth)
-            if (inside) {
-              leftYAxisOutside = false
-            }
-          } else {
-            rightYAxisWidth = Math.max(rightYAxisWidth, yAxisWidth)
-            if (inside) {
-              rightYAxisOutside = false
-            }
+          const axes = [pane.getAxisComponent() as YAxis]
+          const secondary = pane.getSecondaryYAxis()
+          if (secondary !== null) {
+            axes.push(secondary)
           }
+          axes.forEach(yAxis => {
+            const inside = yAxis.inside
+            const yAxisWidth = yAxis.getAutoSize()
+            if (yAxis.position === 'left') {
+              leftYAxisWidth = Math.max(leftYAxisWidth, yAxisWidth)
+              if (inside) {
+                leftYAxisOutside = false
+              }
+            } else {
+              rightYAxisWidth = Math.max(rightYAxisWidth, yAxisWidth)
+              if (inside) {
+                rightYAxisOutside = false
+              }
+            }
+          })
         }
       })
 
@@ -1457,15 +1478,15 @@ export default class ChartImp implements Chart {
       const separatorPane = this._separatorPanes.get(pane)
       if (isValid(separatorPane)) {
         const separatorBounding = separatorPane.getBounding()
-        ctx.drawImage(
-          separatorPane.getImage(overlayFlag),
+        drawCanvas(
+          ctx, separatorPane.getImage(overlayFlag),
           separatorBounding.left, separatorBounding.top, separatorBounding.width, separatorBounding.height
         )
       }
 
       const bounding = pane.getBounding()
-      ctx.drawImage(
-        pane.getImage(overlayFlag),
+      drawCanvas(
+        ctx, pane.getImage(overlayFlag),
         0, bounding.top, width, bounding.height
       )
     })

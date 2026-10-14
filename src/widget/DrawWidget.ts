@@ -21,7 +21,7 @@ import type DrawPane from '../pane/DrawPane'
 import Widget from './Widget'
 
 import { createDom } from '../common/utils/dom'
-import { getPixelRatio } from '../common/utils/canvas'
+import { drawCanvas, getPixelRatio } from '../common/utils/canvas'
 
 export default abstract class DrawWidget<P extends DrawPane = DrawPane> extends Widget<P> {
   private readonly _mainCanvas: Canvas
@@ -110,6 +110,11 @@ export default abstract class DrawWidget<P extends DrawPane = DrawPane> extends 
     }
   }
 
+  /** The axis this widget draws for: the pane's own, unless the widget is the secondary y-axis. */
+  getAxis (): ReturnType<P['getAxisComponent']> {
+    return this.getPane().getAxisComponent() as ReturnType<P['getAxisComponent']>
+  }
+
   destroy (): void {
     this._mainCanvas.destroy()
     this._overlayCanvas.destroy()
@@ -128,10 +133,10 @@ export default abstract class DrawWidget<P extends DrawPane = DrawPane> extends 
     canvas.height = height * pixelRatio
     ctx.scale(pixelRatio, pixelRatio)
 
-    ctx.drawImage(this._mainCanvas.getElement(), 0, 0, width, height)
+    drawCanvas(ctx, this._mainCanvas.getElement(), 0, 0, width, height)
 
     if (includeOverlay) {
-      ctx.drawImage(this._overlayCanvas.getElement(), 0, 0, width, height)
+      drawCanvas(ctx, this._overlayCanvas.getElement(), 0, 0, width, height)
     }
     return canvas
   }

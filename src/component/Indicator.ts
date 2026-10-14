@@ -31,8 +31,16 @@ import type { ArcAttrs } from '../extension/figure/arc'
 import type { RectAttrs } from '../extension/figure/rect'
 import type { TextAttrs } from '../extension/figure/text'
 import type { Chart } from '../Chart'
+import { PaneIdConstants } from '../pane/types'
 
 export type IndicatorSeries = 'normal' | 'price' | 'volume'
+
+/**
+ * Which y-axis of its pane an indicator is plotted against. `secondary` is an
+ * independent scale drawn on the side opposite the pane's own axis; it exists
+ * only while a visible indicator is bound to it.
+ */
+export type IndicatorYAxis = 'primary' | 'secondary'
 
 export type IndicatorFigureStyle = Partial<Omit<SmoothLineStyle, 'style'>> & Partial<Omit<RectStyle, 'style'>> & Partial<TextStyle> & Partial<{ style: LineType[keyof LineType] }> & Record<string, unknown>
 
@@ -155,6 +163,25 @@ export interface Indicator<D = unknown, C = unknown, E = unknown> {
    * Z index
    */
   zLevel: number
+
+  /**
+   * Which y-axis of the pane the indicator is plotted against. Default
+   * `'primary'`. `'secondary'` gives the pane a second, independent axis (on
+   * the side opposite the primary) that auto-ranges over the indicators bound
+   * to it alone, while candles and every other indicator keep the primary.
+   */
+  yAxis: IndicatorYAxis
+
+  /**
+   * Candle pane, primary axis only. Draws every figure scaled by
+   * `close[first visible bar] / ownValue[first visible bar]`, so the line meets
+   * the candles at the left edge of the view. `ownValue` is the first figure's
+   * value at that bar, or its first non-null value after it. The scaling
+   * applies to drawing, to the axis range and to the last-value mark; legends
+   * and tooltips keep the raw values. Ignored on a secondary axis. Default
+   * `false`.
+   */
+  rebase: boolean
 
   /**
    * Extend data
@@ -371,6 +398,45 @@ export function figureStyleAt (
   return style
 }
 
+/** Whether `indicator` is plotted against the secondary (true) or the primary (false) axis. */
+export function isBoundToAxis (indicator: Pick<Indicator, 'yAxis'>, secondary: boolean): boolean {
+  return (indicator.yAxis === 'secondary') === secondary
+}
+
+/** Whether the indicator is rebased: `rebase` set, on the candle pane's primary axis. */
+export function isRebased (indicator: Pick<Indicator, 'yAxis' | 'rebase'>, paneId: string): boolean {
+  return indicator.rebase && indicator.yAxis !== 'secondary' && paneId === PaneIdConstants.CANDLE
+}
+
+export interface RebaseSource {
+  getDataList: () => KLineData[]
+  getVisibleRange: () => { from: number, to: number }
+}
+
+/**
+ * The factor a rebased indicator's values are multiplied by:
+ * `close[from] / ownValue`, where `from` is the first visible bar (what the
+ * percentage axis uses as its base) and `ownValue` the indicator's first
+ * figure at `from`, or its first non-null value after it in view. 1 when
+ * either price is missing or not positive, or the indicator has nothing in view.
+ */
+export function getRebaseFactor (chart: RebaseSource, indicator: Pick<Indicator, 'figures' | 'result'>): number {
+  const key = indicator.figures[0]?.key
+  if (!isString(key)) return 1
+  const { from, to } = chart.getVisibleRange()
+  const base = chart.getDataList()[from]?.close
+  if (!isNumber(base) || !(base > 0)) return 1
+  const result = indicator.result as Array<Nullable<Record<string, unknown>>>
+  const end = Math.min(to, result.length - 1)
+  for (let i = Math.max(from, 0); i <= end; i++) {
+    const value = result[i]?.[key]
+    if (isNumber(value) && Number.isFinite(value)) {
+      return value > 0 ? base / value : 1
+    }
+  }
+  return 1
+}
+
 /**
  * Calls back once per typed figure with its style at `dataIndex`. The style
  * object is shared between bars, so a callback must not mutate it.
@@ -399,6 +465,8 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
   shouldFormatBigNumber = false
   visible = true
   zLevel = 0
+  yAxis: IndicatorYAxis = 'primary'
+  rebase = false
   extendData: E
   series: IndicatorSeries = 'normal'
   figures: Array<IndicatorFigure<D>> = []
@@ -419,6 +487,8 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
       prev.shouldFormatBigNumber !== current.shouldFormatBigNumber ||
       prev.visible !== current.visible ||
       prev.zLevel !== current.zLevel ||
+      prev.yAxis !== current.yAxis ||
+      prev.rebase !== current.rebase ||
       prev.extendData !== current.extendData ||
       prev.regenerateFigures !== current.regenerateFigures ||
       prev.createTooltipDataSource !== current.createTooltipDataSource ||
@@ -487,6 +557,20 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
     if (!this._lockSeriesPrecision) {
       this.precision = precision
     }
+  }
+
+  /**
+   * Whether the last `override` changed something the pane's axes depend on:
+   * which axis the indicator sits on, whether it is shown, how it is rebased or
+   * the precision of its labels. Those need the axes re-measured, not only a
+   * repaint.
+   */
+  axisLayoutChanged (): boolean {
+    const prev = this._prevIndicator
+    return prev.yAxis !== this.yAxis ||
+      prev.rebase !== this.rebase ||
+      prev.visible !== this.visible ||
+      prev.precision !== this.precision
   }
 
   shouldUpdateImp (): ({ calc: boolean, draw: boolean, sort: boolean }) {

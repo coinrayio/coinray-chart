@@ -57,9 +57,9 @@ describe('long / short position', () => {
     expect(keys(run({ alwaysShowStats: false, showLabels: false }, { active: true }))).not.toContain('target_label')
   })
 
-  it('takes presses on its lines only, until selected, so the box doesn\'t steal them from what lies under it', () => {
+  it('takes presses anywhere on its box, selected or not, so a click or hover anywhere on it reaches it', () => {
     const pressable = (figs: any[]): Array<string | undefined> => figs.filter((f) => f.ignoreEvent !== true).map((f) => f.key)
-    expect(pressable(run({}))).toEqual(['target_line', 'stop_line', 'entry'])
+    expect(pressable(run({}))).toEqual(['profit', 'stop', 'target_line', 'stop_line', 'entry'])
     expect(pressable(run({}, { active: true }))).toEqual(expect.arrayContaining(['profit', 'stop', 'target_line', 'stop_line', 'entry']))
   })
 

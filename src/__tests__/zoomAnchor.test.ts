@@ -40,6 +40,21 @@ describe('zoom around the last bar', () => {
   })
 })
 
+describe('zoom around the right edge', () => {
+  it('keeps the right edge on the same bar, so the last bar moves when it sits mid-chart', () => {
+    const store = storeWithBars(500)
+    store.setZoomAnchor('right_edge')
+    const last = store.getDataList().length - 1
+    store.setLastBarRightSideDiffBarCount(30)
+    const edgeIndex = store.coordinateToFloatIndex(1100)
+    const lastX = store.dataIndexToCoordinate(last)
+    store.zoom(1, { x: 300 }, 'main')
+    expect(store.coordinateToFloatIndex(1100)).toBeCloseTo(edgeIndex, 6)
+    expect(store.getLastBarRightSideDiffBarCount()).toBeCloseTo(30, 6)
+    expect(store.dataIndexToCoordinate(last)).toBeLessThan(lastX)
+  })
+})
+
 describe('candle spacing while zooming', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 

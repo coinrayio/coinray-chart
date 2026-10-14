@@ -85,7 +85,7 @@ export interface ThousandsSeparator {
   format: (value: string | number) => string
 }
 
-export type ZoomAnchorType = 'cursor' | 'last_bar'
+export type ZoomAnchorType = 'cursor' | 'last_bar' | 'right_edge'
 
 export interface ZoomAnchor {
   main: ZoomAnchorType

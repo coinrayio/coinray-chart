@@ -20,6 +20,7 @@ import { createFont } from '../common/utils/canvas'
 import { SymbolDefaultPrecisionConstants } from '../common/SymbolInfo'
 
 import type { Axis } from '../component/Axis'
+import { isBoundToAxis } from '../component/Indicator'
 import type YAxis from '../component/YAxis'
 
 import type { TextAttrs } from '../extension/figure/text'
@@ -41,7 +42,7 @@ export default class CrosshairHorizontalLabelView<C extends Axis = YAxis> extend
         const textStyles = directionStyles.text
         if (directionStyles.show && textStyles.show) {
           const bounding = widget.getBounding()
-          const axis = pane.getAxisComponent()
+          const axis = widget.getAxis()
           const text = this.getText(crosshair, chartStore, axis)
           ctx.font = createFont(textStyles.size, textStyles.weight, textStyles.family)
           this.createFigure({
@@ -71,6 +72,7 @@ export default class CrosshairHorizontalLabelView<C extends Axis = YAxis> extend
       precision = chartStore.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
     } else {
       const indicators = chartStore.getIndicatorsByPaneId(crosshair.paneId!)
+        .filter(indicator => isBoundToAxis(indicator, yAxis.isSecondary()))
       indicators.forEach(indicator => {
         precision = Math.max(indicator.precision, precision)
         shouldFormatBigNumber ||= indicator.shouldFormatBigNumber

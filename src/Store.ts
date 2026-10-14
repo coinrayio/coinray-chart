@@ -1655,6 +1655,10 @@ export default class StoreImp implements Store {
       if (lastBarX >= 0 && lastBarX <= this._totalBarSpace) {
         zoomCoordinate.x = lastBarX
       }
+    } else if (anchor === 'right_edge') {
+      // TradingView's default (right_bar_stays_on_scroll): the bar at the right
+      // edge stays there, so a gap right of the last bar scales with the zoom.
+      zoomCoordinate.x = this._totalBarSpace
     }
     const x = zoomCoordinate.x!
     const floatIndex = this.coordinateToFloatIndex(x)
@@ -2025,9 +2029,11 @@ export default class StoreImp implements Store {
   overrideIndicator (override: IndicatorOverride): boolean {
     let updateFlag = false
     let sortFlag = false
+    let axisFlag = false
     const filterIndicators = this.getIndicatorsByFilter(override)
     filterIndicators.forEach(indicator => {
       indicator.override(override)
+      axisFlag ||= indicator.axisLayoutChanged()
       const { calc, draw, sort } = indicator.shouldUpdateImp()
       if (sort) {
         sortFlag = true
@@ -2044,6 +2050,19 @@ export default class StoreImp implements Store {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ignore
     if (sortFlag) {
       this._sortIndicators()
+    }
+    // The axes follow the indicators: which one an indicator sits on, whether
+    // it is shown, how it is rebased and its precision all change what they
+    // span and how wide they are, so they are rebuilt, not only repainted.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ignore
+    if (axisFlag) {
+      this._chart.layout({
+        measureWidth: true,
+        update: true,
+        buildYAxisTick: true,
+        forceBuildYAxisTick: true
+      })
+      return true
     }
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ignore
     if (updateFlag) {

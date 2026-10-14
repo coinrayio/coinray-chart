@@ -29,7 +29,7 @@ export default class YAxisView extends AxisView<YAxis> {
   }
 
   override createAxisLine (bounding: Bounding, styles: AxisStyle): LineAttrs {
-    const yAxis = this.getWidget().getPane().getAxisComponent()
+    const yAxis = this.getWidget().getAxis()
     const size = styles.axisLine.size
     let x = 0
     if (yAxis.isFromZero()) {
@@ -46,7 +46,7 @@ export default class YAxisView extends AxisView<YAxis> {
   }
 
   override createTickLines (ticks: AxisTick[], bounding: Bounding, styles: AxisStyle): LineAttrs[] {
-    const yAxis = this.getWidget().getPane().getAxisComponent()
+    const yAxis = this.getWidget().getAxis()
     const axisLineStyles = styles.axisLine
     const tickLineStyles = styles.tickLine
 
@@ -74,7 +74,7 @@ export default class YAxisView extends AxisView<YAxis> {
   }
 
   override createTickTexts (ticks: AxisTick[], bounding: Bounding, styles: AxisStyle): TextAttrs[] {
-    const yAxis = this.getWidget().getPane().getAxisComponent()
+    const yAxis = this.getWidget().getAxis()
     const axisLineStyles = styles.axisLine
     const tickLineStyles = styles.tickLine
     const tickTextStyles = styles.tickText
@@ -97,7 +97,7 @@ export default class YAxisView extends AxisView<YAxis> {
         x -= tickLineStyles.length
       }
     }
-    const textAlign = this.getWidget().getPane().getAxisComponent().isFromZero() ? 'left' : 'right'
+    const textAlign = this.getWidget().getAxis().isFromZero() ? 'left' : 'right'
     return ticks.map(tick => ({
       x,
       y: tick.coord,
