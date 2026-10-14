@@ -89,6 +89,8 @@ export interface Chart extends Store {
   getSelectedOverlayIds: () => string[]
   /** Replace the selection. `[]` clears it. */
   setSelectedOverlayIds: (ids: string[]) => void
+  /** Deselect everything, the clicked overlay included — as a click on empty space does. */
+  clearOverlaySelection: () => void
   /** Move overlays one bar sideways or a few pixels vertically. False when none moved. */
   nudgeOverlays: (ids: string[], direction: OverlayNudgeDirection) => boolean
   setPaneOptions: (options: PaneOptions) => void
@@ -986,6 +988,25 @@ export default class ChartImp implements Chart {
 
   setSelectedOverlayIds (ids: string[]): void {
     this._chartStore.setSelectedOverlayIds(ids)
+  }
+
+  /**
+   * Deselect everything, as a click on empty space does: the clicked overlay
+   * (whose handles are drawn, and whose `onDeselected` fires) as well as the
+   * selection set. `setSelectedOverlayIds([])` alone leaves the clicked one.
+   */
+  clearOverlaySelection (): void {
+    const { paneId } = this._chartStore.getClickOverlayInfo()
+    this._chartStore.setClickOverlayInfo(
+      { paneId, overlay: null, figureType: 'none', figureIndex: -1, figure: null },
+      () => false,
+      (overlay) => {
+        // No pointer event behind a programmatic deselect: handlers get the chart and the overlay.
+        overlay.onDeselected?.({ chart: this, overlay } as unknown as Parameters<NonNullable<typeof overlay.onDeselected>>[0])
+        return true
+      }
+    )
+    this._chartStore.setSelectedOverlayIds([])
   }
 
   nudgeOverlays (ids: string[], direction: OverlayNudgeDirection): boolean {
