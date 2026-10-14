@@ -32,4 +32,10 @@ describe('positionExit', () => {
     const bars = [bar(80, 120), bar(99, 101), bar(80, 120)]
     expect(positionExit(bars, 0, 1, 'long', 95, 110)).toBeNull()
   })
+
+  it('reads whole bars when the points sit between them', () => {
+    const bars = [bar(99, 101), bar(98, 103), bar(94, 102)]
+    expect(positionExit(bars, 0.4, 2.6, 'long', 95, 110)).toEqual({ price: 95, hit: 'stop' })
+    expect(positionExit(bars, 0.4, 9.5, 'long', 90, 110)).toBeNull()
+  })
 })
