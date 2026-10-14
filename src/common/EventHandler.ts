@@ -516,7 +516,14 @@ export default class EventHandlerImp {
 
     const compatEvent = this._makeCompatEvent(touchEndEvent, touch)
     this._processEvent(compatEvent, this._handler.touchEndEvent)
-    ++this._tapCount
+    if (this._cancelTap) {
+      // A drag is not a tap. Counting it would make the next tap look like a
+      // too-distant second half of a double-tap, and swallow it — a tap right
+      // after panning (or after moving the touch-drawing crosshair) did nothing.
+      this._resetTapTimeout()
+    } else {
+      ++this._tapCount
+    }
 
     if (this._tapTimeoutId !== null && this._tapCount > 1) {
       // check that both clicks are near enough
