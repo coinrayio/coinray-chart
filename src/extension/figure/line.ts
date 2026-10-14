@@ -224,6 +224,10 @@ export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | Line
       }
     }
   })
+  // The dash is context state, so it outlives this call: a custom indicator
+  // drawn next stroked every line dashed until it reset it (Superchart
+  // ALT-6, where a cross marker lost its centre to the gap).
+  if (style === 'dashed') ctx.setLineDash([])
 }
 
 export interface LineAttrs {
