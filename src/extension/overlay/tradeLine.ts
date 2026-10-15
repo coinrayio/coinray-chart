@@ -35,11 +35,15 @@
  */
 
 import type DeepPartial from '../../common/DeepPartial'
-import { merge, clone } from '../../common/utils/typeChecks'
+import type Coordinate from '../../common/Coordinate'
+import { isTransparent } from '../../common/utils/color'
+import { isNumber, merge, clone } from '../../common/utils/typeChecks'
+import type ChartImp from '../../Chart'
+import { calcTextWidth } from '../../common/utils/canvas'
 
 import type { ProOverlayTemplate } from './types'
 import type { TradeLineProperties } from './tradeLineApi'
-import { wideArrowGeometry, BASE_BODY_H as WIDE_BODY_H, BASE_HEAD_H as WIDE_HEAD_H } from './tradeArrowGeometry'
+import { wideArrowOutline, BASE_BODY_H as WIDE_BODY_H, BASE_HEAD_H as WIDE_HEAD_H } from './tradeArrowGeometry'
 
 // ---------------------------------------------------------------------------
 // Default style constants
@@ -54,7 +58,8 @@ const defaultTradeLineStyle: Required<Omit<TradeLineProperties, 'timestamp' | 'p
   textFontSize: 12,
   textGap: 2,
   gap: 4,
-  showLabelArrow: true
+  showLabelArrow: true,
+  borderColor: 'rgba(0, 0, 0, 0.85)'
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +67,7 @@ const defaultTradeLineStyle: Required<Omit<TradeLineProperties, 'timestamp' | 'p
 // ---------------------------------------------------------------------------
 
 // Wide arrow: narrow rect body + wider triangle head (stroke_fill).
-// Point geometry lives in `tradeArrowGeometry.ts` (`wideArrowGeometry`) —
+// Point geometry lives in `tradeArrowGeometry.ts` (`wideArrowOutline` over `wideArrowGeometry`) —
 // the sole source of truth, also consumed outside this package via the
 // `wideArrowGeometry` export in `src/index.ts`.
 
@@ -105,7 +110,7 @@ const tradeLine = (): ProOverlayTemplate => {
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
 
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       const figures: FigureArray = []
 
       if (coordinates.length === 0) return []
@@ -123,7 +128,10 @@ const tradeLine = (): ProOverlayTemplate => {
       const gap = prop('gap') ?? defaultTradeLineStyle.gap
       const showLabelArrow = prop('showLabelArrow') ?? defaultTradeLineStyle.showLabelArrow
 
-      const x = coordinates[0].x
+      // A fill belongs to the bar it happened in, so the arrow sits on that
+      // candle's centre. The overlay's own x is the exact time (a fill 12s
+      // into a 1m bar is drawn 0.2 of a bar right of the candle).
+      const x = barCentreX(chart as ChartImp, overlay.points[0]?.timestamp) ?? coordinates[0].x
       // coordinates[0].y is the pixel Y of the `price` prop (or 0 fallback)
       const priceY = coordinates[0].y
 
@@ -136,12 +144,14 @@ const tradeLine = (): ProOverlayTemplate => {
       // sell (down): tip at priceY, body extends upward (away from tip)
       const mainTipY = priceY
 
+      // A dark 1px outline keeps the arrow readable on a candle of its own colour.
+      const borderColor = prop('borderColor') ?? defaultTradeLineStyle.borderColor
       if (arrowType === 'wide') {
-        drawWideArrow(figures, x, mainTipY, direction, color)
+        drawFilledArrow(figures, wideArrowOutline(x, mainTipY, direction), color, borderColor)
       } else if (arrowType === 'arrow') {
         drawLineArrow(figures, x, mainTipY, direction, color)
       } else {
-        drawTinyArrow(figures, x, mainTipY, direction, color)
+        drawTinyArrow(figures, x, mainTipY, direction, color, borderColor)
       }
 
       // -------------------------------------------------------------------
@@ -156,62 +166,33 @@ const tradeLine = (): ProOverlayTemplate => {
       //     ↕ textGap
       //   text
       // -------------------------------------------------------------------
-      // Main arrow base: the end opposite the tip
-      const mainBaseY = direction === 'up'
-        ? mainTipY + mainTotalH
-        : mainTipY - mainTotalH
-
       if (text.length > 0) {
         const textFontSize = prop('textFontSize') ?? defaultTradeLineStyle.textFontSize
         const textGap = prop('textGap') ?? defaultTradeLineStyle.textGap
-        const labelTotalH = LABEL_HEAD_H + LABEL_LINE_H
 
         if (showLabelArrow) {
           // Label arrow tip starts gap px beyond the main arrow base
-          // buy (up): label tip below main base → mainBaseY + gap
-          // sell (down): label tip above main base → mainBaseY - gap
-          const labelTipY = direction === 'up'
-            ? mainBaseY + gap
-            : mainBaseY - gap
-
-          drawLabelArrow(figures, x, labelTipY, direction, color)
-
-          // Text beyond the label arrow
-          const textY = direction === 'up'
-            ? labelTipY + labelTotalH + textGap
-            : labelTipY - labelTotalH - textGap
-
-          figures.push({
-            type: 'editableText',
-            key: 'text',
-            attrs: {
-              x,
-              y: textY,
-              text,
-              align: 'center',
-              baseline: direction === 'up' ? 'top' : 'bottom'
-            },
-            styles: { color: textColor, size: textFontSize }
-          })
-        } else {
-          // No label arrow — text directly beyond main arrow base
-          const textY = direction === 'up'
-            ? mainBaseY + gap
-            : mainBaseY - gap
-
-          figures.push({
-            type: 'editableText',
-            key: 'text',
-            attrs: {
-              x,
-              y: textY,
-              text,
-              align: 'center',
-              baseline: direction === 'up' ? 'top' : 'bottom'
-            },
-            styles: { color: textColor, size: textFontSize }
-          })
+          const mainBaseY = direction === 'up' ? mainTipY + mainTotalH : mainTipY - mainTotalH
+          drawLabelArrow(figures, x, direction === 'up' ? mainBaseY + gap : mainBaseY - gap, direction, color)
         }
+
+        // Pushed further from the candle when it would cover another fill's label.
+        const stack = labelStackOffset(chart as ChartImp, overlay.id)
+        const textY = labelBaseY({ direction, arrowType, gap, textGap, showLabelArrow }, priceY) +
+          (direction === 'up' ? stack : -stack)
+
+        figures.push({
+          type: 'editableText',
+          key: 'text',
+          attrs: {
+            x,
+            y: textY,
+            text,
+            align: 'center',
+            baseline: direction === 'up' ? 'top' : 'bottom'
+          },
+          styles: { color: textColor, size: textFontSize }
+        })
       }
 
       return figures
@@ -242,6 +223,109 @@ type FigureArray = Array<{
   ignoreEvent?: boolean
 }>
 
+function barCentreX (chart: ChartImp, timestamp: number | undefined): number | null {
+  if (!isNumber(timestamp)) return null
+  const store = chart.getChartStore()
+  return store.dataIndexToCoordinate(Math.floor(store.timestampToFloatIndex(timestamp)))
+}
+
+interface LabelGeometry {
+  direction: 'up' | 'down'
+  arrowType: 'wide' | 'arrow' | 'tiny'
+  gap: number
+  textGap: number
+  showLabelArrow: boolean
+}
+
+/** Y of the text's candle-side edge (its top for a buy, its bottom for a sell). */
+function labelBaseY ({ direction, arrowType, gap, textGap, showLabelArrow }: LabelGeometry, priceY: number): number {
+  let away = getArrowTotalHeight(arrowType) + gap
+  if (showLabelArrow) away += LABEL_HEAD_H + LABEL_LINE_H + textGap
+  return direction === 'up' ? priceY + away : priceY - away
+}
+
+// ---------------------------------------------------------------------------
+// Label stacking — fills at (about) the same price on neighbouring bars, or
+// several fills in one bar, would draw their labels on top of each other.
+// Every trade line on the chart is laid out together, left to right, and a
+// label that would cover one already placed moves further from the candle.
+// One layout per draw pass: computed by the first trade line that asks,
+// dropped in a microtask, so the rest of the pass reuses it.
+// ---------------------------------------------------------------------------
+
+const LABEL_SPACING = 2
+const LABEL_PAD_X = 4
+
+const stackLayouts = new WeakMap<ChartImp, Map<string, number>>()
+
+function labelStackOffset (chart: ChartImp, id: string): number {
+  let layout = stackLayouts.get(chart)
+  if (layout === undefined) {
+    layout = computeLabelStack(chart)
+    stackLayouts.set(chart, layout)
+    queueMicrotask(() => { stackLayouts.delete(chart) })
+  }
+  return layout.get(id) ?? 0
+}
+
+interface PlacedLabel { id: string, sign: 1 | -1, left: number, right: number, near: number, height: number }
+
+function computeLabelStack (chart: ChartImp): Map<string, number> {
+  const offsets = new Map<string, number>()
+  const overlays = chart.getOverlays({ name: 'tradeLine' })
+  if (overlays.length < 2) return offsets
+  const store = chart.getChartStore()
+  const yAxis = chart.getDrawPaneById('candle_pane')?.getAxisComponent()
+  if (yAxis === undefined) return offsets
+
+  const labels: PlacedLabel[] = []
+  for (const overlay of overlays) {
+    const ext = (overlay.extendData ?? {}) as Partial<TradeLineProperties>
+    const text = ext.text ?? ''
+    const point = overlay.points[0]
+    if (!overlay.visible || text.length === 0 || !isNumber(point?.timestamp) || !isNumber(point.value)) continue
+    const direction = ext.direction ?? defaultTradeLineStyle.direction
+    const size = ext.textFontSize ?? defaultTradeLineStyle.textFontSize
+    const x = store.dataIndexToCoordinate(Math.floor(store.timestampToFloatIndex(point.timestamp)))
+    const halfW = calcTextWidth(text, size) / 2 + LABEL_PAD_X
+    const near = labelBaseY({
+      direction,
+      arrowType: ext.arrowType ?? defaultTradeLineStyle.arrowType,
+      gap: ext.gap ?? defaultTradeLineStyle.gap,
+      textGap: ext.textGap ?? defaultTradeLineStyle.textGap,
+      showLabelArrow: ext.showLabelArrow ?? defaultTradeLineStyle.showLabelArrow
+    }, yAxis.convertToPixel(point.value))
+    labels.push({ id: overlay.id, sign: direction === 'up' ? 1 : -1, left: x - halfW, right: x + halfW, near, height: size })
+  }
+  // Left to right; a stable sort, so on one bar the earlier fill keeps its place.
+  labels.sort((a, b) => a.left + a.right - b.left - b.right)
+
+  const placed: PlacedLabel[] = []
+  for (const label of labels) {
+    // Measured along the label's own direction (down for a buy, up for a
+    // sell), each label spans [start, start + height].
+    const base = label.near * label.sign
+    let shift = 0
+    let moved = true
+    while (moved) {
+      moved = false
+      const start = base + shift
+      for (const other of placed) {
+        if (other.sign !== label.sign || other.right <= label.left || other.left >= label.right) continue
+        const otherStart = other.near * other.sign
+        if (start < otherStart + other.height + LABEL_SPACING && otherStart < start + label.height + LABEL_SPACING) {
+          shift = otherStart + other.height + LABEL_SPACING - base
+          moved = true
+          break
+        }
+      }
+    }
+    if (shift > 0) offsets.set(label.id, shift)
+    placed.push({ ...label, near: label.near + label.sign * shift })
+  }
+  return offsets
+}
+
 function getArrowTotalHeight (arrowType: 'wide' | 'arrow' | 'tiny'): number {
   return arrowType === 'wide'
     ? WIDE_HEAD_H + WIDE_BODY_H
@@ -251,31 +335,17 @@ function getArrowTotalHeight (arrowType: 'wide' | 'arrow' | 'tiny'): number {
 }
 
 // ---------------------------------------------------------------------------
-// Main arrow type 1: WIDE — stroke_fill rect body + wider triangle head
+// Main arrow types 1 and 3: WIDE and TINY — one filled outline with a border
 // ---------------------------------------------------------------------------
 
-function drawWideArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
-  const strokeFillStyle = { style: 'stroke_fill', color, borderColor: color, borderSize: 1 }
-  const { head, body } = wideArrowGeometry(x, tipY, direction)
-
-  const headFigure: FigureArray[number] = {
+function drawFilledArrow (figures: FigureArray, outline: Coordinate[], color: string, borderColor: string): void {
+  const bordered = borderColor !== '' && !isTransparent(borderColor)
+  figures.push({
     type: 'polygon',
     key: 'main-head',
-    attrs: { coordinates: head },
-    styles: strokeFillStyle
-  }
-  const bodyFigure: FigureArray[number] = {
-    type: 'polygon',
-    key: 'main-body',
-    attrs: { coordinates: body },
-    styles: strokeFillStyle
-  }
-
-  if (direction === 'up') {
-    figures.push(headFigure, bodyFigure)
-  } else {
-    figures.push(bodyFigure, headFigure)
-  }
+    attrs: { coordinates: outline },
+    styles: { style: 'stroke_fill', color, borderColor: bordered ? borderColor : color, borderSize: 1 }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -318,22 +388,14 @@ function drawLineArrow (figures: FigureArray, x: number, tipY: number, direction
 // Main arrow type 3: TINY — filled triangle head only (no stem)
 // ---------------------------------------------------------------------------
 
-function drawTinyArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string): void {
+function drawTinyArrow (figures: FigureArray, x: number, tipY: number, direction: 'up' | 'down', color: string, borderColor: string): void {
   const halfHeadW = TINY_HEAD_W / 2
   const headBase = direction === 'up' ? tipY + TINY_HEAD_H : tipY - TINY_HEAD_H
-
-  figures.push({
-    type: 'polygon',
-    key: 'main-head',
-    attrs: {
-      coordinates: [
-        { x, y: tipY },
-        { x: x - halfHeadW, y: headBase },
-        { x: x + halfHeadW, y: headBase }
-      ]
-    },
-    styles: { style: 'stroke_fill', color, borderColor: color, borderSize: 1 }
-  })
+  drawFilledArrow(figures, [
+    { x, y: tipY },
+    { x: x - halfHeadW, y: headBase },
+    { x: x + halfHeadW, y: headBase }
+  ], color, borderColor)
 }
 
 // ---------------------------------------------------------------------------

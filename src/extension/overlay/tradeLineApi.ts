@@ -38,6 +38,9 @@ export interface TradeLineProperties {
   gap?: number
   /** Show small indicator arrow between text label and candle */
   showLabelArrow?: boolean
+  /** 1px outline round the arrow, so it reads on a candle of its own colour.
+   *  Default a dark outline; empty or transparent for none. */
+  borderColor?: string
   /** Timestamp for positioning (milliseconds) */
   timestamp?: number
   /** Price value — used as fallback Y when candle data is unavailable */
@@ -63,6 +66,7 @@ export interface TradeLine {
   setTextGap: (gap: number) => TradeLine
   setGap: (gap: number) => TradeLine
   setShowLabelArrow: (show: boolean) => TradeLine
+  setBorderColor: (color: string) => TradeLine
   setTimestamp: (timestamp: number) => TradeLine
   setPrice: (price: number) => TradeLine
 
@@ -177,6 +181,12 @@ export function createTradeLine (
 
     setShowLabelArrow (show: boolean): TradeLine {
       properties.showLabelArrow = show
+      update()
+      return self
+    },
+
+    setBorderColor (color: string): TradeLine {
+      properties.borderColor = color
       update()
       return self
     },

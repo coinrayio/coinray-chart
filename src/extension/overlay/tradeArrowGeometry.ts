@@ -16,7 +16,7 @@
  * Wide trade-arrow glyph — pure point geometry.
  *
  * Single source of truth for the "wide" arrow shape (triangular head +
- * rectangular body) drawn by `tradeLine.ts`'s `drawWideArrow` and, outside
+ * rectangular body) drawn by `tradeLine.ts` (via `wideArrowOutline`) and, outside
  * this package, by the Superchart script-marker glyph
  * (`src/lib/extension/tradeArrowGeometry.ts`), which imports
  * `wideArrowGeometry` from `klinecharts` rather than duplicating the numbers.
@@ -36,10 +36,27 @@ export interface WideArrowGeometry {
 }
 
 // Base geometry at scale 1
-export const BASE_BODY_W = 8
+export const BASE_BODY_W = 10
 export const BASE_BODY_H = 12
-export const BASE_HEAD_W = 16
+export const BASE_HEAD_W = 20
 export const BASE_HEAD_H = 10
+
+/** The same arrow as one closed outline (tip first), so a border goes round
+ *  the whole glyph instead of also drawing the seam between head and body. */
+export function wideArrowOutline (
+  x: number,
+  tipY: number,
+  direction: WideArrowDirection,
+  scale = 1
+): Coordinate[] {
+  const { head, body } = wideArrowGeometry(x, tipY, direction, scale)
+  // Head: tip, left base, right base. Body corners: near edge first for 'up'
+  // (left near, right near, right far, left far), far edge first for 'down'.
+  const [nearL, nearR, farR, farL] = direction === 'up'
+    ? [body[0], body[1], body[2], body[3]]
+    : [body[3], body[2], body[1], body[0]]
+  return [head[0], head[2], nearR, farR, farL, nearL, head[1]]
+}
 
 export function wideArrowGeometry (
   x: number,
