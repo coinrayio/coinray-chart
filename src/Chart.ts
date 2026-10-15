@@ -519,7 +519,21 @@ export default class ChartImp implements Chart {
         mainRight = rightYAxisWidth
       }
 
+      const prevVisible = this._chartStore.getVisibleRange()
       this._chartStore.setTotalBarSpace(mainWidth)
+      const visible = this._chartStore.getVisibleRange()
+      // The y axes were ranged over the bars visible before the width settled.
+      // A new width can bring a bar in or out, and the percentage axis is based
+      // on the first one (ALT-34): range them again, keeping the width as is.
+      if (prevVisible.realFrom !== visible.realFrom || prevVisible.realTo !== visible.realTo) {
+        this._drawPanes.forEach(pane => {
+          (pane.getAxisComponent() as AxisImp).buildTicks(false)
+          const secondary = pane.getSecondaryYAxis()
+          if (secondary !== null) {
+            (secondary as unknown as AxisImp).buildTicks(false)
+          }
+        })
+      }
 
       const paneBounding = { width: totalWidth }
       const mainBounding = { width: mainWidth, left: mainLeft, right: mainRight }

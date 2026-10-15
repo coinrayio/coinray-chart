@@ -78,6 +78,11 @@ export interface LayoutChild {
 export interface DecimalFold {
   threshold: number
   format: (value: string | number) => string
+  /**
+   * Folds a set of labels together so they share one zero count (the price
+   * axis). Setting only `format` makes this apply `format` to each value.
+   */
+  formatAll: (values: Array<string | number>) => string[]
 }
 
 export interface ThousandsSeparator {

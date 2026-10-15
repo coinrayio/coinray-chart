@@ -15,17 +15,30 @@
 import { log10, index10 } from '../../common/utils/number'
 import type { AxisTemplate } from '../../component/Axis'
 
+// A price at or below zero has no logarithm; it is pinned to the smallest
+// positive double so it lands far below the visible range instead of mapping
+// to -Infinity or NaN.
+function toLog (value: number): number {
+  return log10(Math.max(value, Number.MIN_VALUE))
+}
+
+// The mapping has to be a true inverse pair. It used to be sign-symmetric
+// (`-log10(|v|)` for negatives), and since the inverse keyed on the sign of the
+// *log* rather than of the price, every price below 1 (negative logarithm) came
+// back as `-10^|x|`: 0.0007 was labelled about -1400.
 const logarithm: AxisTemplate = {
   name: 'logarithm',
   minSpan: (precision) => 0.05 * index10(-precision),
-  valueToRealValue: (value) => value < 0 ? -log10(Math.abs(value)) : log10(value),
-  realValueToDisplayValue: (value) => value < 0 ? -index10(Math.abs(value)) : index10(value),
-  displayValueToRealValue: (value) => value < 0 ? -log10(Math.abs(value)) : log10(value),
-  realValueToValue: (value) => value < 0 ? -index10(Math.abs(value)) : index10(value),
+  valueToRealValue: (value) => toLog(value),
+  realValueToDisplayValue: (value) => index10(value),
+  displayValueToRealValue: (value) => toLog(value),
+  realValueToValue: (value) => index10(value),
   createRange: ({ defaultRange }) => {
     const { from, to, range } = defaultRange
-    const realFrom = from < 0 ? -log10(Math.abs(from)) : log10(from)
-    const realTo = to < 0 ? -log10(Math.abs(to)) : log10(to)
+    // A zero or negative low (no data yet, an indicator dipping below zero)
+    // would stretch the range down to 1e-323. Show one decade under the top.
+    const realTo = toLog(to > 0 ? to : 10)
+    const realFrom = from > 0 ? toLog(from) : realTo - 1
     return {
       from,
       to,

@@ -50,6 +50,7 @@ import {
   formatBigNumber,
   formatThousands,
   formatFoldDecimal,
+  formatFoldDecimals,
   formatTimestampByTemplate
 } from './common/utils/format'
 import { calcTextWidth } from './common/utils/canvas'
@@ -182,6 +183,7 @@ const utils = {
   formatDate: formatTimestampByTemplate,
   formatThousands,
   formatFoldDecimal,
+  formatFoldDecimals,
   calcTextWidth,
   getLinearSlopeIntercept,
   getLinearYFromSlopeIntercept,

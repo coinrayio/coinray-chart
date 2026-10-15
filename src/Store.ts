@@ -29,9 +29,9 @@ import { SymbolDefaultPrecisionConstants, type SymbolInfo } from './common/Symbo
 
 import Action from './common/Action'
 import type { ActionType, ActionCallback } from './common/Action'
-import { formatValue, formatTimestampByTemplate, formatBigNumber, formatThousands, formatFoldDecimal } from './common/utils/format'
+import { formatValue, formatTimestampByTemplate, formatBigNumber, formatThousands, formatFoldDecimal, formatFoldDecimals } from './common/utils/format'
 import { getDefaultStyles, type Styles, type TooltipLegend } from './common/Styles'
-import { isArray, isString, isValid, isNumber, isBoolean, merge } from './common/utils/typeChecks'
+import { isArray, isString, isValid, isNumber, isBoolean, isFunction, merge } from './common/utils/typeChecks'
 import { createId } from './common/utils/id'
 import { binarySearchNearest } from './common/utils/number'
 import { logWarn } from './common/utils/logger'
@@ -283,8 +283,10 @@ export default class StoreImp implements Store {
    * Decimal fold
    */
   private readonly _decimalFold = {
-    threshold: 3,
-    format: (value: string | number) => formatFoldDecimal(value, this._decimalFold.threshold)
+    // ALT-34: `0.0009` prints in full; folding starts at 0.000001 (`0.0₅1`).
+    threshold: 5,
+    format: (value: string | number) => formatFoldDecimal(value, this._decimalFold.threshold),
+    formatAll: (values: Array<string | number>) => formatFoldDecimals(values, this._decimalFold.threshold)
   }
 
   /**
@@ -718,7 +720,14 @@ export default class StoreImp implements Store {
 
   getThousandsSeparator (): ThousandsSeparator { return this._thousandsSeparator }
 
-  setDecimalFold (decimalFold: Partial<DecimalFold>): void { merge(this._decimalFold, decimalFold) }
+  setDecimalFold (decimalFold: Partial<DecimalFold>): void {
+    // A custom `format` must reach the axis too, not just the single labels.
+    if (isFunction(decimalFold.format) && !isFunction(decimalFold.formatAll)) {
+      const format = decimalFold.format
+      decimalFold = { ...decimalFold, formatAll: values => values.map(format) }
+    }
+    merge(this._decimalFold, decimalFold)
+  }
 
   getDecimalFold (): DecimalFold { return this._decimalFold }
 

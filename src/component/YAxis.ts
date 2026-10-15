@@ -116,10 +116,39 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
   }
 
   override buildTicks (force: boolean): boolean {
+    if (!this.getAutoCalcTickFlag()) {
+      this._rebaseManualRange()
+    }
     if (this.priceToBarRatio !== null || this._lockPending) {
       this._deriveLockedRange()
     }
     return super.buildTicks(force)
+  }
+
+  /**
+   * A manual range (the price axis was dragged, or the ratio is locked) skips
+   * `createRangeImp`, and with it the template's `createRange`. Run that over
+   * the current value window so an axis whose real space depends on the view,
+   * the percentage scale on the first visible close, follows the view (ALT-34).
+   * The value window is kept, so the candles do not move; only the labels do.
+   * For `normal` and `logarithm` this recomputes the same bounds.
+   */
+  private _rebaseManualRange (): void {
+    const current = this.getRange()
+    const { from, to } = current
+    if (!(to > from)) {
+      return
+    }
+    const parent = this.getParent()
+    const range = to - from
+    const rebased = this.createRange({
+      chart: parent.getChart(),
+      paneId: parent.getId(),
+      defaultRange: { from, to, range, realFrom: from, realTo: to, realRange: range, displayFrom: from, displayTo: to, displayRange: range }
+    })
+    if (rebased.realFrom !== current.realFrom || rebased.realTo !== current.realTo) {
+      this.assignRange(rebased)
+    }
   }
 
   private _lockPriceToBar (ratio: Nullable<number>): void {
@@ -429,7 +458,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
       if (shouldFormatBigNumber) {
         v = formatter.formatBigNumber(value)
       }
-      v = decimalFold.format(thousandsSeparator.format(v))
+      v = thousandsSeparator.format(v)
       const validYNumber = isNumber(validY)
       if (
         y > textHeight &&
@@ -439,6 +468,12 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
         validY = y
       }
     })
+    // Fold the labels as a set so they share one zero count (ALT-34): folding
+    // each on its own switched from `₉` to `₈` partway up the axis.
+    const texts = optimalTicks.map(tick => tick.text)
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- partial test doubles
+    const folded = isFunction(decimalFold.formatAll) ? decimalFold.formatAll(texts) : texts.map(text => decimalFold.format(text))
+    optimalTicks.forEach((tick, i) => { tick.text = folded[i] })
     if (isFunction(this.createTicks)) {
       return this.createTicks({
         range: this.getRange(),

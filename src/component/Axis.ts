@@ -141,7 +141,15 @@ export default abstract class AxisImp implements Axis {
     if (this._autoCalcTickFlag) {
       this._range = this.createRangeImp()
     }
-    if (this._prevRange.from !== this._range.from || this._prevRange.to !== this._range.to || force) {
+    // The real bounds can move while the value bounds hold: a percentage axis
+    // rebases on the first visible bar while the visible high and low stay put.
+    const prev = this._prevRange
+    const range = this._range
+    if (
+      prev.from !== range.from || prev.to !== range.to ||
+      prev.realFrom !== range.realFrom || prev.realTo !== range.realTo ||
+      force
+    ) {
       this._prevRange = this._range
       this._ticks = this.createTicksImp()
       return true

@@ -25,7 +25,10 @@ const percentage: AxisTemplate = {
   createRange: ({ chart, defaultRange }) => {
     const kLineDataList = chart.getDataList()
     const visibleRange = chart.getVisibleRange()
-    const kLineData = kLineDataList[visibleRange.from]
+    // The first bar on screen. `from` stops moving once the view is scrolled
+    // past the last bar (it is counted back from the data's end); `realFrom`
+    // tracks the view (ALT-34).
+    const kLineData = kLineDataList[Math.max(0, Math.min(visibleRange.realFrom, kLineDataList.length - 1))]
     if (isValid(kLineData)) {
       const { from, to, range } = defaultRange
       const realFrom = (defaultRange.from - kLineData.close) / kLineData.close * 100
