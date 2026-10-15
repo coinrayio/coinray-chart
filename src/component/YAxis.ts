@@ -471,7 +471,6 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     // Fold the labels as a set so they share one zero count (ALT-34): folding
     // each on its own switched from `₉` to `₈` partway up the axis.
     const texts = optimalTicks.map(tick => tick.text)
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- partial test doubles
     const folded = isFunction(decimalFold.formatAll) ? decimalFold.formatAll(texts) : texts.map(text => decimalFold.format(text))
     optimalTicks.forEach((tick, i) => { tick.text = folded[i] })
     if (isFunction(this.createTicks)) {

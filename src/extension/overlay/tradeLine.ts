@@ -131,7 +131,7 @@ const tradeLine = (): ProOverlayTemplate => {
       // A fill belongs to the bar it happened in, so the arrow sits on that
       // candle's centre. The overlay's own x is the exact time (a fill 12s
       // into a 1m bar is drawn 0.2 of a bar right of the candle).
-      const x = barCentreX(chart as ChartImp, overlay.points[0]?.timestamp) ?? coordinates[0].x
+      const x = barCentreX(chart as ChartImp, overlay.points.length > 0 ? overlay.points[0].timestamp : undefined) ?? coordinates[0].x
       // coordinates[0].y is the pixel Y of the `price` prop (or 0 fallback)
       const priceY = coordinates[0].y
 
@@ -282,8 +282,9 @@ function computeLabelStack (chart: ChartImp): Map<string, number> {
   for (const overlay of overlays) {
     const ext = (overlay.extendData ?? {}) as Partial<TradeLineProperties>
     const text = ext.text ?? ''
+    if (!overlay.visible || text.length === 0 || overlay.points.length === 0) continue
     const point = overlay.points[0]
-    if (!overlay.visible || text.length === 0 || !isNumber(point?.timestamp) || !isNumber(point.value)) continue
+    if (!isNumber(point.timestamp) || !isNumber(point.value)) continue
     const direction = ext.direction ?? defaultTradeLineStyle.direction
     const size = ext.textFontSize ?? defaultTradeLineStyle.textFontSize
     const x = store.dataIndexToCoordinate(Math.floor(store.timestampToFloatIndex(point.timestamp)))
