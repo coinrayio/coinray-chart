@@ -6,6 +6,8 @@ import { buildProfile } from '../extension/overlay/tv/forecastData/volumeProfile
 import { linearRegression, regressionFills } from '../extension/overlay/tv/forecastData/regressionTrend'
 import { orientPattern, patternEnds } from '../extension/overlay/tv/forecastData/barsPattern'
 import { ghostBar, ghostCandles } from '../extension/overlay/tv/forecastData/ghostFeed'
+import { barIndex } from '../extension/overlay/tv/forecastData/common'
+import type ChartImp from '../Chart'
 
 const bar = (open: number, high: number, low: number, close: number, volume: number, timestamp = 0): KLineData => ({ timestamp, open, high, low, close, volume })
 
@@ -148,5 +150,21 @@ describe('regression trend fills', () => {
     expect(fills(true, true, false)).toEqual(['rgba(242, 54, 69, 0.3)'])
     expect(fills(false, true, true)).toEqual(['rgba(0, 0, 255, 0.3)'])
     expect(fills(true, false, false)).toEqual([])
+  })
+})
+
+describe('bar index', () => {
+  // A chart whose bars are one hour apart, as after switching from 15m to 1h.
+  const HOUR = 3_600_000
+  const chart = {
+    getChartStore: () => ({ timestampToDataIndex: (t: number) => Math.floor(t / HOUR) })
+  } as unknown as ChartImp
+
+  it('follows the timestamp, not a dataIndex left over from another timeframe', () => {
+    // Drawn on 15m at bar 441; on 1h the same time is bar 110.
+    expect(barIndex(chart, { timestamp: 110.5 * HOUR, dataIndex: 441 })).toBe(110)
+  })
+  it('falls back to the dataIndex when there is no timestamp', () => {
+    expect(barIndex(chart, { dataIndex: 7 })).toBe(7)
   })
 })

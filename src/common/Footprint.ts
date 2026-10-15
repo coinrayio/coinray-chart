@@ -13,6 +13,7 @@
  */
 
 import type Nullable from './Nullable'
+import type { CandleFootprintVariant } from './Styles'
 
 /** One price row of a footprint bar: `[price, bid volume, ask volume]`, base units. */
 export type FootprintRow = [price: number, bid: number, ask: number]
@@ -33,6 +34,33 @@ export interface FootprintImbalances {
   ask: Set<number>
 }
 
+/** How one footprint bar is laid out at a given bar width. */
+export interface FootprintLayout {
+  /** `split`: bid and ask columns. `single`: one delta-coloured column.
+   *  `profile`: total volume per row, split bid then ask. `histogram`: a delta
+   *  histogram beside a total-volume histogram, with POC and value area. */
+  mode: 'split' | 'single' | 'profile' | 'histogram'
+  /** Width of the thin OHLC body on the bar's left edge. */
+  bodyWidth: number
+  /** Space between the body and the cells. */
+  gap: number
+}
+
+/** Below this bar width `adaptive` swaps bid x ask for one delta column. */
+const SPLIT_MIN_WIDTH = 28
+
+export function footprintLayout (gapBar: number, variant: CandleFootprintVariant): FootprintLayout {
+  const wide = gapBar >= 20
+  const gap = wide ? 2 : 1
+  const bodyWidth = wide ? Math.max(3, Math.round(gapBar * (variant === 'histogram' ? 0.1 : 0.08))) : 2
+  switch (variant) {
+    case 'delta': return { mode: 'single', bodyWidth, gap }
+    case 'profile': return { mode: 'profile', bodyWidth, gap }
+    case 'histogram': return { mode: 'histogram', bodyWidth, gap }
+    default: return { mode: gapBar >= SPLIT_MIN_WIDTH ? 'split' : 'single', bodyWidth, gap }
+  }
+}
+
 /**
  * Diagonal imbalances: the ask at P against the bid at P - rowSize, and the bid
  * at P against the ask at P + rowSize. A diagonal partner with no volume is not
@@ -51,6 +79,30 @@ export function footprintImbalances (rows: FootprintRow[], rowSize: number, rati
     if (above !== undefined && above[2] > 0 && row[1] / above[2] >= ratio) result.bid.add(i)
   })
   return result
+}
+
+/**
+ * Value area: the contiguous band of rows around the POC holding `share` of the
+ * bar's volume, grown one row at a time toward the busier neighbour. Returns
+ * the band's lower and upper price edges, or `null` for a bar without volume.
+ */
+export function footprintValueArea (rows: FootprintRow[], rowSize: number, poc: Nullable<number>, share = 0.7): Nullable<{ low: number, high: number }> {
+  if (poc === null || rows.length === 0) return null
+  const sorted = rows.slice().sort((a, b) => a[0] - b[0])
+  const volume = sorted.map(([, bid, ask]) => bid + ask)
+  const total = volume.reduce((sum, v) => sum + v, 0)
+  if (total <= 0) return null
+  let lo = sorted.findIndex(row => Math.abs(row[0] - poc) < rowSize / 2)
+  if (lo < 0) return null
+  let hi = lo
+  let covered = volume[lo]
+  while (covered < total * share && (lo > 0 || hi < sorted.length - 1)) {
+    const below = lo > 0 ? volume[lo - 1] : -1
+    const above = hi < sorted.length - 1 ? volume[hi + 1] : -1
+    if (above >= below) covered += volume[++hi]
+    else covered += volume[--lo]
+  }
+  return { low: sorted[lo][0], high: sorted[hi][0] + rowSize }
 }
 
 /** Price of the row with the most `bid + ask`; ties go to the row closest to `close`. */

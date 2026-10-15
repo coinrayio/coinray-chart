@@ -43,10 +43,15 @@ export function propertyStore (): PropertyStore {
   return { get, setProperties, getProperties: get }
 }
 
-/** Bar index of a point: its dataIndex, else looked up from its timestamp. */
+/**
+ * Bar index of a point: looked up from its timestamp, else its dataIndex. The
+ * timestamp comes first because a stored dataIndex belongs to the timeframe the
+ * point was placed on; after a period switch it names a different bar, while
+ * the overlay is drawn from the timestamp (OverlayView).
+ */
 export function barIndex (chart: ChartImp, p: { dataIndex?: number, timestamp?: number }): number | null {
-  if (typeof p.dataIndex === 'number') return p.dataIndex
-  return typeof p.timestamp === 'number' ? chart.getChartStore().timestampToDataIndex(p.timestamp) : null
+  if (typeof p.timestamp === 'number') return chart.getChartStore().timestampToDataIndex(p.timestamp)
+  return typeof p.dataIndex === 'number' ? p.dataIndex : null
 }
 
 /** Inclusive, clamped bar range between two indices, in either order; null when there is no data. */

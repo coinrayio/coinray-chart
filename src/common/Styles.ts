@@ -338,11 +338,20 @@ export interface CandleBarColor extends ChangeColor {
 
 /**
  * The volume footprint (`candle.type: 'footprint'`). Per bar: a thin OHLC body on
- * the left, then a bid column and an ask column of per-price cells. Bars without
- * footprint data, and every bar while bars are narrower than `minBarWidth`, are
- * drawn as solid candles instead.
+ * the left, then the bar's per-price volume drawn as `variant` says. Bars
+ * without footprint data, and every bar while bars are narrower than
+ * `minBarWidth`, are drawn as solid candles instead.
  */
 export interface CandleFootprintStyle {
+  /**
+   * - `adaptive`: bid and ask columns with numbers where they fit, one
+   *   delta-coloured column once bars get narrow.
+   * - `delta`: one column per bar, ask minus bid per row.
+   * - `profile`: total volume per row as a bar, split bid then ask.
+   * - `histogram`: a delta histogram beside a total-volume histogram, with
+   *   the POC and the 70% value area. Never shows numbers.
+   */
+  variant: CandleFootprintVariant
   /** Cell fill for sell-aggressor volume; its opacity scales with the cell's share of the largest visible cell. */
   bidColor: string
   /** Cell fill for buy-aggressor volume. */
@@ -353,6 +362,10 @@ export interface CandleFootprintStyle {
   imbalanceAskColor: string
   /** Outline of the point-of-control row. */
   pocColor: string
+  /** `histogram`: total volume per row. */
+  volumeColor: string
+  /** `histogram`: the POC bar and the value area lines. */
+  valueAreaColor: string
   showNumbers: boolean
   textColor: string
   textSize: number
@@ -363,7 +376,12 @@ export interface CandleFootprintStyle {
    *  footprint data source buckets at it. Lives here so it persists with the
    *  rest of the chart type's settings. */
   rowSize: number
+  /** Bar width (px) the host zooms to when the footprint is selected. Not
+   *  read by the engine; lives here to persist with the chart type. */
+  barWidth: number
 }
+
+export type CandleFootprintVariant = 'adaptive' | 'delta' | 'profile' | 'histogram'
 
 export interface CandleStyle {
   type: CandleType
@@ -591,18 +609,22 @@ function getDefaultCandleStyle (): CandleStyle {
       downFillColor: hexToRgb(Color.RED, 0.2)
     },
     footprint: {
+      variant: 'adaptive',
       bidColor: Color.RED,
       askColor: Color.GREEN,
       imbalanceRatio: 3,
       imbalanceBidColor: Color.RED,
       imbalanceAskColor: Color.GREEN,
       pocColor: '#FDC700',
+      volumeColor: '#4A7FC1',
+      valueAreaColor: '#BDBDBD',
       showNumbers: true,
       textColor: Color.WHITE,
       textSize: 10,
       textFamily: 'Helvetica Neue',
-      minBarWidth: 60,
-      rowSize: 0
+      minBarWidth: 4,
+      rowSize: 0,
+      barWidth: 40
     },
     priceMark: {
       show: true,

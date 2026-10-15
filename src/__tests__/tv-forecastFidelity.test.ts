@@ -13,7 +13,7 @@ vi.mock('../common/utils/canvas', async (importOriginal) => ({
 
 const bar = (open: number, high: number, low: number, close: number, volume: number, timestamp = 0): KLineData => ({ timestamp, open, high, low, close, volume })
 const bounding = { width: 800, height: 400, left: 0, right: 0, top: 0, bottom: 0 }
-const fake = (data: KLineData[], active = false): any => ({
+const fake = (data: KLineData[], active = false, indexOf: (ts: number) => number = (ts) => ts): any => ({
   getDataList: () => data,
   convertToPixel: () => ({ y: 120 }),
   getChartStore: () => ({
@@ -23,7 +23,7 @@ const fake = (data: KLineData[], active = false): any => ({
     isOverlaySelected: () => active,
     getPeriod: () => ({ type: 'day', span: 1 }),
     getDateTimeFormat: () => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    timestampToDataIndex: (ts: number) => ts
+    timestampToDataIndex: indexOf
   })
 })
 
@@ -139,7 +139,9 @@ describe('forecast', () => {
   const run = (target: number, data: KLineData[], extendData: unknown = {}): any[] => {
     const tpl = forecast()
     const overlay = { id: 'f', extendData, points: [{ timestamp: 0, dataIndex: 0, value: 100 }, { timestamp: 86400000, dataIndex: 2, value: target }] }
-    return tpl.createPointFigures!({ overlay, coordinates: [{ x: 100, y: 300 }, { x: 300, y: 100 }], bounding, chart: fake(data) } as any) as any[]
+    // Bar lookups go by timestamp; map the target's onto the bar its dataIndex names.
+    const indexOf = (ts: number): number => (ts === 86400000 ? 2 : 0)
+    return tpl.createPointFigures!({ overlay, coordinates: [{ x: 100, y: 300 }, { x: 300, y: 100 }], bounding, chart: fake(data, false, indexOf) } as any) as any[]
   }
   const by = (figs: any[], k: string): any => figs.find((f) => f.key === k)
   const flat = [bar(100, 101, 99, 100, 1), bar(100, 105, 99, 104, 1), bar(100, 108, 99, 107, 1), bar(100, 109, 99, 108, 1)]

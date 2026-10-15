@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { footprintImbalances, footprintPoc, formatFootprintVolume, type FootprintRow } from '../common/Footprint'
+import { footprintImbalances, footprintLayout, footprintPoc, footprintValueArea, formatFootprintVolume, type FootprintRow } from '../common/Footprint'
 
 describe('footprintImbalances', () => {
   const rows: FootprintRow[] = [
@@ -59,5 +59,51 @@ describe('formatFootprintVolume', () => {
     expect(formatFootprintVolume(1_200_000)).toBe('1.2M')
     expect(formatFootprintVolume(250_000)).toBe('250K')
     expect(formatFootprintVolume(3e9)).toBe('3B')
+  })
+})
+
+describe('footprintValueArea', () => {
+  // Volumes by row: 100:10, 101:20, 102:50 (POC), 103:15, 104:5 = 100 total.
+  const rows: FootprintRow[] = [
+    [100, 5, 5],
+    [101, 10, 10],
+    [102, 25, 25],
+    [103, 5, 10],
+    [104, 2, 3]
+  ]
+
+  it('grows from the POC toward the busier neighbour until it holds the share', () => {
+    // 50, +20 below = 70: rows 101..102, so 101 to 103 in price.
+    expect(footprintValueArea(rows, 1, 102, 0.7)).toEqual({ low: 101, high: 103 })
+  })
+
+  it('works from unsorted rows', () => {
+    expect(footprintValueArea([...rows].reverse(), 1, 102, 0.7)).toEqual({ low: 101, high: 103 })
+  })
+
+  it('is null without a POC or volume', () => {
+    expect(footprintValueArea(rows, 1, null)).toBeNull()
+    expect(footprintValueArea([[100, 0, 0]], 1, 100)).toBeNull()
+  })
+})
+
+describe('footprintLayout', () => {
+  it('draws bid x ask columns on wide bars and one delta column on narrow ones', () => {
+    expect(footprintLayout(40, 'adaptive').mode).toBe('split')
+    expect(footprintLayout(28, 'adaptive').mode).toBe('split')
+    expect(footprintLayout(27, 'adaptive').mode).toBe('single')
+  })
+
+  it('keeps each other style at every width', () => {
+    for (const width of [6, 16, 60]) {
+      expect(footprintLayout(width, 'delta').mode).toBe('single')
+      expect(footprintLayout(width, 'profile').mode).toBe('profile')
+      expect(footprintLayout(width, 'histogram').mode).toBe('histogram')
+    }
+  })
+
+  it('thins the body strip to 2px on narrow bars', () => {
+    expect(footprintLayout(12, 'delta')).toMatchObject({ bodyWidth: 2, gap: 1 })
+    expect(footprintLayout(100, 'delta')).toMatchObject({ bodyWidth: 8, gap: 2 })
   })
 })

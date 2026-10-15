@@ -19,7 +19,7 @@ import { isString, isValid } from '../common/utils/typeChecks'
 import type { MouseTouchEvent } from '../common/EventHandler'
 import RectBatch from '../common/RectBatch'
 import type { CandleType, CandleLineSeriesType, CandleBarColor, CandleFootprintStyle, RectStyle } from '../common/Styles'
-import { type FootprintBarData, footprintImbalances, formatFootprintVolume } from '../common/Footprint'
+import { type FootprintBarData, type FootprintLayout, footprintImbalances, footprintLayout, footprintValueArea, formatFootprintVolume } from '../common/Footprint'
 import { createFont } from '../common/utils/canvas'
 
 import type { FigureCreate } from '../component/Figure'
@@ -31,6 +31,14 @@ import type DrawPane from '../pane/DrawPane'
 import type { YAxis } from '../component/YAxis'
 
 import { PaneIdConstants } from '../pane/types'
+
+interface FootprintFrame {
+  style: CandleFootprintStyle
+  /** Largest bid or ask cell on screen. */
+  maxCell: number
+  /** Largest |ask - bid| row on screen. */
+  maxDelta: number
+}
 
 export interface CandleBarOptions {
   type: Exclude<CandleType, 'area' | CandleLineSeriesType>
@@ -92,18 +100,20 @@ export default class CandleBarView extends ChildrenView {
       // Footprint: per-bar cells where the host has data and bars are wide
       // enough to read; every other bar, and every bar below the width
       // threshold, is a solid candle.
-      let footprint: Nullable<{ style: CandleFootprintStyle, maxCell: number }> = null
+      let footprint: Nullable<FootprintFrame> = null
       if (type === 'footprint') {
         const style = pane.getChart().getStyles().candle.footprint
         if (isMain && chartStore.getBarSpace().gapBar >= style.minBarWidth) {
           let maxCell = 0
+          let maxDelta = 0
           chartStore.getVisibleRangeDataList().forEach(({ data: { current } }) => {
             if (!isValid(current)) return
             chartStore.getFootprint(current)?.rows.forEach(([, bid, ask]) => {
               maxCell = Math.max(maxCell, bid, ask)
+              maxDelta = Math.max(maxDelta, Math.abs(ask - bid))
             })
           })
-          footprint = { style, maxCell }
+          footprint = { style, maxCell, maxDelta }
         }
       }
 
@@ -146,8 +156,9 @@ export default class CandleBarView extends ChildrenView {
           let rects: Array<FigureCreate<RectAttrs | RectAttrs[], Partial<RectStyle>>> = []
           const footprintData = footprint !== null ? chartStore.getFootprint(current) : null
           if (footprint !== null && footprintData !== null && footprintData.rows.length > 0) {
-            this._drawFootprint(ctx, x, barSpace, footprintData, footprint.style, footprint.maxCell)
-            rects = this._createFootprintBody(x, priceY, barSpace, colors)
+            const layout = footprintLayout(barSpace.gapBar, footprint.style.variant)
+            this._drawFootprint(ctx, x, barSpace, layout, footprintData, footprint)
+            rects = this._createFootprintBody(x, priceY, barSpace, layout, colors)
           } else {
             switch (type) {
               case 'footprint':
@@ -274,14 +285,9 @@ export default class CandleBarView extends ChildrenView {
     }
   }
 
-  /** Left edge and width of the thin OHLC body a footprint bar keeps. */
-  private _footprintBodyWidth (barSpace: BarSpace): number {
-    return Math.max(3, Math.round(barSpace.gapBar * 0.08))
-  }
-
-  private _createFootprintBody (x: number, priceY: number[], barSpace: BarSpace, colors: string[]): Array<FigureCreate<RectAttrs | RectAttrs[], Partial<RectStyle>>> {
+  private _createFootprintBody (x: number, priceY: number[], barSpace: BarSpace, layout: FootprintLayout, colors: string[]): Array<FigureCreate<RectAttrs | RectAttrs[], Partial<RectStyle>>> {
     const left = x - barSpace.halfGapBar
-    const width = this._footprintBodyWidth(barSpace)
+    const width = layout.bodyWidth
     const wickX = left + Math.floor(width / 2)
     return [
       {
@@ -301,19 +307,26 @@ export default class CandleBarView extends ChildrenView {
     ctx: CanvasRenderingContext2D,
     x: number,
     barSpace: BarSpace,
+    layout: FootprintLayout,
     data: FootprintBarData,
-    style: CandleFootprintStyle,
-    maxCell: number
+    frame: FootprintFrame
   ): void {
+    if (layout.mode === 'histogram') {
+      this._drawFootprintHistogram(ctx, x, barSpace, layout, data, frame.style)
+      return
+    }
+    const { style, maxCell, maxDelta } = frame
     const yAxis = this.getWidget().getPane().getAxisComponent()
-    const bodyWidth = this._footprintBodyWidth(barSpace)
-    const gap = 2
-    const left = x - barSpace.halfGapBar + bodyWidth + gap
-    const columnWidth = Math.max(1, Math.floor((barSpace.gapBar - bodyWidth - gap) / 2))
+    const left = x - barSpace.halfGapBar + layout.bodyWidth + layout.gap
+    const areaWidth = Math.max(1, barSpace.gapBar - layout.bodyWidth - layout.gap)
+    const columnWidth = layout.mode === 'split' ? Math.max(1, Math.floor(areaWidth / 2)) : areaWidth
     const { rowSize, rows, poc } = data
     const imbalances = footprintImbalances(rows, rowSize, style.imbalanceRatio)
     const font = createFont(style.textSize, 'normal', style.textFamily)
     const boldFont = createFont(style.textSize, 'bold', style.textFamily)
+    // A number is drawn only where it fits at full size, never squeezed.
+    const fits = (text: string, width: number): boolean => ctx.measureText(text).width <= width - 3
+    const barMax = layout.mode === 'profile' ? rows.reduce((m, [, bid, ask]) => Math.max(m, bid + ask), 0) : 0
 
     ctx.save()
     // Earlier figures (dashed grid, price lines) can leave a dash pattern set.
@@ -324,34 +337,146 @@ export default class CandleBarView extends ChildrenView {
       const top = Math.round(yAxis.convertToPixel(price + rowSize))
       const bottom = Math.round(yAxis.convertToPixel(price))
       const height = Math.max(1, bottom - top)
-      const cells: Array<[number, number, string, boolean, string]> = [
-        [left, bid, style.bidColor, imbalances.bid.has(i), style.imbalanceBidColor],
-        [left + columnWidth, ask, style.askColor, imbalances.ask.has(i), style.imbalanceAskColor]
-      ]
-      cells.forEach(([cellX, volume, color, imbalance, imbalanceColor]) => {
-        if (volume > 0) {
-          ctx.globalAlpha = maxCell > 0 ? 0.12 + 0.68 * (volume / maxCell) : 0.12
-          ctx.fillStyle = color
-          ctx.fillRect(cellX, top, columnWidth - 1, height - 1)
+      const tallEnough = style.showNumbers && height >= style.textSize + 2
+      const inset = height > 3 ? 1 : 0
+
+      if (layout.mode === 'split') {
+        const cells: Array<[number, number, string, boolean, string]> = [
+          [left, bid, style.bidColor, imbalances.bid.has(i), style.imbalanceBidColor],
+          [left + columnWidth, ask, style.askColor, imbalances.ask.has(i), style.imbalanceAskColor]
+        ]
+        cells.forEach(([cellX, volume, color, imbalance, imbalanceColor]) => {
+          if (volume > 0) {
+            ctx.globalAlpha = maxCell > 0 ? 0.12 + 0.68 * (volume / maxCell) : 0.12
+            ctx.fillStyle = color
+            ctx.fillRect(cellX, top, Math.max(1, columnWidth - 1), height - inset)
+            ctx.globalAlpha = 1
+          }
+          if (imbalance && columnWidth >= 6 && height >= 4) {
+            ctx.strokeStyle = imbalanceColor
+            ctx.lineWidth = 1
+            ctx.strokeRect(cellX + 0.5, top + 0.5, columnWidth - 2, height - 2)
+          }
+          if (tallEnough) {
+            ctx.font = imbalance ? boldFont : font
+            const text = formatFootprintVolume(volume)
+            if (fits(text, columnWidth)) {
+              ctx.fillStyle = imbalance ? imbalanceColor : style.textColor
+              ctx.fillText(text, cellX + columnWidth / 2, top + height / 2)
+            }
+          }
+        })
+      } else if (layout.mode === 'single') {
+        const delta = ask - bid
+        if (bid + ask > 0) {
+          ctx.globalAlpha = maxDelta > 0 ? 0.15 + 0.7 * (Math.abs(delta) / maxDelta) : 0.15
+          ctx.fillStyle = delta >= 0 ? style.askColor : style.bidColor
+          ctx.fillRect(left, top, Math.max(1, columnWidth - 1), height - inset)
           ctx.globalAlpha = 1
         }
-        if (imbalance) {
-          ctx.strokeStyle = imbalanceColor
-          ctx.lineWidth = 1
-          ctx.strokeRect(cellX + 0.5, top + 0.5, columnWidth - 2, height - 2)
+        if (tallEnough) {
+          ctx.font = font
+          const text = (delta > 0 ? '+' : '') + formatFootprintVolume(delta)
+          if (fits(text, columnWidth)) {
+            ctx.fillStyle = style.textColor
+            ctx.fillText(text, left + columnWidth / 2, top + height / 2)
+          }
         }
-        if (style.showNumbers && height >= style.textSize + 2) {
-          ctx.font = imbalance ? boldFont : font
-          ctx.fillStyle = imbalance ? imbalanceColor : style.textColor
-          ctx.fillText(formatFootprintVolume(volume), cellX + columnWidth / 2, top + height / 2, columnWidth - 2)
+      } else {
+        const total = bid + ask
+        if (total > 0 && barMax > 0) {
+          const length = Math.max(1, Math.round(areaWidth * total / barMax))
+          const bidLength = Math.round(length * bid / total)
+          ctx.globalAlpha = 0.75
+          ctx.fillStyle = style.bidColor
+          ctx.fillRect(left, top, bidLength, height - inset)
+          ctx.fillStyle = style.askColor
+          ctx.fillRect(left + bidLength, top, length - bidLength, height - inset)
+          ctx.globalAlpha = 1
         }
-      })
-      if (poc !== null && Math.abs(price - poc) < rowSize / 2) {
+        if (tallEnough) {
+          ctx.font = font
+          const text = formatFootprintVolume(total)
+          if (fits(text, areaWidth)) {
+            ctx.textAlign = 'left'
+            ctx.fillStyle = style.textColor
+            ctx.fillText(text, left + 2, top + height / 2)
+            ctx.textAlign = 'center'
+          }
+        }
+      }
+
+      if (poc !== null && Math.abs(price - poc) < rowSize / 2 && height >= 3 && areaWidth >= 4) {
         ctx.strokeStyle = style.pocColor
         ctx.lineWidth = 1
-        ctx.strokeRect(left + 0.5, top + 0.5, columnWidth * 2 - 2, height - 2)
+        ctx.strokeRect(left + 0.5, top + 0.5, (layout.mode === 'split' ? columnWidth * 2 : areaWidth) - 2, height - 2)
       }
     })
+    ctx.restore()
+  }
+
+  /** Delta histogram (green/red by sign) beside a total-volume histogram, both
+   *  scaled to this bar's largest row; POC as a solid bar, value area as dashed
+   *  lines that run on into the next bar. No numbers. */
+  private _drawFootprintHistogram (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    barSpace: BarSpace,
+    layout: FootprintLayout,
+    data: FootprintBarData,
+    style: CandleFootprintStyle
+  ): void {
+    const yAxis = this.getWidget().getPane().getAxisComponent()
+    const left = x - barSpace.halfGapBar + layout.bodyWidth + layout.gap
+    const areaWidth = Math.max(2, barSpace.gapBar - layout.bodyWidth - layout.gap)
+    const innerGap = areaWidth >= 20 ? 3 : 1
+    const deltaWidth = Math.max(1, Math.floor((areaWidth - innerGap) * 0.45))
+    const volumeLeft = left + deltaWidth + innerGap
+    const volumeWidth = Math.max(1, areaWidth - deltaWidth - innerGap)
+    const { rowSize, rows, poc } = data
+    let barMaxDelta = 0
+    let barMaxVolume = 0
+    rows.forEach(([, bid, ask]) => {
+      barMaxDelta = Math.max(barMaxDelta, Math.abs(ask - bid))
+      barMaxVolume = Math.max(barMaxVolume, bid + ask)
+    })
+
+    ctx.save()
+    ctx.setLineDash([])
+    rows.forEach(([price, bid, ask]) => {
+      const top = Math.round(yAxis.convertToPixel(price + rowSize))
+      const bottom = Math.round(yAxis.convertToPixel(price))
+      const height = Math.max(1, bottom - top - (bottom - top > 2 ? 1 : 0))
+      const delta = ask - bid
+      if (delta !== 0 && barMaxDelta > 0) {
+        ctx.globalAlpha = 0.85
+        ctx.fillStyle = delta > 0 ? style.askColor : style.bidColor
+        ctx.fillRect(left, top, Math.max(1, Math.round(deltaWidth * Math.abs(delta) / barMaxDelta)), height)
+      }
+      const total = bid + ask
+      if (total > 0 && barMaxVolume > 0) {
+        const isPoc = poc !== null && Math.abs(price - poc) < rowSize / 2
+        ctx.globalAlpha = isPoc ? 1 : 0.8
+        ctx.fillStyle = isPoc ? style.valueAreaColor : style.volumeColor
+        ctx.fillRect(volumeLeft, top, Math.max(1, Math.round(volumeWidth * total / barMaxVolume)), height)
+      }
+    })
+    ctx.globalAlpha = 1
+
+    const valueArea = footprintValueArea(rows, rowSize, poc)
+    if (valueArea !== null) {
+      ctx.strokeStyle = style.valueAreaColor
+      ctx.lineWidth = 1
+      ctx.setLineDash([3, 2])
+      const right = x + barSpace.halfGapBar + barSpace.bar
+      ;[valueArea.low, valueArea.high].forEach(price => {
+        const y = Math.round(yAxis.convertToPixel(price)) + 0.5
+        ctx.beginPath()
+        ctx.moveTo(left, y)
+        ctx.lineTo(right, y)
+        ctx.stroke()
+      })
+    }
     ctx.restore()
   }
 
