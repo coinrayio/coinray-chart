@@ -15,6 +15,7 @@ describe('Chart.clearOverlaySelection', () => {
     const store = Object.assign(Object.create(ChartStore.prototype) as ChartStore, {
       _chart: { updatePane },
       _clickOverlayInfo: { paneId: 'candle_pane', overlay, figureType: 'line', figureIndex: 0, figure: null },
+      _hoverOverlayInfo: { paneId: 'candle_pane', overlay: null, figureType: 'none', figureIndex: -1, figure: null },
       _selectedOverlayIds: new Set(['a']),
       executeAction: vi.fn(),
     })
