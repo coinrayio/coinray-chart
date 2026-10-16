@@ -128,8 +128,9 @@ export function positionExit (
   stop: number,
   target: number
 ): { price: number, hit: 'stop' | 'target' } | null {
-  const last = Math.min(endIndex, bars.length - 1)
-  for (let i = Math.max(0, entryIndex + 1); i <= last; i++) {
+  // Points between bars carry a fractional dataIndex; bars only sit on whole ones.
+  const last = Math.min(Math.floor(endIndex), bars.length - 1)
+  for (let i = Math.max(0, Math.floor(entryIndex) + 1); i <= last; i++) {
     const { high, low } = bars[i]
     const hitStop = side === 'long' ? low <= stop : high >= stop
     if (hitStop) return { price: stop, hit: 'stop' }
