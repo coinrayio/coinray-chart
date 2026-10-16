@@ -43,7 +43,7 @@ export default class CandleHighLowPriceView extends View<YAxis> {
       if (highPriceMarkStyles.show && high !== Number.MIN_SAFE_INTEGER) {
         this._drawMark(
           ctx,
-          decimalFold.format(thousandsSeparator.format(formatPrecision(high, precision))),
+          decimalFold.formatPrice(thousandsSeparator.format(formatPrecision(high, precision))),
           { x: highX, y: highY },
           highY < lowY ? [-2, -5] : [2, 5],
           highPriceMarkStyles
@@ -52,7 +52,7 @@ export default class CandleHighLowPriceView extends View<YAxis> {
       if (lowPriceMarkStyles.show && low !== Number.MAX_SAFE_INTEGER) {
         this._drawMark(
           ctx,
-          decimalFold.format(thousandsSeparator.format(formatPrecision(low, precision))),
+          decimalFold.formatPrice(thousandsSeparator.format(formatPrecision(low, precision))),
           { x: lowX, y: lowY },
           highY < lowY ? [2, 5] : [-2, -5],
           lowPriceMarkStyles

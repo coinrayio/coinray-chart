@@ -18,7 +18,7 @@ import type { AxisTemplate } from '../component/Axis'
 import DrawPane from '../pane/DrawPane'
 import logarithm from '../extension/y-axis/logarithm'
 import percentage from '../extension/y-axis/percentage'
-import { formatFoldDecimal, formatFoldDecimals } from '../common/utils/format'
+import { foldZeroCount, formatFoldDecimal, formatFoldDecimals, formatFoldDecimalsAt } from '../common/utils/format'
 
 const HEIGHT = 400
 
@@ -33,7 +33,8 @@ function makeAxis (template: AxisTemplate, bars: Array<{ high: number, low: numb
     getStyles: () => ({ xAxis: { tickText: { size: 12 } } }),
     getInnerFormatter: () => ({ formatBigNumber: (v: string) => v }),
     getThousandsSeparator: () => ({ format: (v: string) => v }),
-    getDecimalFold: () => ({ format: (v: string) => v })
+    getDecimalFold: () => ({ format: (v: string) => v, formatPrice: (v: string) => v, formatPrices: (vs: string[]) => vs }),
+    setPriceFoldZeroCount: () => {}
   }
   const chart = {
     getChartStore: () => chartStore,
@@ -127,6 +128,34 @@ describe('decimal fold (PSC-002)', () => {
     expect(formatFoldDecimals(['0.0000009', '0.0000010'], 5)).toEqual(['0.0₅09', '0.0₅10'])
     const wide = ['0.00009', '0.00010', '0.00100']
     expect(formatFoldDecimals(wide, 5)).toEqual(wide)
+  })
+})
+
+describe('price labels fold at the axis zero count (PSC-013)', () => {
+  // MIU/USDT: ticks 0.0₈16…0.0₈48, current price 0.00000000076.
+  const ticks = ['0', '0.0000000016', '0.0000000024', '0.0000000048']
+
+  it('records the zero count the axis ticks share, or null when they do not fold', () => {
+    expect(foldZeroCount(ticks, 5)).toBe(8)
+    expect(foldZeroCount(['0.0001', '0.0002'], 5)).toBeNull()
+    expect(foldZeroCount(['65,000.00', '0.0000000016'], 5)).toBeNull()
+    expect(foldZeroCount(['4.69%'], 5)).toBeNull()
+  })
+
+  it('writes the current price in the axis terms, not with its own count', () => {
+    expect(formatFoldDecimalsAt(['0.00000000076'], 8, 5)).toEqual(['0.0₈076'])
+    expect(formatFoldDecimal('0.00000000076', 5)).toBe('0.0₉76')
+  })
+
+  it('folds a set to one length at the axis count (O/H/L/C)', () => {
+    expect(formatFoldDecimalsAt(['0.00000000076', '0.00000000078', '0.0000000007'], 8, 5))
+      .toEqual(['0.0₈076', '0.0₈078', '0.0₈070'])
+  })
+
+  it('a value above the axis scale, or no axis count, folds on its own', () => {
+    expect(formatFoldDecimalsAt(['0.000000024'], 8, 5)).toEqual(['0.0₇24'])
+    expect(formatFoldDecimalsAt(['0.00000000076'], null, 5)).toEqual(['0.0₉76'])
+    expect(formatFoldDecimalsAt(['65,000.00', '0.000000000'], 8, 5)).toEqual(['65,000.00', '0'])
   })
 })
 

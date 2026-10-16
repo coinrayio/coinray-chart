@@ -83,6 +83,16 @@ export interface DecimalFold {
    * axis). Setting only `format` makes this apply `format` to each value.
    */
   formatAll: (values: Array<string | number>) => string[]
+  /**
+   * A price label beside the candle pane's price axis (the current price, the
+   * crosshair, high/low marks, a line's axis tag, the legend), folded to the
+   * zero count the axis ticks share, so it reads in the axis's terms. Falls
+   * back to `format` when the axis does not fold. Setting only `format` makes
+   * this `format`.
+   */
+  formatPrice: (value: string | number) => string
+  /** `formatPrice` for a set that also shares one length (O/H/L/C). */
+  formatPrices: (values: Array<string | number>) => string[]
 }
 
 export interface ThousandsSeparator {

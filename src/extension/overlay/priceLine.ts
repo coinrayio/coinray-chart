@@ -238,7 +238,7 @@ const priceLine = (): ProOverlayTemplate => {
       }
 
       const { value = 0 } = overlay.points[0]
-      const priceText = chart.getDecimalFold().format(
+      const priceText = chart.getDecimalFold().formatPrice(
         chart.getThousandsSeparator().format(value.toFixed(precision))
       )
 

@@ -400,13 +400,18 @@ export default class CandleTooltipView extends IndicatorTooltipView {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ignore
     const prevClose = prev?.close ?? current.close
     const changeValue = current.close - prevClose
+    // O/H/L/C as a set at the price axis's zero count, so they line up and
+    // read in the axis's terms.
+    const [open, high, low, close] = decimalFold.formatPrices(
+      [current.open, current.high, current.low, current.close].map(v => thousandsSeparator.format(formatPrecision(v, pricePrecision)))
+    )
     const mapping = {
       ...current,
       time: formatter.formatDate(current.timestamp, PeriodTypeCrosshairTooltipFormat[period?.type ?? 'day'], 'tooltip'),
-      open: decimalFold.format(thousandsSeparator.format(formatPrecision(current.open, pricePrecision))),
-      high: decimalFold.format(thousandsSeparator.format(formatPrecision(current.high, pricePrecision))),
-      low: decimalFold.format(thousandsSeparator.format(formatPrecision(current.low, pricePrecision))),
-      close: decimalFold.format(thousandsSeparator.format(formatPrecision(current.close, pricePrecision))),
+      open,
+      high,
+      low,
+      close,
       volume: decimalFold.format(thousandsSeparator.format(
         formatter.formatBigNumber(formatPrecision(current.volume ?? defaultValue, volumePrecision))
       )),

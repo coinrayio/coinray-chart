@@ -278,7 +278,7 @@ const fibonacciLine = (): ProOverlayTemplate => {
         const labelText = (percent: number, y: number): string => {
           let content = settings.showLevels ? formatFibRatio(percent, settings.levelFormat) : ''
           if (settings.showPrices && yAxis != null) {
-            const price = decimalFold.format(thousandsSeparator.format(yAxis.convertFromPixel(y).toFixed(precision)))
+            const price = decimalFold.formatPrice(thousandsSeparator.format(yAxis.convertFromPixel(y).toFixed(precision)))
             content = content.length > 0 ? `${content} (${price})` : `(${price})`
           }
           return content

@@ -69,7 +69,7 @@ export default class CandleLastPriceLabelView extends View {
           ),
           precision
         )
-        priceText = chartStore.getDecimalFold().format(chartStore.getThousandsSeparator().format(priceText))
+        priceText = chartStore.getDecimalFold().formatPrice(chartStore.getThousandsSeparator().format(priceText))
         const { paddingLeft, paddingRight, paddingTop, paddingBottom, size, family, weight } = lastPriceMarkTextStyles
         let textWidth = paddingLeft + calcTextWidth(priceText, size, weight, family) + paddingRight
         const priceTextHeight = paddingTop + size + paddingBottom

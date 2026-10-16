@@ -440,7 +440,7 @@ const segment = (): ProOverlayTemplate => {
       return overlay.points.map((point, i) => {
         const value = point.value
         const labelText = isNumber(value)
-          ? decimalFold.format(thousandsSeparator.format(formatPrecision(value, precision)))
+          ? decimalFold.formatPrice(thousandsSeparator.format(formatPrecision(value, precision)))
           : ''
         return {
           type: 'text',

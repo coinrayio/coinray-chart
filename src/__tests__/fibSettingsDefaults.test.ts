@@ -41,7 +41,7 @@ describe('use one color', () => {
   })
 
   it('paints every level of each family', () => {
-    const chart = { getDecimalFold: () => ({ format: (v: string) => v }), getThousandsSeparator: () => ({ format: (v: string) => v }) }
+    const chart = { getDecimalFold: () => ({ format: (v: string) => v, formatPrice: (v: string) => v, formatPrices: (vs: string[]) => vs }), getThousandsSeparator: () => ({ format: (v: string) => v }) }
     const enriched = buildEnrichedLevels({
       levels: FIB_TV_LEVELS.filter((l) => l.enabled), anchorFar: { x: 0, y: 0 }, anchorNear: { x: 1, y: 10 }, valueFar: 1, valueNear: 2,
       precision: 2, chart, lineColour: '#000', reverse: false, oneColor: '#f00'

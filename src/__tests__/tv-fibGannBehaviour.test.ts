@@ -13,7 +13,7 @@ interface Fig { type: string, key?: string, attrs: any, styles?: any }
 type Coord = { x: number, y: number }
 
 const chart = {
-  getDecimalFold: () => ({ format: (v: string) => v }),
+  getDecimalFold: () => ({ format: (v: string) => v, formatPrice: (v: string) => v, formatPrices: (vs: string[]) => vs }),
   getThousandsSeparator: () => ({ format: (v: string) => v }),
   getSymbol: () => ({ pricePrecision: 2 })
 }

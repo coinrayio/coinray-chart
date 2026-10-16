@@ -50,7 +50,7 @@ export default class CandleHighLowAxisLabelView extends View<YAxis> {
       if (y < 0 || y > bounding.height) {
         return
       }
-      const text = decimalFold.format(thousandsSeparator.format(yAxis.displayValueToText(
+      const text = decimalFold.formatPrice(thousandsSeparator.format(yAxis.displayValueToText(
         yAxis.realValueToDisplayValue(yAxis.valueToRealValue(price, { range }), { range }),
         precision
       )))

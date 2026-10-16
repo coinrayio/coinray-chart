@@ -29,7 +29,7 @@ import { SymbolDefaultPrecisionConstants, type SymbolInfo } from './common/Symbo
 
 import Action from './common/Action'
 import type { ActionType, ActionCallback } from './common/Action'
-import { formatValue, formatTimestampByTemplate, formatBigNumber, formatThousands, formatFoldDecimal, formatFoldDecimals } from './common/utils/format'
+import { formatValue, formatTimestampByTemplate, formatBigNumber, formatThousands, formatFoldDecimal, formatFoldDecimals, formatFoldDecimalsAt } from './common/utils/format'
 import { getDefaultStyles, type Styles, type TooltipLegend } from './common/Styles'
 import { isArray, isString, isValid, isNumber, isBoolean, isFunction, merge } from './common/utils/typeChecks'
 import { createId } from './common/utils/id'
@@ -286,8 +286,13 @@ export default class StoreImp implements Store {
     // ALT-34: `0.0009` prints in full; folding starts at 0.000001 (`0.0₅1`).
     threshold: 5,
     format: (value: string | number) => formatFoldDecimal(value, this._decimalFold.threshold),
-    formatAll: (values: Array<string | number>) => formatFoldDecimals(values, this._decimalFold.threshold)
+    formatAll: (values: Array<string | number>) => formatFoldDecimals(values, this._decimalFold.threshold),
+    formatPrice: (value: string | number) => formatFoldDecimalsAt([value], this._priceFoldZeroCount, this._decimalFold.threshold)[0],
+    formatPrices: (values: Array<string | number>) => formatFoldDecimalsAt(values, this._priceFoldZeroCount, this._decimalFold.threshold)
   }
+
+  /** The zero count the candle pane's price axis folded its ticks to; null when they did not fold. */
+  private _priceFoldZeroCount: number | null = null
 
   /**
    * Symbol
@@ -726,10 +731,16 @@ export default class StoreImp implements Store {
       const format = decimalFold.format
       decimalFold = { ...decimalFold, formatAll: values => values.map(format) }
     }
+    if (isFunction(decimalFold.format) && !isFunction(decimalFold.formatPrice)) {
+      const format = decimalFold.format
+      decimalFold = { ...decimalFold, formatPrice: format, formatPrices: values => values.map(format) }
+    }
     merge(this._decimalFold, decimalFold)
   }
 
   getDecimalFold (): DecimalFold { return this._decimalFold }
+
+  setPriceFoldZeroCount (zeroCount: number | null): void { this._priceFoldZeroCount = zeroCount }
 
   setSymbol (symbol: PickPartial<SymbolInfo, 'pricePrecision' | 'volumePrecision'>): void {
     if (this._replayEngine.isInReplay()) {

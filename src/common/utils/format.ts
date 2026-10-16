@@ -224,6 +224,60 @@ export function formatFoldDecimal (value: string | number, threshold: number): s
   return formatFoldDecimals([value], threshold)[0]
 }
 
+/**
+ * The zero count `formatFoldDecimals` would give this set, or null when the
+ * set does not fold. The price axis records it so every other price label on
+ * that axis can fold to the same count (see `formatFoldDecimalsAt`).
+ */
+export function foldZeroCount (values: Array<string | number>, threshold: number): number | null {
+  let zeroCount = Number.MAX_SAFE_INTEGER
+  for (const value of values) {
+    const text = `${value}`
+    const match = FOLDABLE.exec(text)
+    if (match === null) {
+      if (/[1-9]/.test(text)) return null
+      continue
+    }
+    const fraction = match[3]
+    const leading = /^0*/.exec(fraction)![0].length
+    if (leading < fraction.length) zeroCount = Math.min(zeroCount, leading)
+  }
+  return zeroCount === Number.MAX_SAFE_INTEGER || zeroCount < threshold ? null : zeroCount
+}
+
+/**
+ * Folds `values` to a given zero count, the price axis's, so a label beside
+ * the axis reads in its terms: on an axis of `0.0₈16`…`0.0₈48`, the current
+ * price 0.00000000076 is `0.0₈076`, not `0.0₉76`. A value with fewer zeros
+ * than that (above the axis's scale) cannot be written at it without losing
+ * digits and folds on its own, as does everything when `zeroCount` is null.
+ * Trailing padding is trimmed as far as every folded value allows, as in
+ * `formatFoldDecimals`.
+ */
+export function formatFoldDecimalsAt (values: Array<string | number>, zeroCount: number | null, threshold: number): string[] {
+  if (zeroCount === null) return formatFoldDecimals(values, threshold)
+  const texts = values.map(value => `${value}`)
+  const parts = texts.map(text => {
+    const match = FOLDABLE.exec(text)
+    if (match === null) return null
+    const fraction = match[3]
+    const leading = /^0*/.exec(fraction)![0].length
+    return leading >= zeroCount && leading < fraction.length ? match : null
+  })
+  let length = 1
+  parts.forEach(match => {
+    if (match !== null) {
+      length = Math.max(length, match[3].slice(zeroCount).replace(/0+$/, '').length)
+    }
+  })
+  return texts.map((text, i) => {
+    const match = parts[i]
+    if (match === null) return formatFoldDecimal(text, threshold)
+    const [, sign, separator, fraction] = match
+    return `${sign}0${separator}0${toSubscript(zeroCount)}${fraction.slice(zeroCount, zeroCount + length).padEnd(length, '0')}`
+  })
+}
+
 export function formatTemplateString (template: string, params: Record<string, unknown>): string {
   // Supports fallback syntax: {keyA||keyB||keyC} resolves to the first key
   // whose value is valid. Useful for optional display fields — e.g.

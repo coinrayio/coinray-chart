@@ -358,7 +358,7 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
       if (coordinates.length < 3 || (ext.showPriceLabels === false && !(chart as ChartImp).getChartStore().isOverlaySelected(overlay.id))) return []
       const fromZero = yAxis?.isFromZero() ?? false
       const precision = chart.getSymbol()?.pricePrecision ?? 2
-      const fmt = (v: number): string => chart.getDecimalFold().format(chart.getThousandsSeparator().format(formatPrecision(v, precision)))
+      const fmt = (v: number): string => chart.getDecimalFold().formatPrice(chart.getThousandsSeparator().format(formatPrecision(v, precision)))
       const tag = (i: number, bg: string): Figure[] => {
         const v = overlay.points[i]?.value
         return isNumber(v)

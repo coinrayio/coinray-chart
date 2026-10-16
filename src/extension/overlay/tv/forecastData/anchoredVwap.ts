@@ -209,7 +209,7 @@ export const anchoredVwap = (): ProOverlayTemplate => {
       const last = cache.get(overlay)?.series.vwap.at(-1)
       if ((overlay.extendData as AnchoredVwapExtendData | undefined)?.showPriceLabel === false || yAxis === null || last === undefined || !Number.isFinite(last)) return []
       const fromZero = yAxis.isFromZero()
-      const text = chart.getDecimalFold().format(chart.getThousandsSeparator().format(formatPrecision(last, chart.getSymbol()?.pricePrecision ?? 2)))
+      const text = chart.getDecimalFold().formatPrice(chart.getThousandsSeparator().format(formatPrecision(last, chart.getSymbol()?.pricePrecision ?? 2)))
       return [{
         type: 'text',
         attrs: { x: fromZero ? 0 : bounding.width, y: yAxis.convertToPixel(last), text, align: fromZero ? 'left' : 'right', baseline: 'middle' },

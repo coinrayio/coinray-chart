@@ -46,7 +46,7 @@ export const anchorPriceAxisLabel = ({ chart, overlay, coordinates, bounding, yA
   const thousandsSeparator = chart.getThousandsSeparator()
   const value = overlay.points[0]?.value
   if (!isNumber(value)) return []
-  const labelText = decimalFold.format(thousandsSeparator.format(formatPrecision(value, precision)))
+  const labelText = decimalFold.formatPrice(thousandsSeparator.format(formatPrecision(value, precision)))
 
   return [{
     type: 'text',

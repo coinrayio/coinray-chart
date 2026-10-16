@@ -91,7 +91,9 @@ export default class CrosshairHorizontalLabelView<C extends Axis = YAxis> extend
     if (shouldFormatBigNumber) {
       text = chartStore.getInnerFormatter().formatBigNumber(text)
     }
-    return chartStore.getDecimalFold().format(chartStore.getThousandsSeparator().format(text))
+    const decimalFold = chartStore.getDecimalFold()
+    const fold = yAxis.isInCandle() ? decimalFold.formatPrice : decimalFold.format
+    return fold(chartStore.getThousandsSeparator().format(text))
   }
 
   protected getTextAttrs (text: string, _textWidth: number, crosshair: Crosshair, bounding: Bounding, axis: Axis, _styles: StateTextStyle): TextAttrs {

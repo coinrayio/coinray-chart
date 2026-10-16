@@ -54,7 +54,8 @@ function makeAxis (
     getStyles: () => ({ xAxis: { tickText: { size: 12 } } }),
     getInnerFormatter: () => ({ formatBigNumber: (v: string) => v }),
     getThousandsSeparator: () => ({ format: (v: string) => v }),
-    getDecimalFold: () => ({ format: (v: string) => v })
+    getDecimalFold: () => ({ format: (v: string) => v, formatPrice: (v: string) => v, formatPrices: (vs: string[]) => vs }),
+    setPriceFoldZeroCount: () => {}
   }
   const chart = {
     getChartStore: () => chartStore,

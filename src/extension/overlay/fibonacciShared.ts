@@ -260,7 +260,7 @@ export const buildEnrichedLevels = (opts: {
   valueFar: number
   valueNear: number
   precision: number
-  chart: { getDecimalFold: () => { format: (v: string) => string }, getThousandsSeparator: () => { format: (v: string) => string } }
+  chart: { getDecimalFold: () => { formatPrice: (v: string) => string }, getThousandsSeparator: () => { format: (v: string) => string } }
   lineColour: string
   reverse: boolean
   /** Set to price → y to place levels in log space (`logScale`). */
@@ -280,7 +280,7 @@ export const buildEnrichedLevels = (opts: {
     .map(level => {
       const percent = level.value
       const { y, value } = fibLevelPosition(percent, far, near, farVal, nearVal, logToY)
-      const price = decimalFold.format(thousandsSeparator.format(value.toFixed(precision)))
+      const price = decimalFold.formatPrice(thousandsSeparator.format(value.toFixed(precision)))
       const color = oneColor ?? level.color ?? lineColour
       return { percent, y, price, color, text: level.text, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
     })

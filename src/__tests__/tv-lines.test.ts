@@ -33,7 +33,7 @@ describe('parallel channel', () => {
 })
 
 describe('axis labels on by default', () => {
-  const chart = { getSymbol: () => ({ pricePrecision: 2 }), getDecimalFold: () => ({ format: (s: string) => s }), getThousandsSeparator: () => ({ format: (s: string) => s }), getChartStore: () => ({ getInnerFormatter: () => ({ formatDate: () => 'when' }) }) }
+  const chart = { getSymbol: () => ({ pricePrecision: 2 }), getDecimalFold: () => ({ format: (s: string) => s, formatPrice: (s: string) => s, formatPrices: (ss: string[]) => ss }), getThousandsSeparator: () => ({ format: (s: string) => s }), getChartStore: () => ({ getInnerFormatter: () => ({ formatDate: () => 'when' }) }) }
   const params = (extendData?: object) => ({ chart, overlay: { extendData, points: [{ value: 5, timestamp: 1 }] }, coordinates: [{ x: 1, y: 2 }], bounding: { width: 100 }, yAxis: null }) as never
   it('shows the time label unless switched off', () => {
     expect(timeAxisLabel(params())).toHaveLength(1)

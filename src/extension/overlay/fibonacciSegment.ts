@@ -196,7 +196,7 @@ const fibonacciSegment = (): ProOverlayTemplate => {
         .map(level => {
           const percent = level.value ?? 0
           const { y, value } = fibLevelPosition(percent, anchorFar, anchorNear, valueFar, valueNear, logToY)
-          const price = decimalFold.format(thousandsSeparator.format(value.toFixed(precision)))
+          const price = decimalFold.formatPrice(thousandsSeparator.format(value.toFixed(precision)))
           const color = fibOneColor(overlay.extendData) ?? level.color ?? props.lineColor ?? DEFAULT_OVERLAY_PROPERTIES.lineColor
           return { percent, y, price, color, text: level.text, lineStyle: level.lineStyle, lineWidth: level.lineWidth, lineDashedValue: level.lineDashedValue }
         })

@@ -18,7 +18,7 @@ import { isFunction, isNumber, isString, isValid, merge } from '../common/utils/
 import { index10, getPrecision, nice, round } from '../common/utils/number'
 import { calcTextWidth } from '../common/utils/canvas'
 import { candleTypeUsesHighLow } from '../common/Styles'
-import { formatPrecision } from '../common/utils/format'
+import { formatPrecision, foldZeroCount } from '../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../common/SymbolInfo'
 
 import AxisImp, {
@@ -473,6 +473,8 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     const texts = optimalTicks.map(tick => tick.text)
     const folded = isFunction(decimalFold.formatAll) ? decimalFold.formatAll(texts) : texts.map(text => decimalFold.format(text))
     optimalTicks.forEach((tick, i) => { tick.text = folded[i] })
+    // The price labels beside this axis fold to its count (`formatPrice`).
+    if (this.isInCandle()) chartStore.setPriceFoldZeroCount(foldZeroCount(texts, decimalFold.threshold))
     if (isFunction(this.createTicks)) {
       return this.createTicks({
         range: this.getRange(),
@@ -562,7 +564,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
         if (shouldFormatBigNumber) {
           valueText = chartStore.getInnerFormatter().formatBigNumber(valueText)
         }
-        valueText = chartStore.getDecimalFold().format(valueText)
+        valueText = this.isInCandle() ? chartStore.getDecimalFold().formatPrice(valueText) : chartStore.getDecimalFold().format(valueText)
         crosshairHorizontalTextWidth += (
           crosshairStyles.horizontal.text.paddingLeft +
           crosshairStyles.horizontal.text.paddingRight +

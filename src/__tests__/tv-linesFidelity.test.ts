@@ -17,7 +17,7 @@ const chart = (hoveredId?: string) => ({
   getChartStore: () => store(hoveredId),
   getSymbol: () => ({ pricePrecision: 2 }),
   getThousandsSeparator: () => ({ format: (s: string) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ',') }),
-  getDecimalFold: () => ({ format: (s: string) => s }),
+  getDecimalFold: () => ({ format: (s: string) => s, formatPrice: (s: string) => s, formatPrices: (ss: string[]) => ss }),
   getDom: () => null,
   convertFromPixel: (points: Array<{ y: number }>) => points.map((p) => ({ value: 400 - p.y }))
 })

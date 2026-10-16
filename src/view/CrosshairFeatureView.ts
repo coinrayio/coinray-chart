@@ -80,7 +80,7 @@ export default class CrosshairFeatureView extends View<YAxis> {
             ),
             chartStore.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
           )
-          text = chartStore.getDecimalFold().format(chartStore.getThousandsSeparator().format(text))
+          text = (yAxis.isInCandle() ? chartStore.getDecimalFold().formatPrice : chartStore.getDecimalFold().format)(chartStore.getThousandsSeparator().format(text))
           yAxisTextWidth = horizontalTextStyles.paddingLeft +
             calcTextWidth(text, horizontalTextStyles.size, horizontalTextStyles.weight, horizontalTextStyles.family) +
             horizontalTextStyles.paddingRight

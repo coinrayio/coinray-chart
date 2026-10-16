@@ -170,7 +170,7 @@ function channel (name: string, second: SecondLine, look: ChannelLook): () => Pr
             const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
             const format = (y: number): string => {
               const value = (chart.convertFromPixel([{ x: 0, y }], { paneId: overlay.paneId }) as Array<{ value?: number }>)[0]?.value
-              return typeof value === 'number' ? chart.getDecimalFold().format(chart.getThousandsSeparator().format(formatPrecision(value, precision))) : ''
+              return typeof value === 'number' ? chart.getDecimalFold().formatPrice(chart.getThousandsSeparator().format(formatPrecision(value, precision))) : ''
             }
             const ends: Array<[Coordinate, 'left' | 'right']> = [[first[0], 'left'], [first[1], 'right'], [other[0], 'left'], [other[1], 'right']]
             ends.forEach(([end, side], i) => figures.push({
