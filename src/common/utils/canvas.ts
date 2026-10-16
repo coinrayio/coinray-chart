@@ -41,9 +41,24 @@ export function drawCanvas (
   }
 }
 
+/**
+ * Appended to a single-family font so a machine without it (Helvetica Neue,
+ * the default everywhere, is macOS-only) does not drop to the browser default.
+ * That default lacks the subscript digits the decimal fold draws (`0.0₈36`),
+ * which Windows then renders from a fallback face that is barely legible.
+ * Segoe UI and Roboto carry them.
+ */
+const FALLBACK_FAMILIES = '"Segoe UI", Roboto, Arial, sans-serif'
+
+function withFallbackFamilies (family: string): string {
+  return family.includes(',') || /\b(sans-serif|serif|monospace|system-ui)\s*$/.test(family)
+    ? family
+    : `${family}, ${FALLBACK_FAMILIES}`
+}
+
 export function createFont (size?: number, weight?: string | number, family?: string, fontStyle?: string): string {
   const style = (fontStyle != null && fontStyle !== '' && fontStyle !== 'normal') ? `${fontStyle} ` : ''
-  return `${style}${weight ?? 'normal'} ${size ?? 12}px ${family ?? 'Helvetica Neue'}`
+  return `${style}${weight ?? 'normal'} ${size ?? 12}px ${withFallbackFamilies(family ?? 'Helvetica Neue')}`
 }
 
 /**
