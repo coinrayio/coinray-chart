@@ -119,18 +119,22 @@ interface Figure { type: string, key?: string, attrs: unknown, styles?: unknown,
  * Where the trade closed: the first bar after the entry bar whose range reaches
  * the stop or the target, up to `endIndex`. A bar that reaches both counts as a
  * stop, since its bars can't tell which came first. `null` while still open.
+ * Indices may be fractional (points placed between bars or past the data),
+ * so both ends snap to whole bars, and a missing bar is skipped.
  */
 export function positionExit (
-  bars: ReadonlyArray<{ high: number, low: number }>,
+  bars: ReadonlyArray<{ high: number, low: number } | undefined>,
   entryIndex: number,
   endIndex: number,
   side: PositionSide,
   stop: number,
   target: number
 ): { price: number, hit: 'stop' | 'target' } | null {
-  const last = Math.min(endIndex, bars.length - 1)
-  for (let i = Math.max(0, entryIndex + 1); i <= last; i++) {
-    const { high, low } = bars[i]
+  const last = Math.min(Math.floor(endIndex), bars.length - 1)
+  for (let i = Math.max(0, Math.floor(entryIndex) + 1); i <= last; i++) {
+    const bar = bars[i]
+    if (bar === undefined) continue
+    const { high, low } = bar
     const hitStop = side === 'long' ? low <= stop : high >= stop
     if (hitStop) return { price: stop, hit: 'stop' }
     const hitTarget = side === 'long' ? high >= target : low <= target
@@ -290,7 +294,7 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
       // right edge (the last bar, when that lies past the data).
       const dataList = chart.getDataList()
       const endIndex = isNumber(pts[3]?.dataIndex) ? pts[3].dataIndex : dataList.length - 1
-      const lastClose = dataList[Math.max(0, Math.min(dataList.length - 1, endIndex))]?.close
+      const lastClose = dataList[Math.max(0, Math.min(dataList.length - 1, Math.floor(endIndex)))]?.close
       const exit = priced && isNumber(pts[0]?.dataIndex)
         ? positionExit(dataList, pts[0].dataIndex, endIndex, side, stopPrice, targetPrice)
         : null

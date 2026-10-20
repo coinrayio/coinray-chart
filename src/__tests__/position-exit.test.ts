@@ -32,4 +32,17 @@ describe('positionExit', () => {
     const bars = [bar(80, 120), bar(99, 101), bar(80, 120)]
     expect(positionExit(bars, 0, 1, 'long', 95, 110)).toBeNull()
   })
+
+  // ALTRADY-WEB-2A9: a point between bars has a fractional dataIndex, and
+  // stepping from it read bars[1.4], which is undefined.
+  it('snaps fractional indices to whole bars', () => {
+    const bars = [bar(99, 101), bar(99, 101), bar(99, 111)]
+    expect(positionExit(bars, 0.4, 2.7, 'long', 95, 110)).toEqual({ price: 110, hit: 'target' })
+    expect(positionExit(bars, 1.4, 1.9, 'long', 95, 110)).toBeNull()
+  })
+
+  it('skips holes in the bar list', () => {
+    const bars = [bar(99, 101), undefined, bar(99, 111)]
+    expect(positionExit(bars, 0, 2, 'long', 95, 110)).toEqual({ price: 110, hit: 'target' })
+  })
 })
