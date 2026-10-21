@@ -41,14 +41,14 @@ function range (from: number, to: number): AxisRange {
 
 function makeAxis (
   template = normal,
-  opts: { closes?: number[], indicators?: FakeIndicator[], paneId?: string } = {}
+  opts: { closes?: number[], indicators?: FakeIndicator[], paneId?: string, pricePrecision?: number } = {}
 ): Fixture {
   const closes = opts.closes ?? [100, 110, 120, 130]
   const bars = closes.map((close, i) => ({ timestamp: i, open: close, high: close + 5, low: close - 5, close, volume: 1 }))
   let barSpace = 10
   const chartStore = {
     getIndicatorsByPaneId: () => opts.indicators ?? [],
-    getSymbol: () => ({ pricePrecision: 2 }),
+    getSymbol: () => ({ pricePrecision: opts.pricePrecision ?? 2 }),
     getVisibleRangeDataList: () => bars.map((data, dataIndex) => ({ dataIndex, x: 0, data: { current: data } })),
     getBarSpace: () => ({ bar: barSpace }),
     getStyles: () => ({ xAxis: { tickText: { size: 12 } } }),
@@ -184,5 +184,21 @@ describe('priceToBarRatio (E5)', () => {
     f.axis.setAutoCalcTickFlag(true)
     expect(f.axis.getPriceToBarRatio()).toBeNull()
     expect(f.axis.getAutoCalcTickFlag()).toBe(true)
+  })
+})
+
+describe('tick step floor at price precision (TRD-003)', () => {
+  it('never places two ticks that format to the same label on a sub-penny pair', () => {
+    const closes = [0.00000034, 0.00000036, 0.00000038, 0.00000039]
+    const { axis } = makeAxis(normal, { closes, pricePrecision: 8 })
+    // tiny candles: high/low offsets of 5 would swamp the range, so use manual range
+    axis.setRange(range(0.00000034, 0.00000039))
+    axis.setAutoCalcTickFlag(false)
+    axis.buildTicks(true)
+    const ticks = axis.getTicks()
+    expect(ticks.length).toBeGreaterThan(0)
+    const values = ticks.map(t => +t.value)
+    expect(new Set(ticks.map(t => t.text)).size).toBe(ticks.length)
+    values.forEach(v => { expect(Math.round(v * 1e8)).toBeCloseTo(v * 1e8, 6) })
   })
 })

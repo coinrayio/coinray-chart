@@ -408,7 +408,13 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     const ticks: AxisTick[] = []
 
     if (displayRange >= 0) {
-      const interval = nice(displayRange / TICK_COUNT)
+      let interval = nice(displayRange / TICK_COUNT)
+      // On a price axis (display value is a price) a tick step below one
+      // price unit makes adjacent ticks format to the same label (TRD-003).
+      if (this.isInCandle() && (this.name === 'normal' || this.name === 'logarithm')) {
+        const pricePrecision = this.getParent().getChart().getChartStore().getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
+        interval = Math.max(interval, index10(-pricePrecision))
+      }
       const precision = getPrecision(interval)
 
       const first = round(Math.ceil(displayFrom / interval) * interval, precision)
