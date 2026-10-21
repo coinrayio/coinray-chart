@@ -514,7 +514,9 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
 
   override (indicator: Partial<Indicator<D, C, E>>): void {
     revisions.set(this, (revisions.get(this) ?? 0) + 1)
-    const { result, ...currentOthers } = this
+    // The snapshot leaves out the one before it: cloning that too chained
+    // every earlier version, result rows and all, for the chart's lifetime.
+    const { result, _prevIndicator, ...currentOthers } = this
     this._prevIndicator = { ...clone(currentOthers), result }
     const {
       id,
