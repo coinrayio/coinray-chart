@@ -60,6 +60,9 @@ import { PaneIdConstants } from './pane/types'
 
 import type Chart from './Chart'
 
+/** Pages `loadRangeBackward` asks for at most before applying what it has. */
+const MAX_RANGE_PAGES = 50
+
 const DEFAULT_BAR_SPACE_LIMIT = {
   MIN: 0.5,
   MAX: 50
@@ -1007,6 +1010,12 @@ export default class StoreImp implements Store {
     })
   }
 
+  /**
+   * Loads history back to `from`. A loader may answer one page at a time
+   * (a datafeed's own limit), so it keeps asking for the next older page
+   * until the data reaches `from`, a page comes back empty or makes no
+   * progress, or `MAX_RANGE_PAGES`.
+   */
   loadRangeBackward (from: number, to: number, callback: () => void): void {
     if (
       !isValid(this._dataLoader) ||
@@ -1018,26 +1027,37 @@ export default class StoreImp implements Store {
       callback()
       return
     }
+    const loader = this._dataLoader
     const symbol = this._symbol
     const period = this._period
-    void this._dataLoader.getRange({
-      symbol,
-      period,
-      from,
-      to,
-      callback: (data: KLineData[]) => {
-        if (this._symbol !== symbol || this._period !== period || this._dataList.length === 0) {
-          callback()
-          return
+    const page = (pageTo: number, pagesLeft: number): void => {
+      void loader.getRange?.({
+        symbol,
+        period,
+        from,
+        to: pageTo,
+        callback: (data: KLineData[]) => {
+          if (this._symbol !== symbol || this._period !== period || this._dataList.length === 0) {
+            callback()
+            return
+          }
+          const firstTimestamp = this._dataList[0].timestamp
+          const filtered = data.filter(d => d.timestamp < firstTimestamp)
+          if (filtered.length > 0) {
+            this._addData(filtered, 'forward', { forward: true, backward: this._dataLoadMore.backward })
+          }
+          // The next page ends at the oldest bar either side has: a load-more
+          // running alongside may already have added this page's bars.
+          const nextTo = Math.min(this._dataList[0].timestamp, data[0]?.timestamp ?? Infinity)
+          if (data.length === 0 || nextTo <= from || nextTo >= pageTo || pagesLeft <= 1) {
+            callback()
+            return
+          }
+          page(nextTo, pagesLeft - 1)
         }
-        const firstTimestamp = this._dataList[0].timestamp
-        const filtered = data.filter(d => d.timestamp < firstTimestamp)
-        if (filtered.length > 0) {
-          this._addData(filtered, 'forward', { forward: true, backward: this._dataLoadMore.backward })
-        }
-        callback()
-      }
-    })
+      })
+    }
+    page(to, MAX_RANGE_PAGES)
   }
 
   /**
