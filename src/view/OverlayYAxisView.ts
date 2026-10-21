@@ -15,7 +15,7 @@
 import type Nullable from '../common/Nullable'
 import type Coordinate from '../common/Coordinate'
 import { formatPrecision } from '../common/utils/format'
-import { isNumber } from '../common/utils/typeChecks'
+import { isNumber, isValid } from '../common/utils/typeChecks'
 import { SymbolDefaultPrecisionConstants } from '../common/SymbolInfo'
 
 import type { Axis } from '../component/Axis'
@@ -27,7 +27,157 @@ import OverlayView from './OverlayView'
 
 import type YAxisImp from '../component/YAxis'
 
+interface TagBox {
+  key: string
+  y: number
+  height: number
+  fixed: boolean
+}
+
+const TAG_GAP = 1
+
 export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayView<C> {
+  /** Vertical shift per `overlayId:figureIndex:attrIndex`, from the last layout. */
+  private _tagShifts = new Map<string, number>()
+  private _inDefaultFigures = false
+
+  override drawImp (ctx: CanvasRenderingContext2D): void {
+    this._layoutTags()
+    super.drawImp(ctx)
+  }
+
+  override drawAboveCrosshair (ctx: CanvasRenderingContext2D): void {
+    this._layoutTags()
+    super.drawAboveCrosshair(ctx)
+  }
+
+  /** Whether this axis stacks its tags. Price axes only: the x-axis view
+   *  extends this one but has no last-price tag or vertical stacking. */
+  protected stacksTags (): boolean {
+    return true
+  }
+
+  /**
+   * Collision avoidance for the price tags: collects every overlay `text` tag
+   * plus the candle's last-price tag (which never moves), sorts by y and
+   * pushes overlapping tags apart by at least a label height.
+   */
+  private _layoutTags (): void {
+    const shifts = new Map<string, number>()
+    this._tagShifts = shifts
+    if (!this.stacksTags()) return
+    const widget = this.getWidget()
+    const pane = widget.getPane()
+    const chart = pane.getChart()
+    const chartStore = chart.getChartStore()
+    const boxes: TagBox[] = []
+    const defaultTextStyles = chart.getStyles().overlay.text as unknown as Record<string, unknown>
+
+    const lastPrice = this._lastPriceBox()
+    if (lastPrice !== null) boxes.push(lastPrice)
+
+    const yAxis = pane.getAxisComponent() as unknown as Nullable<YAxis>
+    const overlays = [...this.getCompleteOverlays()]
+    const progress = this.getProgressOverlay()
+    if (isValid(progress)) overlays.push(progress)
+    overlays.forEach(overlay => {
+      if (!chartStore.isOverlayShown(overlay) || overlay.createYAxisFigures == null) return
+      const coordinates = overlay.points.map(point => ({
+        x: 0,
+        y: isNumber(point.value) ? (yAxis?.convertToPixel(point.value) ?? 0) : 0
+      }))
+      if (coordinates.length === 0) return
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
+      // @ts-expect-error
+      const figures: OverlayFigure[] = [].concat(this.getFigures(overlay, coordinates))
+      figures.forEach((figure, figureIndex) => {
+        if (figure.type !== 'text') return
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
+        // @ts-expect-error
+        const attrsArray: Array<{ y?: number, height?: number, key?: string }> = [].concat(figure.attrs)
+        attrsArray.forEach((attrs, attrIndex) => {
+          if (!isNumber(attrs.y)) return
+          const key = attrs.key ?? figure.key
+          const keyed = key != null && key !== '' ? overlay.figureStyles[key] as Record<string, unknown> | undefined : undefined
+          const figureStyles = (figure.styles ?? {}) as Record<string, unknown>
+          const merged: Record<string, unknown> = { ...defaultTextStyles, ...overlay.styles?.text, ...figureStyles, ...keyed }
+          const height = isNumber(attrs.height)
+            ? attrs.height
+            : (Number(merged.size ?? 12) + Number(merged.paddingTop ?? 0) + Number(merged.paddingBottom ?? 0))
+          boxes.push({ key: `${overlay.id}:${figureIndex}:${attrIndex}`, y: attrs.y, height, fixed: false })
+        })
+      })
+    })
+
+    if (boxes.length < 2) return
+    const originals = new Map(boxes.map(box => [box.key, box.y]))
+    for (let iteration = 0; iteration < 30; iteration++) {
+      boxes.sort((a, b) => a.y - b.y)
+      let moved = false
+      for (let i = 1; i < boxes.length; i++) {
+        const a = boxes[i - 1]
+        const b = boxes[i]
+        const deficit = (a.height + b.height) / 2 + TAG_GAP - (b.y - a.y)
+        if (deficit <= 0.01) continue
+        moved = true
+        if (a.fixed && b.fixed) continue
+        if (a.fixed) {
+          b.y += deficit
+        } else if (b.fixed) {
+          a.y -= deficit
+        } else {
+          a.y -= deficit / 2
+          b.y += deficit / 2
+        }
+      }
+      if (!moved) break
+    }
+    boxes.forEach(box => {
+      if (box.fixed) return
+      const dy = box.y - (originals.get(box.key) ?? box.y)
+      if (Math.abs(dy) > 0.01) shifts.set(box.key, dy)
+    })
+  }
+
+  private _lastPriceBox (): Nullable<TagBox> {
+    const widget = this.getWidget()
+    const pane = widget.getPane()
+    const yAxis = pane.getAxisComponent() as unknown as YAxisImp
+    if (!yAxis.isInCandle()) return null
+    const chartStore = pane.getChart().getChartStore()
+    const priceMark = chartStore.getStyles().candle.priceMark
+    if (!priceMark.show || !priceMark.last.show || !priceMark.last.text.show) return null
+    const dataList = chartStore.getDataList(true)
+    const data = dataList[dataList.length - 1]
+    if (!isValid(data)) return null
+    const { size, paddingTop, paddingBottom } = priceMark.last.text
+    return { key: '__last_price__', y: yAxis.convertToNicePixel(data.close), height: size + paddingTop + paddingBottom, fixed: true }
+  }
+
+  protected override drawFigures (ctx: CanvasRenderingContext2D, overlay: OverlayImp, figures: OverlayFigure[]): void {
+    if (this._inDefaultFigures || this._tagShifts.size === 0) {
+      super.drawFigures(ctx, overlay, figures)
+      return
+    }
+    const shifted = figures.map((figure, figureIndex) => {
+      if (figure.type !== 'text') return figure
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
+      // @ts-expect-error
+      const attrsArray: Array<{ y?: number }> = [].concat(figure.attrs)
+      let changed = false as boolean
+      const next = attrsArray.map((attrs, attrIndex) => {
+        const dy = this._tagShifts.get(`${overlay.id}:${figureIndex}:${attrIndex}`)
+        if (dy === undefined || !isNumber(attrs.y)) return attrs
+        changed = true
+        return { ...attrs, y: attrs.y + dy }
+      })
+      if (!changed) return figure
+      const result: OverlayFigure = { ...figure, attrs: Array.isArray(figure.attrs) ? next : next[0] }
+      return result
+    })
+    super.drawFigures(ctx, overlay, shifted)
+  }
+
   override coordinateToPointTimestampDataIndexFlag (): boolean {
     return false
   }
@@ -37,11 +187,16 @@ export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayVie
     overlay: OverlayImp,
     coordinates: Coordinate[]
   ): void {
-    this.drawFigures(
-      ctx,
-      overlay,
-      this.getDefaultFigures(overlay, coordinates)
-    )
+    this._inDefaultFigures = true
+    try {
+      this.drawFigures(
+        ctx,
+        overlay,
+        this.getDefaultFigures(overlay, coordinates)
+      )
+    } finally {
+      this._inDefaultFigures = false
+    }
   }
 
   protected getDefaultFigures (

@@ -25,6 +25,10 @@ import type OverlayImp from '../component/Overlay'
 import OverlayYAxisView from './OverlayYAxisView'
 
 export default class OverlayXAxisView extends OverlayYAxisView<XAxis> {
+  override stacksTags (): boolean {
+    return false
+  }
+
   override coordinateToPointTimestampDataIndexFlag (): boolean {
     return true
   }

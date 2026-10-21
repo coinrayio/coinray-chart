@@ -80,6 +80,11 @@ export default class YAxisWidget extends DrawWidget<DrawPane<YAxis>> {
         // own pass; without it their price-scale tags never show. The crosshair's
         // own label still goes on top.
         this._overlayYAxisView.drawAboveCrosshair(ctx)
+        // The overlay canvas sits over the main one, so the last-price tag drawn
+        // there would be hidden by any overlay tag near it. Paint it again on top.
+        if (this.getPane().getAxisComponent().isInCandle()) {
+          this._candleLastPriceLabelView.draw(ctx)
+        }
       }
       this._crosshairHorizontalLabelView.draw(ctx)
     }

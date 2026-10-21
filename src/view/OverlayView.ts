@@ -45,6 +45,17 @@ import View from './View'
 /** How far a press must travel before its release places the next drawing point. */
 const DRAG_DRAW_MIN_PX = 4
 const SELECTION_RECT_FILL = 'rgba(41, 98, 255, 0.12)'
+const TEXT_EDITOR_CLASS = 'klc-overlay-text-editor'
+
+// ::placeholder can't be set inline; a shared rule reads the colour from a custom property.
+function ensureTextEditorStyle (): void {
+  const id = 'klc-overlay-text-editor-style'
+  if (document.getElementById(id) !== null) return
+  const style = document.createElement('style')
+  style.id = id
+  style.textContent = `.${TEXT_EDITOR_CLASS}::placeholder{color:var(--klc-placeholder-color,currentColor);opacity:.5}`
+  document.head.appendChild(style)
+}
 const SELECTION_RECT_STROKE = 'rgba(41, 98, 255, 0.9)'
 
 /** Overlays at this `zLevel` or higher paint above the crosshair line
@@ -587,9 +598,14 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
 
     // Border: only apply when an opaque border is configured. Default
     // ('none') matches the prior behaviour for plain Text overlays.
+    // With no border configured the open editor still gets a dashed outline
+    // in the text colour so the input box is visible.
     const borderStyle = borderColor !== undefined && borderColor !== 'transparent' && (borderSize ?? 0) > 0
       ? `${borderSize ?? 1}px solid ${borderColor}`
-      : 'none'
+      : `1px dashed ${color}`
+    ensureTextEditorStyle()
+    input.classList.add(TEXT_EDITOR_CLASS)
+    input.style.setProperty('--klc-placeholder-color', color)
 
     // Rotation: if the editableText figure carries `angle`, rotate
     // the textarea around its centre so it visually parallels the
@@ -1290,7 +1306,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
 
   /**
    * Draw "+ Add text" placeholder for editableText figures that have empty text,
-   * but only when the overlay is both selected (clicked) and hovered.
+   * when the overlay is selected (clicked) or hovered.
    * This mirrors TradingView's UX: an affordance appears only when the user
    * is actively interacting with the overlay.
    */
@@ -1306,11 +1322,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const isSelected = clickOverlayInfo.overlay?.id === overlay.id
     const isHovered = hoverOverlayInfo.overlay?.id === overlay.id
 
-    if (!isSelected || !isHovered) {
+    if (!isSelected && !isHovered) {
       return
     }
 
-    // Don't draw placeholders while actively editing text
+    // The open editor shows its own native placeholder.
     if (this._activeTextEditor !== null && this._activeTextEditor.overlay.id === overlay.id) {
       return
     }
