@@ -73,6 +73,31 @@ describe('stackTags', () => {
     expect(y.be - 10).toBeGreaterThanOrEqual(130)
   })
 
+  // QA: near the bottom of the pane the stack ran off it, cutting one tag in
+  // half and hiding another. The pane's edges hold the stack inside.
+  it('keeps a stack inside the pane, in price order', () => {
+    const boxes: TagBox[] = [
+      { key: 'a', y: 160, height: 20, fixed: false, value: 79703.9 },
+      { key: 'b', y: 185, height: 20, fixed: false, value: 79685.9 },
+      { key: 'c', y: 187, height: 20, fixed: false, value: 79683.9 },
+      { key: 'd', y: 198, height: 20, fixed: false, value: 79659.9 }
+    ]
+    const shifts = stackTags(boxes, false, { top: 0, bottom: 200 })
+    const y = Object.fromEntries(boxes.map(b => [b.key, b.y + (shifts.get(b.key) ?? 0)]))
+    expect(y.d + 10).toBeLessThanOrEqual(200)
+    expect(y.a).toBeLessThan(y.b)
+    expect(y.b).toBeLessThan(y.c)
+    expect(y.c).toBeLessThan(y.d)
+    expect(y.d - y.c).toBeGreaterThanOrEqual(20)
+  })
+
+  it('leaves a tag whose price is off the pane where it is', () => {
+    expect(stackTags([
+      { key: 'in', y: 190, height: 20, fixed: false, value: 2 },
+      { key: 'off', y: 260, height: 20, fixed: false, value: 1 }
+    ], false, { top: 0, bottom: 200 }).has('off')).toBe(false)
+  })
+
   it('leaves tags that do not touch alone', () => {
     expect(stackTags([
       { key: 'a', y: 0, height: 16, fixed: false },

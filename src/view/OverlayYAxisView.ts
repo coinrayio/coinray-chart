@@ -49,14 +49,26 @@ const TAG_GAP = 1
  * again as tags moved let a tag pushed off a fixed one jump past its
  * neighbour, so TP1 could end up above Break even on a long.
  */
-export function stackTags (input: readonly TagBox[], reversed = false): Map<string, number> {
+export function stackTags (input: readonly TagBox[], reversed = false, bounds?: { top: number, bottom: number }): Map<string, number> {
   const shifts = new Map<string, number>()
-  if (input.length < 2) return shifts
+  // The pane's edges as two fixed, zero-height tags that sort first and last:
+  // a stack running off the pane is pushed back inside as a block, in order.
+  // A tag whose price is off the pane stays out, and is not dragged in.
+  const edges: TagBox[] = bounds === undefined
+    ? []
+    : [
+        { key: '__top__', y: bounds.top, height: 0, fixed: true },
+        { key: '__bottom__', y: bounds.bottom, height: 0, fixed: true }
+      ]
+  const edgeRank = (key: string): number => (key === '__top__' ? -1 : key === '__bottom__' ? 1 : 0)
+  const inside = bounds === undefined ? input : input.filter(box => box.y >= bounds.top && box.y <= bounds.bottom)
+  if (!inside.some(box => !box.fixed)) return shifts
   // Top to bottom: by price where both have one (higher first, or lower on a
   // reversed scale), else by where they are drawn.
-  const boxes = input
+  const boxes = [...edges, ...inside]
     .map((box, index) => ({ ...box, index }))
     .sort((a, b) => {
+      if (edgeRank(a.key) !== edgeRank(b.key)) return edgeRank(a.key) - edgeRank(b.key)
       if (isNumber(a.value) && isNumber(b.value) && a.value !== b.value) return reversed ? a.value - b.value : b.value - a.value
       return a.y !== b.y ? a.y - b.y : a.index - b.index
     })
@@ -166,7 +178,8 @@ export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayVie
       })
     })
 
-    stackTags(boxes, (yAxis as Nullable<{ reverse?: boolean }>)?.reverse === true).forEach((dy, key) => shifts.set(key, dy))
+    const bounding = widget.getBounding()
+    stackTags(boxes, (yAxis as Nullable<{ reverse?: boolean }>)?.reverse === true, { top: 0, bottom: bounding.height }).forEach((dy, key) => shifts.set(key, dy))
   }
 
   private _lastPriceBox (): Nullable<TagBox> {
