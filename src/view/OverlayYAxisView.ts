@@ -29,9 +29,13 @@ import type YAxisImp from '../component/YAxis'
 
 export interface TagBox {
   key: string
+  /** Centre of the tag as drawn. */
   y: number
   height: number
   fixed: boolean
+  /** The price it labels. Orders the stack: a tag 1 unit above the last price
+   *  can land on the same pixel, and then only the price says which is higher. */
+  value?: number
 }
 
 const TAG_GAP = 1
@@ -45,12 +49,17 @@ const TAG_GAP = 1
  * again as tags moved let a tag pushed off a fixed one jump past its
  * neighbour, so TP1 could end up above Break even on a long.
  */
-export function stackTags (input: readonly TagBox[]): Map<string, number> {
+export function stackTags (input: readonly TagBox[], reversed = false): Map<string, number> {
   const shifts = new Map<string, number>()
   if (input.length < 2) return shifts
+  // Top to bottom: by price where both have one (higher first, or lower on a
+  // reversed scale), else by where they are drawn.
   const boxes = input
     .map((box, index) => ({ ...box, index }))
-    .sort((a, b) => (a.y !== b.y ? a.y - b.y : a.index - b.index))
+    .sort((a, b) => {
+      if (isNumber(a.value) && isNumber(b.value) && a.value !== b.value) return reversed ? a.value - b.value : b.value - a.value
+      return a.y !== b.y ? a.y - b.y : a.index - b.index
+    })
   const originals = boxes.map(box => box.y)
   for (let iteration = 0; iteration < 50; iteration++) {
     let moved = false
@@ -147,12 +156,17 @@ export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayVie
           const height = isNumber(attrs.height)
             ? attrs.height
             : (Number(merged.size ?? 12) + Number(merged.paddingTop ?? 0) + Number(merged.paddingBottom ?? 0))
-          boxes.push({ key: `${overlay.id}:${figureIndex}:${attrIndex}`, y: attrs.y, height, fixed: false })
+          // The price it labels: the point it sits on, else what the axis reads there.
+          const y = attrs.y
+          const at = coordinates.findIndex(c => Math.abs(c.y - y) < 1)
+          const pointValue = at === -1 ? undefined : overlay.points[at]?.value
+          const value = isNumber(pointValue) ? pointValue : yAxis?.convertFromPixel(y)
+          boxes.push({ key: `${overlay.id}:${figureIndex}:${attrIndex}`, y, height, fixed: false, ...(isNumber(value) ? { value } : {}) })
         })
       })
     })
 
-    stackTags(boxes).forEach((dy, key) => shifts.set(key, dy))
+    stackTags(boxes, (yAxis as Nullable<{ reverse?: boolean }>)?.reverse === true).forEach((dy, key) => shifts.set(key, dy))
   }
 
   private _lastPriceBox (): Nullable<TagBox> {
@@ -166,8 +180,22 @@ export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayVie
     const dataList = chartStore.getDataList(true)
     const data = dataList[dataList.length - 1]
     if (!isValid(data)) return null
+    // The whole tag: the price line plus the rows drawn above and below it
+    // (the bar countdown), laid out as `CandleLastPriceLabelView` lays them
+    // out. Counting the price line alone let a tag pushed below it land under
+    // the countdown, which draws on top of it.
     const { size, paddingTop, paddingBottom } = priceMark.last.text
-    return { key: '__last_price__', y: yAxis.convertToNicePixel(data.close), height: size + paddingTop + paddingBottom, fixed: true }
+    const priceY = yAxis.convertToNicePixel(data.close)
+    let top = priceY - size / 2 - paddingTop
+    let bottom = priceY + size / 2 + paddingBottom
+    const formatExtendText = chartStore.getInnerFormatter().formatExtendText
+    priceMark.last.extendTexts.forEach((item, index) => {
+      if (!item.show || formatExtendText({ type: 'last_price', data, index }).length === 0) return
+      const rowHeight = item.paddingTop + item.size + item.paddingBottom
+      if (item.position === 'above_price') top -= rowHeight
+      else bottom += rowHeight
+    })
+    return { key: '__last_price__', y: (top + bottom) / 2, height: bottom - top, fixed: true, value: data.close }
   }
 
   protected override drawFigures (ctx: CanvasRenderingContext2D, overlay: OverlayImp, figures: OverlayFigure[]): void {
