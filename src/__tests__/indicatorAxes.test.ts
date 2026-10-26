@@ -78,7 +78,7 @@ function makeAxis (
     getYAxisWidget: () => widget,
     getSecondaryYAxisWidget: () => widget
   }
-  const axis = new (YAxisImp.extend(template))(parent as unknown as DrawPane)
+  const axis = new (YAxisImp.extend(template))(parent as unknown as DrawPane) as YAxisImp
   axis.secondary = opts.secondary ?? false
   return axis
 }

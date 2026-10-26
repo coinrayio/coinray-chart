@@ -12,14 +12,15 @@ describe('Chart.clearOverlaySelection', () => {
     const overlay = { id: 'a', onDeselected }
     const updatePane = vi.fn()
     // The real Store bookkeeping, on a bare object: no canvas needed.
-    const store = Object.assign(Object.create(ChartStore.prototype) as ChartStore, {
+    const store = Object.assign(Object.create(ChartStore.prototype) as object, {
       _chart: { updatePane },
       _clickOverlayInfo: { paneId: 'candle_pane', overlay, figureType: 'line', figureIndex: 0, figure: null },
       _hoverOverlayInfo: { paneId: 'candle_pane', overlay: null, figureType: 'none', figureIndex: -1, figure: null },
       _selectedOverlayIds: new Set(['a']),
       executeAction: vi.fn(),
-    })
-    const chart = Object.assign(Object.create(ChartImp.prototype) as ChartImp, { _chartStore: store })
+    }) as unknown as ChartStore
+    // Private fields set on bare objects: typed as the classes only afterwards.
+    const chart = Object.assign(Object.create(ChartImp.prototype) as object, { _chartStore: store }) as unknown as ChartImp
     return { chart, store, overlay, onDeselected, updatePane }
   }
 

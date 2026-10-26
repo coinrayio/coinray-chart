@@ -90,8 +90,8 @@ function createDeferredLoader (): DeferredLoaderResult {
 
 const SYMBOL_A: SymbolInfo = { ticker: 'AAA', pricePrecision: 2, volumePrecision: 0 } as SymbolInfo
 const SYMBOL_B: SymbolInfo = { ticker: 'BBB', pricePrecision: 2, volumePrecision: 0 } as SymbolInfo
-const PERIOD_1H: Period = { type: 'hour', span: 1, text: '1h' }
-const PERIOD_4H: Period = { type: 'hour', span: 4, text: '4h' }
+const PERIOD_1H: Period = { type: 'hour', span: 1 }
+const PERIOD_4H: Period = { type: 'hour', span: 4 }
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -157,7 +157,7 @@ describe('_processDataLoad init-generation gating', () => {
     const store = new StoreImp(chart)
     store.setSymbol(SYMBOL_A)
     store.setPeriod(PERIOD_1H)
-    const { loader, pending, resolveAt } = createDeferredLoader()
+    const { loader, resolveAt } = createDeferredLoader()
     store.setDataLoader(loader)
     resolveAt(0, [candle(BASE, 1)])
 
@@ -203,7 +203,7 @@ describe('_processDataLoad init-generation gating', () => {
     const store = new StoreImp(chart)
     store.setSymbol(SYMBOL_A)
     store.setPeriod(PERIOD_1H)
-    const { loader, pending, resolveAt } = createDeferredLoader()
+    const { loader, resolveAt } = createDeferredLoader()
     store.setDataLoader(loader)
     resolveAt(0, [candle(BASE, 1)])
 

@@ -14,7 +14,7 @@ const depth = (ind: IndicatorImp): number => {
 
 describe('Indicator.override', () => {
   it('keeps only the previous state, however often it is replaced', () => {
-    const ind = new IndicatorImp({ name: 'X', calc: () => [] })
+    const ind = new IndicatorImp<{ v: number }>({ name: 'X', calc: () => [] })
     for (let i = 0; i < 50; i++) {
       ind.result = [{ v: i }]
       ind.override({ calcParams: [i] })
@@ -23,7 +23,7 @@ describe('Indicator.override', () => {
   })
 
   it('still compares against the state before the last override', () => {
-    const ind = new IndicatorImp({ name: 'X', calcParams: [1], calc: () => [] })
+    const ind = new IndicatorImp<{ v: number }>({ name: 'X', calcParams: [1], calc: () => [] })
     const rows = [{ v: 1 }]
     ind.result = rows
     ind.override({ calcParams: [2] })

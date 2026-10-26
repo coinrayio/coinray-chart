@@ -68,7 +68,7 @@ function makeAxis (
     getChart: () => chart,
     getYAxisWidget: () => ({ getBounding: () => ({ height: HEIGHT, width: 60, top: 0, left: 0 }) })
   }
-  const axis = new (YAxisImp.extend(template))(parent as unknown as DrawPane)
+  const axis = new (YAxisImp.extend(template))(parent as unknown as DrawPane) as YAxisImp
   return { axis, setBarSpace: bar => { barSpace = bar } }
 }
 
