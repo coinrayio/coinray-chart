@@ -28,6 +28,7 @@ import { merge, clone } from '../../common/utils/typeChecks'
 import { calcTextWidth } from '../../common/utils/canvas'
 
 import type { ProOverlayTemplate } from './types'
+import { formatAxisPrice } from '../../common/utils/axisPrice'
 
 // ---------------------------------------------------------------------------
 // Properties
@@ -215,7 +216,7 @@ const priceLevelLine = (): ProOverlayTemplate => {
     },
 
     // Y-axis label
-    createYAxisFigures: ({ overlay, coordinates, chart }) => {
+    createYAxisFigures: ({ overlay, coordinates, chart, yAxis }) => {
       if (coordinates.length === 0) return []
       syncExt(overlay)
 
@@ -225,8 +226,7 @@ const priceLevelLine = (): ProOverlayTemplate => {
       const price = overlay.points[0]?.value
       if (price === undefined) return []
 
-      const precision = chart.getSymbol()?.pricePrecision ?? 2
-      const priceText = Number(price).toFixed(precision)
+      const priceText = formatAxisPrice(chart, yAxis, Number(price))
       const lineColor = prop('lineColor')
       const ignoreEvent = prop('ignoreEvent')
 

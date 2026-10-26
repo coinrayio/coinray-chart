@@ -19,8 +19,8 @@ import type { OverlayProperties, ProOverlayTemplate } from './types'
 import type { OverlayCreateFiguresCallback } from '../../component/Overlay'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 import { TV_BLUE, axisLabelStyles, horizontalLineText, lineAroundText, tvDashedValue } from './tvLine'
-import { formatPrecision } from '../../common/utils/format'
 import { SymbolDefaultPrecisionConstants } from '../../common/SymbolInfo'
+import { formatAxisPrice } from '../../common/utils/axisPrice'
 
 /** Which side the ray extends after its single-click anchor. */
 type RayDirection = 'left' | 'right'
@@ -42,11 +42,9 @@ export const anchorPriceAxisLabel = ({ chart, overlay, coordinates, bounding, yA
   const x = isFromZero ? 0 : bounding.width
 
   const precision = chart.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
-  const decimalFold = chart.getDecimalFold()
-  const thousandsSeparator = chart.getThousandsSeparator()
   const value = overlay.points[0]?.value
   if (!isNumber(value)) return []
-  const labelText = decimalFold.formatPrice(thousandsSeparator.format(formatPrecision(value, precision)))
+  const labelText = formatAxisPrice(chart, yAxis, value, precision)
 
   return [{
     type: 'text',

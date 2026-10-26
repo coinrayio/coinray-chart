@@ -41,9 +41,9 @@ import type { KLineData } from '../../../../common/Data'
 import type ChartImp from '../../../../Chart'
 import type { ProOverlayTemplate } from '../../types'
 import { DEFAULT_OVERLAY_PROPERTIES } from '../../types'
-import { formatPrecision } from '../../../../common/utils/format'
 import { barIndex, dataKey, propertyStore } from './common'
 import type { Figure } from './common'
+import { formatAxisPrice } from '../../../../common/utils/axisPrice'
 
 export type VwapSource = 'open' | 'high' | 'low' | 'close' | 'hl2' | 'hlc3' | 'ohlc4'
 
@@ -209,7 +209,7 @@ export const anchoredVwap = (): ProOverlayTemplate => {
       const last = cache.get(overlay)?.series.vwap.at(-1)
       if ((overlay.extendData as AnchoredVwapExtendData | undefined)?.showPriceLabel === false || yAxis === null || last === undefined || !Number.isFinite(last)) return []
       const fromZero = yAxis.isFromZero()
-      const text = chart.getDecimalFold().formatPrice(chart.getThousandsSeparator().format(formatPrecision(last, chart.getSymbol()?.pricePrecision ?? 2)))
+      const text = formatAxisPrice(chart, yAxis, last)
       return [{
         type: 'text',
         attrs: { x: fromZero ? 0 : bounding.width, y: yAxis.convertToPixel(last), text, align: fromZero ? 'left' : 'right', baseline: 'middle' },
