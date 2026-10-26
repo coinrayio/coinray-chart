@@ -1223,11 +1223,12 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   /**
-   * Overlapping drawings: a plain click on the selected drawing's body, where
-   * other drawings are hit too, selects the next one down in paint order
-   * (wrapping to the top). Without it a drawing under another can never be
-   * selected, since the topmost always takes the click. A click on a handle,
-   * or one that adds to the selection, is left alone.
+   * Overlapping drawings: a plain click where the selected drawing and others
+   * are hit selects the next one below the selected one in paint order
+   * (wrapping to the top), so repeated clicks walk the stack. Without it a
+   * drawing under another can never be selected, since the topmost always
+   * takes the click. A click that misses the selected drawing, lands on a
+   * handle, or adds to the selection is left to the normal path.
    */
   private _cycleSelection (event: MouseTouchEvent): boolean {
     if (event.metaKey === true || event.ctrlKey === true || event.shiftKey === true) return false
@@ -1236,17 +1237,19 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     if (!isValid(selected)) return false
     const hits = new Map<string, { overlay: OverlayImp, figure: Eventful }>()
     const children = this.getChildren()
+    let first = true
     for (let i = children.length - 1; i > -1; i--) {
       const child = children[i]
       const owner = this._figureOwners.get(child)
       if (owner === undefined || !child.checkEventOn(event)) continue
-      if (hits.size === 0 && (owner.overlay.id !== selected.id || owner.handle)) return false
+      if (first && owner.handle) return false
+      first = false
       if (owner.handle || hits.has(owner.overlay.id)) continue
       hits.set(owner.overlay.id, { overlay: owner.overlay, figure: child })
     }
-    if (hits.size < 2) return false
-    // Topmost first, by paint order: the selected drawing's hit regions are
-    // raised (see `_drawPass`), so dispatch order no longer says which is on top.
+    if (hits.size < 2 || !hits.has(selected.id)) return false
+    // Topmost first, by paint order: handles are raised (see `_drawPass`),
+    // so dispatch order doesn't say which drawing is on top.
     const order = this.getCompleteOverlays()
     const stack = [...hits.values()].sort((a, b) => order.indexOf(b.overlay) - order.indexOf(a.overlay))
     const at = stack.findIndex(h => h.overlay.id === selected.id)
@@ -1275,30 +1278,29 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     try {
       const chartStore = this.getWidget().getPane().getChart().getChartStore()
       const overlays = this.getCompleteOverlays()
-      // Hit priority, without changing what paints on top: the selected
-      // drawing's figures, then the hovered drawing's handles, are hit-tested
-      // before everything else in this pass. Otherwise a drawing painted above
-      // the selected one takes the press on the selected one's handles, and
-      // dragging a handle moves the wrong drawing.
+      // Hit priority, without changing what paints on top: the handles of the
+      // selected drawings, then of the hovered one, are hit-tested before
+      // everything else in this pass. Otherwise a drawing painted above the
+      // selected one takes the press on the selected one's handle, and
+      // dragging the handle moves the wrong drawing. Handles only: raising a
+      // whole selected overlay let one with a large hit area (a host's chart
+      // UI) cover every drawing, so none could be clicked.
       const selectedId = chartStore.getClickOverlayInfo().overlay?.id
       const hoveredId = chartStore.getHoverOverlayInfo().overlay?.id
       const raisedSelected = new Set<Eventful>()
-      const raisedHandles = new Set<Eventful>()
+      const raisedHovered = new Set<Eventful>()
       overlays.forEach(overlay => {
         if (chartStore.isOverlayShown(overlay) && (overlay.zLevel >= OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR) === aboveCrosshair) {
           const start = this.getChildren().length
           this._drawOverlay(ctx, overlay)
-          const added = this.getChildren().slice(start)
-          if (overlay.id === selectedId || chartStore.isOverlaySelected(overlay.id)) {
-            added.forEach(c => raisedSelected.add(c))
-          }
-          if (overlay.id === hoveredId) {
-            added.filter(c => this._figureOwners.get(c)?.handle === true).forEach(c => raisedHandles.add(c))
-          }
+          const selected = overlay.id === selectedId || chartStore.isOverlaySelected(overlay.id)
+          if (!selected && overlay.id !== hoveredId) return
+          const handles = this.getChildren().slice(start).filter(c => this._figureOwners.get(c)?.handle === true)
+          handles.forEach(c => (selected ? raisedSelected : raisedHovered).add(c))
         }
       })
       this.raiseChildren(raisedSelected)
-      this.raiseChildren(raisedHandles)
+      this.raiseChildren(raisedHovered)
       const progressOverlay = this.getProgressOverlay()
       if (!aboveCrosshair && isValid(progressOverlay) && chartStore.isOverlayShown(progressOverlay)) {
         this._drawOverlay(ctx, progressOverlay)

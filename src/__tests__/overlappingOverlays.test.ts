@@ -126,6 +126,29 @@ describe('overlapping drawings', () => {
     expect(store.getClickOverlayInfo().overlay?.id).toBe(a.id)
   })
 
+  it('a click on a single unselected drawing selects it', () => {
+    const { store, view, b, x, draw } = setup()
+    draw()
+    view.dispatchEvent('mouseMoveEvent', at(x(3), 20))
+    draw()
+    view.dispatchEvent('mouseClickEvent', at(x(3), 20))
+    expect(store.getClickOverlayInfo().overlay?.id).toBe(b.id)
+  })
+
+  it('a selected overlay covering the pane doesn\'t keep the drawings from being clicked', () => {
+    const { store, view, b, x, draw } = setup()
+    // Painted under the drawings, as a host's chart UI might be, and held
+    // in the selection set.
+    const [coverId] = store.addOverlays([
+      { name: 'test-box', id: 'cover', zLevel: -1, points: [{ timestamp: ts(0), value: 0 }, { timestamp: ts(19), value: 200 }] }
+    ], [false])
+    store.setSelectedOverlayIds([coverId as string])
+    draw()
+    // Only B and the cover are under this point: the click goes to B.
+    view.dispatchEvent('mouseClickEvent', at(x(3), 20))
+    expect(store.getClickOverlayInfo().overlay?.id).toBe(b.id)
+  })
+
   it('a click outside the overlap keeps plain selection', () => {
     const { store, view, b, x, draw } = setup()
     select(store, b)
