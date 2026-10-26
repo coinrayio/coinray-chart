@@ -27,7 +27,7 @@ import OverlayView from './OverlayView'
 
 import type YAxisImp from '../component/YAxis'
 
-interface TagBox {
+export interface TagBox {
   key: string
   y: number
   height: number
@@ -35,6 +35,49 @@ interface TagBox {
 }
 
 const TAG_GAP = 1
+
+/**
+ * Pushes overlapping price tags apart, by at least a label height, and returns
+ * the vertical shift per tag key. Fixed tags (the last price) never move.
+ *
+ * Tags keep their price order: the order is taken once, from where the tags
+ * want to be, and only adjacent pairs in that order are separated. Sorting
+ * again as tags moved let a tag pushed off a fixed one jump past its
+ * neighbour, so TP1 could end up above Break even on a long.
+ */
+export function stackTags (input: readonly TagBox[]): Map<string, number> {
+  const shifts = new Map<string, number>()
+  if (input.length < 2) return shifts
+  const boxes = input
+    .map((box, index) => ({ ...box, index }))
+    .sort((a, b) => (a.y !== b.y ? a.y - b.y : a.index - b.index))
+  const originals = boxes.map(box => box.y)
+  for (let iteration = 0; iteration < 50; iteration++) {
+    let moved = false
+    for (let i = 1; i < boxes.length; i++) {
+      const a = boxes[i - 1]
+      const b = boxes[i]
+      const deficit = (a.height + b.height) / 2 + TAG_GAP - (b.y - a.y)
+      if (deficit <= 0.01 || (a.fixed && b.fixed)) continue
+      moved = true
+      if (a.fixed) {
+        b.y += deficit
+      } else if (b.fixed) {
+        a.y -= deficit
+      } else {
+        a.y -= deficit / 2
+        b.y += deficit / 2
+      }
+    }
+    if (!moved) break
+  }
+  boxes.forEach((box, i) => {
+    if (box.fixed) return
+    const dy = box.y - originals[i]
+    if (Math.abs(dy) > 0.01) shifts.set(box.key, dy)
+  })
+  return shifts
+}
 
 export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayView<C> {
   /** Vertical shift per `overlayId:figureIndex:attrIndex`, from the last layout. */
@@ -109,34 +152,7 @@ export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayVie
       })
     })
 
-    if (boxes.length < 2) return
-    const originals = new Map(boxes.map(box => [box.key, box.y]))
-    for (let iteration = 0; iteration < 30; iteration++) {
-      boxes.sort((a, b) => a.y - b.y)
-      let moved = false
-      for (let i = 1; i < boxes.length; i++) {
-        const a = boxes[i - 1]
-        const b = boxes[i]
-        const deficit = (a.height + b.height) / 2 + TAG_GAP - (b.y - a.y)
-        if (deficit <= 0.01) continue
-        moved = true
-        if (a.fixed && b.fixed) continue
-        if (a.fixed) {
-          b.y += deficit
-        } else if (b.fixed) {
-          a.y -= deficit
-        } else {
-          a.y -= deficit / 2
-          b.y += deficit / 2
-        }
-      }
-      if (!moved) break
-    }
-    boxes.forEach(box => {
-      if (box.fixed) return
-      const dy = box.y - (originals.get(box.key) ?? box.y)
-      if (Math.abs(dy) > 0.01) shifts.set(box.key, dy)
-    })
+    stackTags(boxes).forEach((dy, key) => shifts.set(key, dy))
   }
 
   private _lastPriceBox (): Nullable<TagBox> {
