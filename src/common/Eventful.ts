@@ -59,6 +59,22 @@ export default abstract class Eventful implements EventDispatcher {
     return this.onEvent(name, event)
   }
 
+  protected getChildren (): readonly Eventful[] {
+    return this._children
+  }
+
+  /**
+   * Moves `raised` to the end of the dispatch order, where they are hit-tested
+   * first, keeping their relative order and everyone else's.
+   */
+  protected raiseChildren (raised: ReadonlySet<Eventful>): void {
+    if (raised.size === 0) return
+    this._children = [
+      ...this._children.filter(c => !raised.has(c)),
+      ...this._children.filter(c => raised.has(c))
+    ]
+  }
+
   addChild (eventful: Eventful): this {
     this._children.push(eventful)
     return this

@@ -27,6 +27,9 @@ import type { OverlayFigure, Overlay } from '../component/Overlay'
 import type OverlayImp from '../component/Overlay'
 import { checkOverlayFigureEvent, OVERLAY_FIGURE_KEY_PREFIX } from '../component/Overlay'
 import { setDrawingOverlay } from '../component/Figure'
+import type Figure from '../component/Figure'
+import type { FigureCreate } from '../component/Figure'
+import type Eventful from '../common/Eventful'
 
 import type { EventOverlayInfoFigureType } from '../Store'
 
@@ -65,6 +68,14 @@ export const OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR = 1000
 export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   // Where the current drag started, pane-local, for Shift axis-locking.
   private _pressStart: Nullable<Coordinate> = null
+
+  /**
+   * Which overlay each hit-testable figure belongs to, and whether it is one
+   * of the overlay's point handles. Filled while drawing; read by the hit
+   * priority pass and the click-to-cycle selection.
+   */
+  private readonly _figureOwners = new WeakMap<Eventful, { overlay: OverlayImp, handle: boolean }>()
+  private _drawingOwner: Nullable<{ overlay: OverlayImp, handle: boolean }> = null
   /**
    * A mouse press that placed a point of the drawing in progress. Dragging
    * from it moves the next point instead of panning, and releasing past
@@ -1197,7 +1208,51 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     if (isDrawing) {
       return this.onEvent(name, event)
     }
+    if (name === 'mouseClickEvent' && this._cycleSelection(event)) {
+      return true
+    }
     return super.dispatchEvent(name, event)
+  }
+
+  protected override createFigure (create: FigureCreate, eventHandler?: EventHandler): Nullable<Figure> {
+    const figure = super.createFigure(create, eventHandler)
+    if (figure !== null && isValid(eventHandler) && this._drawingOwner !== null) {
+      this._figureOwners.set(figure as unknown as Eventful, this._drawingOwner)
+    }
+    return figure
+  }
+
+  /**
+   * Overlapping drawings: a plain click on the selected drawing's body, where
+   * other drawings are hit too, selects the next one down in paint order
+   * (wrapping to the top). Without it a drawing under another can never be
+   * selected, since the topmost always takes the click. A click on a handle,
+   * or one that adds to the selection, is left alone.
+   */
+  private _cycleSelection (event: MouseTouchEvent): boolean {
+    if (event.metaKey === true || event.ctrlKey === true || event.shiftKey === true) return false
+    const chartStore = this.getWidget().getPane().getChart().getChartStore()
+    const selected = chartStore.getClickOverlayInfo().overlay
+    if (!isValid(selected)) return false
+    const hits = new Map<string, { overlay: OverlayImp, figure: Eventful }>()
+    const children = this.getChildren()
+    for (let i = children.length - 1; i > -1; i--) {
+      const child = children[i]
+      const owner = this._figureOwners.get(child)
+      if (owner === undefined || !child.checkEventOn(event)) continue
+      if (hits.size === 0 && (owner.overlay.id !== selected.id || owner.handle)) return false
+      if (owner.handle || hits.has(owner.overlay.id)) continue
+      hits.set(owner.overlay.id, { overlay: owner.overlay, figure: child })
+    }
+    if (hits.size < 2) return false
+    // Topmost first, by paint order: the selected drawing's hit regions are
+    // raised (see `_drawPass`), so dispatch order no longer says which is on top.
+    const order = this.getCompleteOverlays()
+    const stack = [...hits.values()].sort((a, b) => order.indexOf(b.overlay) - order.indexOf(a.overlay))
+    const at = stack.findIndex(h => h.overlay.id === selected.id)
+    const next = stack[(at + 1) % stack.length]
+    next.figure.dispatchEvent('mouseClickEvent', event)
+    return true
   }
 
   override drawImp (ctx: CanvasRenderingContext2D): void {
@@ -1220,11 +1275,30 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     try {
       const chartStore = this.getWidget().getPane().getChart().getChartStore()
       const overlays = this.getCompleteOverlays()
+      // Hit priority, without changing what paints on top: the selected
+      // drawing's figures, then the hovered drawing's handles, are hit-tested
+      // before everything else in this pass. Otherwise a drawing painted above
+      // the selected one takes the press on the selected one's handles, and
+      // dragging a handle moves the wrong drawing.
+      const selectedId = chartStore.getClickOverlayInfo().overlay?.id
+      const hoveredId = chartStore.getHoverOverlayInfo().overlay?.id
+      const raisedSelected = new Set<Eventful>()
+      const raisedHandles = new Set<Eventful>()
       overlays.forEach(overlay => {
         if (chartStore.isOverlayShown(overlay) && (overlay.zLevel >= OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR) === aboveCrosshair) {
+          const start = this.getChildren().length
           this._drawOverlay(ctx, overlay)
+          const added = this.getChildren().slice(start)
+          if (overlay.id === selectedId || chartStore.isOverlaySelected(overlay.id)) {
+            added.forEach(c => raisedSelected.add(c))
+          }
+          if (overlay.id === hoveredId) {
+            added.filter(c => this._figureOwners.get(c)?.handle === true).forEach(c => raisedHandles.add(c))
+          }
         }
       })
+      this.raiseChildren(raisedSelected)
+      this.raiseChildren(raisedHandles)
       const progressOverlay = this.getProgressOverlay()
       if (!aboveCrosshair && isValid(progressOverlay) && chartStore.isOverlayShown(progressOverlay)) {
         this._drawOverlay(ctx, progressOverlay)
@@ -1290,18 +1364,28 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- ignore
       // @ts-expect-error
       const figures = [].concat(this.getFigures(overlay, coordinates))
-      this.drawFigures(
+      this._drawingOwner = { overlay, handle: false }
+      try {
+        this.drawFigures(
+          ctx,
+          overlay,
+          figures
+        )
+        this._drawEditableTextPlaceholders(ctx, overlay, figures)
+      } finally {
+        this._drawingOwner = null
+      }
+    }
+    this._drawingOwner = { overlay, handle: true }
+    try {
+      this.drawDefaultFigures(
         ctx,
         overlay,
-        figures
+        coordinates
       )
-      this._drawEditableTextPlaceholders(ctx, overlay, figures)
+    } finally {
+      this._drawingOwner = null
     }
-    this.drawDefaultFigures(
-      ctx,
-      overlay,
-      coordinates
-    )
   }
 
   /**
