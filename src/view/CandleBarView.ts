@@ -261,7 +261,7 @@ export default class CandleBarView extends ChildrenView {
               const r = attrs[i]
               const filled = fill && batch.fill(layer, color, r)
               if (stroke) {
-                batch.stroke(layer, borderColor, r, filled)
+                batch.stroke(layer, borderColor, r, filled ? color : null)
               }
               if (isMain) {
                 hitRects.push(r)

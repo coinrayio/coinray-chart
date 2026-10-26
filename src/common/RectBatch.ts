@@ -86,16 +86,18 @@ export default class RectBatch {
 
   /**
    * A 1px border. A rect too small to show one is filled with the border colour
-   * instead, unless `filled` says its body is already painted.
+   * instead, over whatever body `fillColor` painted: zoomed out, the border is
+   * the only thing that tells a candle apart from a background-coloured body.
+   * Skipped when the body is already that colour.
    */
-  stroke (layer: number, color: string, rect: BatchRect, filled: boolean): void {
+  stroke (layer: number, color: string, rect: BatchRect, fillColor: string | null): void {
     if (this._isTransparent(color)) {
       return
     }
     const target = this._layer(layer)
     if (rect.width > 2 && rect.height > 2) {
       RectBatch._push(target.strokes, color, rect)
-    } else if (!filled) {
+    } else if (fillColor !== color) {
       RectBatch._push(target.thinFills, color, rect)
     }
   }
