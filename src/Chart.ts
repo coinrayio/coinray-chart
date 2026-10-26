@@ -1044,6 +1044,7 @@ export default class ChartImp implements Chart {
   setPaneOptions (options: PaneOptions): void {
     let shouldMeasureHeight = false
     let shouldLayout = false
+    let shouldSort = false
     const validId = isValid(options.id)
     for (const currentPane of this._drawPanes) {
       const currentPaneId = currentPane.getId()
@@ -1193,7 +1194,19 @@ export default class ChartImp implements Chart {
         if (isValid(options.axis)) {
           shouldLayout = true
         }
+        // Moving a pane: without the sort the new order was stored and never
+        // shown, so a host restoring a saved pane order got creation order.
+        if (
+          currentPaneId !== PaneIdConstants.X_AXIS &&
+          isNumber(options.order) &&
+          currentPane.getOptions().order !== options.order
+        ) {
+          shouldSort = true
+          shouldLayout = true
+          shouldMeasureHeight = true
+        }
         const ops = { ...options }
+        if (currentPaneId === PaneIdConstants.X_AXIS) delete ops.order
         delete ops.state
         currentPane.setOptions(ops)
         if (currentPaneId === options.id) {
@@ -1203,6 +1216,7 @@ export default class ChartImp implements Chart {
     }
     if (shouldLayout) {
       this.layout({
+        sort: shouldSort,
         measureHeight: shouldMeasureHeight,
         measureWidth: true,
         update: true,
