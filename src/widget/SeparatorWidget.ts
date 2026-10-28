@@ -63,6 +63,8 @@ export default class SeparatorWidget extends Widget<SeparatorPane> {
   private _mouseDownEvent (event: MouseTouchEvent): boolean {
     this._dragFlag = true
     this._dragStartY = event.pageY
+    // A finger never hovers: show the drag the way a mouse's hover does.
+    this._mouseEnterEvent()
     const pane = this.getPane()
     const chart = pane.getChart()
     this._topPane = pane.getTopPane()
@@ -160,7 +162,8 @@ export default class SeparatorWidget extends Widget<SeparatorPane> {
     if (bottomPane.getOptions().dragEnabled) {
       const chart = pane.getChart()
       const styles = chart.getStyles().separator
-      this.getContainer().style.background = styles.activeBackgroundColor
+      // Only the line takes the colour, not the whole grab band around it.
+      this.getContainer().style.background = `linear-gradient(${styles.activeBackgroundColor}, ${styles.activeBackgroundColor}) center / 100% ${styles.size}px no-repeat`
       return true
     }
     return false

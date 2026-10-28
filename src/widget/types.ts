@@ -20,4 +20,10 @@ export const WidgetNameConstants = {
   SEPARATOR: 'separator'
 }
 
-export const REAL_SEPARATOR_HEIGHT = 7
+/** The mouse's grab band on a pane separator: a 2px line plus 4px either
+ *  side, the same as the splitter between a host's layout panels. */
+export const REAL_SEPARATOR_HEIGHT = 10
+
+/** A finger's grab band on a pane separator: the mouse band is far too thin
+ *  to land a touch on. */
+export const TOUCH_SEPARATOR_HEIGHT = 24
