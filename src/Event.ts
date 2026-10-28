@@ -31,7 +31,7 @@ import type Pane from './pane/Pane'
 import type DrawPane from './pane/DrawPane'
 import { PaneIdConstants } from './pane/types'
 import type Widget from './widget/Widget'
-import { WidgetNameConstants, REAL_SEPARATOR_HEIGHT } from './widget/types'
+import { WidgetNameConstants, REAL_SEPARATOR_HEIGHT, TOUCH_SEPARATOR_HEIGHT } from './widget/types'
 
 interface EventTriggerWidgetInfo {
   pane: Nullable<Pane>
@@ -62,6 +62,9 @@ export default class Event implements EventHandler {
   // The axis a touch started on: a touch axis drag stays with it after the
   // finger leaves the narrow strip, as `pressedMouseMoveEvent` does for mouse.
   private _touchAxisWidget: Nullable<Widget> = null
+  // The pane separator a touch started on: the drag resizes the panes until
+  // the finger lifts, wherever it has moved to.
+  private _touchSeparatorWidget: Nullable<Widget> = null
 
   // Marquee drag (Cmd/Ctrl + drag on empty chart space) — where the press
   // landed, in pane-local pixels, plus which pane it belongs to. Non-null for
@@ -678,11 +681,15 @@ export default class Event implements EventHandler {
     const { pane, widget } = this._findWidgetByEvent(e)
     const startName = widget?.getName()
     this._touchAxisWidget = startName === WidgetNameConstants.X_AXIS || startName === WidgetNameConstants.Y_AXIS ? widget : null
+    this._touchSeparatorWidget = startName === WidgetNameConstants.SEPARATOR ? widget : null
     if (widget !== null) {
       const event = this._makeWidgetEvent(e, widget)
       event.preventDefault?.()
       const name = widget.getName()
       switch (name) {
+        case WidgetNameConstants.SEPARATOR: {
+          return widget.dispatchEvent('touchStartEvent', event)
+        }
         case WidgetNameConstants.MAIN: {
           const chartStore = this._chart.getChartStore()
           if (this._isTouchDrawing()) {
@@ -764,6 +771,11 @@ export default class Event implements EventHandler {
       this._chart.updatePane(UpdateLevel.Overlay)
       return true
     }
+    const separatorWidget = this._touchSeparatorWidget
+    if (separatorWidget !== null) {
+      e.preventDefault?.()
+      return separatorWidget.dispatchEvent('touchMoveEvent', e)
+    }
     const axisWidget = this._touchAxisWidget
     if (axisWidget !== null) {
       // Same as the mouse path: keyed off the axis widget's own box, with the
@@ -813,6 +825,11 @@ export default class Event implements EventHandler {
       // Lifting only ends the move; the tap that follows a still touch places the point.
       this._touchDraw = null
       return true
+    }
+    const separatorWidget = this._touchSeparatorWidget
+    if (separatorWidget !== null) {
+      this._touchSeparatorWidget = null
+      return separatorWidget.dispatchEvent('touchEndEvent', e)
     }
     // An axis drag ends on its own axis, wherever the finger lifted.
     const widget = this._touchAxisWidget ?? this._findWidgetByEvent(e).widget
@@ -1147,13 +1164,14 @@ export default class Event implements EventHandler {
     const { x, y } = event
     const separatorPanes = this._chart.getSeparatorPanes()
     const separatorSize = this._chart.getStyles().separator.size
+    const band = event.isTouch === true ? TOUCH_SEPARATOR_HEIGHT : REAL_SEPARATOR_HEIGHT
     for (const items of separatorPanes) {
       const pane = items[1]
       const bounding = pane.getBounding()
-      const top = bounding.top - Math.round((REAL_SEPARATOR_HEIGHT - separatorSize) / 2)
+      const top = bounding.top - Math.round((band - separatorSize) / 2)
       if (
         x >= bounding.left && x <= bounding.left + bounding.width &&
-        y >= top && y <= top + REAL_SEPARATOR_HEIGHT
+        y >= top && y <= top + band
       ) {
         return { pane, widget: pane.getWidget() }
       }

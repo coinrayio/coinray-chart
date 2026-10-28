@@ -21,3 +21,7 @@ export const WidgetNameConstants = {
 }
 
 export const REAL_SEPARATOR_HEIGHT = 7
+
+/** A finger's grab band on a pane separator: the mouse band is far too thin
+ *  to land a touch on. */
+export const TOUCH_SEPARATOR_HEIGHT = 24
