@@ -500,6 +500,14 @@ export default class StoreImp implements Store {
   private _crosshair: Crosshair = {}
 
   /**
+   * The time and value a pinned crosshair (touch) stays on. A pointer
+   * crosshair is wherever the pointer is; one set by a finger has nothing
+   * holding it, so a zoom, scroll or price-scale change moves it with the
+   * chart instead of leaving it on the same pixels (`reanchorCrosshair`).
+   */
+  private _crosshairAnchor: Nullable<{ timestamp: number, value: number, paneId: string }> = null
+
+  /**
    * ALTD-1915.13 tail — crosshair magnet mode. `weak` snaps the
    * X coordinate to the nearest bar centre; `strong` adds an OHLC
    * snap on the candle pane so the horizontal crosshair sits on
@@ -1777,10 +1785,15 @@ export default class StoreImp implements Store {
 
   setCrosshair (
     crosshair?: Nullable<Crosshair>,
-    options?: { notInvalidate?: boolean, notExecuteAction?: boolean, forceInvalidate?: boolean }
+    options?: { notInvalidate?: boolean, notExecuteAction?: boolean, forceInvalidate?: boolean, anchor?: boolean }
   ): void {
-    const { notInvalidate, notExecuteAction, forceInvalidate } = options ?? {}
+    const { notInvalidate, notExecuteAction, forceInvalidate, anchor } = options ?? {}
     const cr = crosshair ?? {}
+    // Re-applying the current crosshair (after a zoom or a data load) keeps
+    // its pin; any other crosshair replaces it.
+    if (crosshair !== this._crosshair && !(anchor ?? false)) {
+      this._crosshairAnchor = null
+    }
     let realDataIndex = 0
     let dataIndex = 0
     if (isNumber(cr.x)) {
@@ -1881,6 +1894,42 @@ export default class StoreImp implements Store {
 
   getCrosshair (): Crosshair {
     return this._crosshair
+  }
+
+  /**
+   * Shows the crosshair at `crosshair` and pins it to the time and value
+   * there: a later zoom, scroll or price-scale change keeps it on them.
+   */
+  setAnchoredCrosshair (crosshair: Crosshair, options?: { notInvalidate?: boolean }): void {
+    const { x, y, paneId } = crosshair
+    const axis = isString(paneId) ? this._yAxisOf(paneId) : null
+    this.setCrosshair(crosshair, { ...options, anchor: true })
+    const timestamp = isNumber(x) ? this.floatIndexToTimestamp(this.coordinateToFloatIndex(x)) : null
+    this._crosshairAnchor = isNumber(timestamp) && isNumber(y) && axis !== null && isString(paneId)
+      ? { timestamp, value: axis.convertFromPixel(y), paneId }
+      : null
+  }
+
+  /**
+   * Moves a pinned crosshair back onto its time and value, once the axes have
+   * their new scale. Called by the chart's layout.
+   */
+  reanchorCrosshair (options?: { notInvalidate?: boolean }): void {
+    const anchor = this._crosshairAnchor
+    if (anchor === null || this._dataList.length === 0) return
+    const axis = this._yAxisOf(anchor.paneId)
+    if (axis === null) return
+    // A float index runs from a bar's left edge; dataIndexToCoordinate gives bar centres.
+    const x = this.dataIndexToCoordinate(this.timestampToFloatIndex(anchor.timestamp) - 0.5)
+    const y = axis.convertToPixel(anchor.value)
+    if (!isNumber(x) || !isNumber(y)) return
+    this.setCrosshair({ x, y, paneId: anchor.paneId }, { ...options, anchor: true })
+  }
+
+  private _yAxisOf (paneId: string): Nullable<{ convertToPixel: (value: number) => number, convertFromPixel: (px: number) => number }> {
+    interface DrawPaneLike { getAxisComponent: () => { convertToPixel: (value: number) => number, convertFromPixel: (px: number) => number } }
+    interface ChartLike { getDrawPaneById: (id: string) => DrawPaneLike | null }
+    return (this._chart as unknown as ChartLike).getDrawPaneById(paneId)?.getAxisComponent() ?? null
   }
 
   /**
@@ -2688,6 +2737,7 @@ export default class StoreImp implements Store {
     ]
     this._visibleRange = getDefaultVisibleRange()
     this._crosshair = {}
+    this._crosshairAnchor = null
   }
 
   getChart (): Chart {

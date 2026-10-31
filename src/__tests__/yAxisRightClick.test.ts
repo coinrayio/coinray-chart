@@ -44,7 +44,8 @@ function setup (consume = false): {
     hasAction: () => true,
     executeAction: (type: string, data: unknown) => { actions.push([type, data]) },
     getCrosshair: () => ({ paneId: 'candle_pane' }),
-    setCrosshair: () => { /* noop */ }
+    setCrosshair: () => { /* noop */ },
+    setAnchoredCrosshair: () => { /* noop */ }
   }
   const chart = {
     getSeparatorPanes: () => new Map(),
