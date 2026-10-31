@@ -551,6 +551,9 @@ export default class ChartImp implements Chart {
         pane.setBounding(paneBounding, mainBounding, leftYAxisBounding, rightYAxisBounding)
       })
     }
+    // The axes have their new scale: a pinned crosshair goes back onto its
+    // time and value. Repainted by the update below, or by itself without one.
+    this._chartStore.reanchorCrosshair({ notInvalidate: update })
     if (update) {
       (this._xAxisPane.getAxisComponent() as unknown as AxisImp).buildTicks(true)
       this.updatePane(UpdateLevel.All)

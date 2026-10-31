@@ -729,12 +729,15 @@ export default class Event implements EventHandler {
           chartStore.startScroll()
           this._touchZoomed = false
           if (this._touchCoordinate !== null) {
-            const xDif = event.x - this._touchCoordinate.x
-            const yDif = event.y - this._touchCoordinate.y
+            // Where the crosshair is now: a drag or a zoom since it was set moved it.
+            const crosshair = chartStore.getCrosshair()
+            const at = isNumber(crosshair.x) && isNumber(crosshair.y) ? { x: crosshair.x, y: crosshair.y } : this._touchCoordinate
+            const xDif = event.x - at.x
+            const yDif = event.y - at.y
             const radius = Math.sqrt(xDif * xDif + yDif * yDif)
             if (radius < TOUCH_MIN_RADIUS) {
               this._touchCoordinate = { x: event.x, y: event.y }
-              chartStore.setCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() })
+              chartStore.setAnchoredCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() })
             } else {
               this._touchCoordinate = null
               this._touchCancelCrosshair = true
@@ -802,7 +805,7 @@ export default class Event implements EventHandler {
           }
           if (this._touchCoordinate !== null) {
             event.preventDefault?.()
-            chartStore.setCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() })
+            chartStore.setAnchoredCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() })
           } else {
             this._processMainScrollingEvent(widget as Widget<DrawPane<YAxis>>, event)
           }
@@ -904,7 +907,7 @@ export default class Event implements EventHandler {
         } else {
           if (!this._touchCancelCrosshair && !this._touchZoomed) {
             this._touchCoordinate = { x: event.x, y: event.y }
-            chartStore.setCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() }, { notInvalidate: true })
+            chartStore.setAnchoredCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() }, { notInvalidate: true })
             consumed = true
           }
           this._touchCancelCrosshair = false
@@ -961,7 +964,7 @@ export default class Event implements EventHandler {
     if (widget !== null && widget.getName() === WidgetNameConstants.MAIN) {
       const event = this._makeWidgetEvent(e, widget)
       this._touchCoordinate = { x: event.x, y: event.y }
-      this._chart.getChartStore().setCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() })
+      this._chart.getChartStore().setAnchoredCrosshair({ x: event.x, y: event.y, paneId: pane?.getId() })
 
       // Dispatch right-click semantics so overlays' onRightClick handlers fire
       // (e.g. show OverlayOptionsPopup) on mobile/touch long-press.
