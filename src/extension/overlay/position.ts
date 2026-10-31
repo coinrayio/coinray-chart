@@ -116,6 +116,25 @@ export function positionStats (entry: number, stop: number, target: number, ext:
 interface Figure { type: string, key?: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }
 
 /**
+ * Where the trade opened: the first bar from the entry bar on, up to
+ * `endIndex`, whose range reaches the entry price. `null` while the entry is
+ * still pending, which includes an entry placed past the last bar.
+ */
+export function positionFill (
+  bars: ReadonlyArray<{ high: number, low: number } | undefined>,
+  entryIndex: number,
+  endIndex: number,
+  entry: number
+): number | null {
+  const last = Math.min(Math.floor(endIndex), bars.length - 1)
+  for (let i = Math.max(0, Math.floor(entryIndex)); i <= last; i++) {
+    const bar = bars[i]
+    if (bar !== undefined && bar.low <= entry && entry <= bar.high) return i
+  }
+  return null
+}
+
+/**
  * Where the trade closed: the first bar after the entry bar whose range reaches
  * the stop or the target, up to `endIndex`. A bar that reaches both counts as a
  * stop, since its bars can't tell which came first. `null` while still open.
@@ -288,17 +307,21 @@ export const position = (side: PositionSide) => (): ProOverlayTemplate => {
       const priced = isNumber(entryPrice) && isNumber(stopPrice) && isNumber(targetPrice)
       const stats = priced ? positionStats(entryPrice, stopPrice, targetPrice, ext) : null
 
-      // Live progress: shade the part of the move the price has covered. Once a
+      // Live progress: nothing until a bar reaches the entry (the trade is
+      // pending). Then shade the part of the move the price has covered. Once a
       // bar reaches the target or the stop the trade is closed there and the
       // result stays; until then it marks to the close of the bar under the
       // right edge (the last bar, when that lies past the data).
       const dataList = chart.getDataList()
       const endIndex = isNumber(pts[3]?.dataIndex) ? pts[3].dataIndex : dataList.length - 1
       const lastClose = dataList[Math.max(0, Math.min(dataList.length - 1, Math.floor(endIndex)))]?.close
-      const exit = priced && isNumber(pts[0]?.dataIndex)
-        ? positionExit(dataList, pts[0].dataIndex, endIndex, side, stopPrice, targetPrice)
+      const fill = priced && isNumber(pts[0]?.dataIndex)
+        ? positionFill(dataList, pts[0].dataIndex, endIndex, entryPrice)
         : null
-      const mark = exit?.price ?? lastClose
+      const exit = priced && fill !== null
+        ? positionExit(dataList, fill, endIndex, side, stopPrice, targetPrice)
+        : null
+      const mark = fill === null ? undefined : exit?.price ?? lastClose
       let pnl = 0
       if (priced && stats !== null && isNumber(mark)) {
         pnl = dir * (mark - entryPrice) * stats.qty
