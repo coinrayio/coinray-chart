@@ -873,6 +873,14 @@ export default class ChartImp implements Chart {
     if (result) {
       let shouldSort = false
       if (!isValid(this.getDrawPaneById(paneOpts.id))) {
+        // A new pane can't take any height while another pane is maximised:
+        // there is no pane in the normal state to give it room, so it stayed
+        // at 0px and the layout around it was stuck. Restore the layout
+        // first, as TradingView does when an indicator is added.
+        const maximized = this._drawPanes.find(pane => pane.getOptions().state === 'maximize')
+        if (isValid(maximized)) {
+          this.setPaneOptions({ id: maximized.getId(), state: 'normal' })
+        }
         // A new pane starts on the side the candle pane's scale is on, so a
         // chart with the scale moved left does not grow right-hand panes.
         const candleAxis = this._candlePane.getAxisComponent() as unknown as YAxis
@@ -944,6 +952,10 @@ export default class ChartImp implements Chart {
         }
       })
       if (this._drawPanes.length === 2) {
+        // The candle pane alone can't stay maximised or minimised: with no
+        // sibling the state means nothing, and it would outlive the pane it
+        // was set against (and be saved with the layout).
+        this._candlePane.setOptions({ state: 'normal' })
         this._candlePane.setVisible(true)
         this._candlePane.setBounding({ height: this._chartBounding.height - this._xAxisPane.getBounding().height })
       }
