@@ -363,10 +363,17 @@ export default class ChartImp implements Chart {
     if (!this._layoutPending) {
       this._layoutPending = true
       Promise.resolve().then(_ => {
-        this._layout()
-        this._layoutPending = false
-      }).catch((_: unknown) => {
-        // todo
+        // Cleared in `finally`: a pass that throws used to leave the flag set,
+        // so every later request was skipped and the chart stopped painting
+        // (the crosshair and legend kept moving over a frozen frame).
+        try {
+          this._layout()
+        } finally {
+          this._layoutPending = false
+        }
+      }).catch((err: unknown) => {
+        // Reported, not swallowed: it was silent, which hid the freeze above.
+        console.error('[klinecharts] layout failed:', err)
       })
     }
   }

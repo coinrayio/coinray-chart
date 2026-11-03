@@ -38,8 +38,6 @@ export default class Canvas {
 
   private readonly _listener: DrawListener
 
-  private _supportedDevicePixelContentBox = false
-
   private _width = 0
   private _height = 0
 
@@ -69,7 +67,6 @@ export default class Canvas {
       // torn down by a market switch, or any canvas while the window is hidden)
       // would otherwise get an observer nothing ever removes, keeping it alive.
       if (this._destroyed) return
-      this._supportedDevicePixelContentBox = result
       if (result) {
         this._resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
           const entry = entries.find((entry: ResizeObserverEntry) => entry.target === this._element)
@@ -91,43 +88,77 @@ export default class Canvas {
     }).catch((_: unknown) => false)
   }
 
+  /**
+   * A resize is a flag the next frame applies, not a callback handed to it:
+   * when a redraw was already waiting for that frame, the callback was dropped,
+   * the canvas kept its old size, and since `update` then never saw its own
+   * size it waited for a resize notification that never came again. The
+   * canvas stopped painting for good (a chart moved into a smaller
+   * multi-chart cell froze on its last frame).
+   */
+  private _resizePending = false
+
   private _resetPixelRatio (): void {
-    this._executeListener(() => {
-      const width = this._element.clientWidth
-      const height = this._element.clientHeight
-      this._width = width
-      this._height = height
-      this._pixelWidth = this._nextPixelWidth
-      this._pixelHeight = this._nextPixelHeight
-      this._element.width = this._nextPixelWidth
-      this._element.height = this._nextPixelHeight
-      const horizontalPixelRatio = this._nextPixelWidth / width
-      const verticalPixelRatio = this._nextPixelHeight / height
-      this._ctx.scale(horizontalPixelRatio, verticalPixelRatio)
-    })
+    this._resizePending = true
+    this._executeListener()
   }
 
-  private _executeListener (fn?: () => void): void {
+  private _applyPixelRatio (): void {
+    const width = this._element.clientWidth
+    const height = this._element.clientHeight
+    this._width = width
+    this._height = height
+    this._pixelWidth = this._nextPixelWidth
+    this._pixelHeight = this._nextPixelHeight
+    this._element.width = this._nextPixelWidth
+    this._element.height = this._nextPixelHeight
+    const horizontalPixelRatio = this._nextPixelWidth / width
+    const verticalPixelRatio = this._nextPixelHeight / height
+    this._ctx.scale(horizontalPixelRatio, verticalPixelRatio)
+  }
+
+  private _executeListener (): void {
     if (this._requestAnimationId === DEFAULT_REQUEST_ID) {
       this._requestAnimationId = requestAnimationFrame(() => {
-        this._ctx.clearRect(0, 0, this._width, this._height)
-        fn?.()
-        this._listener()
-        this._requestAnimationId = DEFAULT_REQUEST_ID
+        // Cleared in `finally`: a draw that throws costs this frame, not
+        // every later one. Requests made while drawing still fold into this one.
+        try {
+          if (this._resizePending) {
+            this._resizePending = false
+            this._applyPixelRatio()
+          }
+          this._ctx.clearRect(0, 0, this._width, this._height)
+          this._listener()
+        } finally {
+          this._requestAnimationId = DEFAULT_REQUEST_ID
+        }
       })
     }
   }
 
+  /**
+   * The size last asked for, compared as given. `_width` / `_height` come from
+   * `clientWidth` / `clientHeight`, which the browser rounds: a pane 763.667px
+   * tall reads back as 764, so comparing against those saw a resize on every
+   * update and never drew again. Panes split the chart into such fractions, so
+   * any chart with an indicator pane could freeze.
+   */
+  private _requestedWidth = -1
+  private _requestedHeight = -1
+
   update (w: number, h: number): void {
-    if (this._width !== w || this._height !== h) {
+    if (this._requestedWidth !== w || this._requestedHeight !== h) {
+      this._requestedWidth = w
+      this._requestedHeight = h
       this._element.style.width = `${w}px`
       this._element.style.height = `${h}px`
-      if (!this._supportedDevicePixelContentBox) {
-        const pixelRatio = getPixelRatio(this._element)
-        this._nextPixelWidth = Math.round(w * pixelRatio)
-        this._nextPixelHeight = Math.round(h * pixelRatio)
-        this._resetPixelRatio()
-      }
+      // Resize and draw now. With the device-pixel observer its exact size
+      // follows and is applied if it differs; a change that rounds to the same
+      // device pixels gets no notification at all, so the draw can't wait for one.
+      const pixelRatio = getPixelRatio(this._element)
+      this._nextPixelWidth = Math.round(w * pixelRatio)
+      this._nextPixelHeight = Math.round(h * pixelRatio)
+      this._resetPixelRatio()
     } else {
       this._executeListener()
     }
