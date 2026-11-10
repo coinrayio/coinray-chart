@@ -30,6 +30,16 @@ function isPlainFill (styles: IndicatorFigureStyle): boolean {
   return (styles.style ?? 'fill') === 'fill' && isString(styles.color) && (styles.borderRadius === undefined || styles.borderRadius === 0)
 }
 
+/**
+ * A circle figure's radius. Without a `size` (the default styles have none)
+ * it fills the bar's slot, as it always has. With one (a script plot's line
+ * width) it is that thick whatever the zoom, as TradingView's circles are:
+ * 1 a small dot, 4 a large one, overlapping when the bars are close.
+ */
+export function circleRadius (size: unknown, halfGapBar: number): number {
+  return isNumber(size) && size > 0 ? size + 1 : Math.max(1, halfGapBar)
+}
+
 export default class IndicatorView extends CandleBarView {
   override getCandleBarOptions (): Nullable<CandleBarOptions> {
     const pane = this.getWidget().getPane()
@@ -172,7 +182,7 @@ export default class IndicatorView extends CandleBarView {
                 if (figure.type === 'circle') {
                   this.createFigure({
                     name: 'circle',
-                    attrs: { x, y: valueY, r: Math.max(1, halfGapBar) },
+                    attrs: { x, y: valueY, r: circleRadius(figureStyles.size, halfGapBar) },
                     styles: figureStyles
                   })?.draw(ctx)
                   continue
