@@ -72,6 +72,8 @@ export default class Event implements EventHandler {
   private _selectionStart: Nullable<{ paneId: string, x: number, y: number }> = null
 
   private _prevYAxisRange: Nullable<AxisRange> = null
+  // The y-axis a drag has moved, reported once when the drag ends.
+  private _yAxisRangeChanged: Nullable<YAxis> = null
 
   /** An axis drag's start: the time axis' local x and bar space, the price
    *  axis' local y. Null between drags. */
@@ -278,6 +280,8 @@ export default class Event implements EventHandler {
       }
       // Same anchor as the axis drag: the range centre.
       this._applyYAxisRange(yAxis, { ...yAxis.getRange() }, yAxisWheelRangeFactor(scale))
+      // A wheel step has no end event of its own: each one is reported.
+      this._reportYAxisRangeChange()
       return true
     }
     return false
@@ -488,6 +492,7 @@ export default class Event implements EventHandler {
         this._chart.updatePane(UpdateLevel.Overlay)
       }
     }
+    this._reportYAxisRangeChange()
     this._mouseDownWidget = null
     this._startScrollCoordinate = null
     this._prevYAxisRange = null
@@ -878,6 +883,7 @@ export default class Event implements EventHandler {
           }
         }
       }
+      this._reportYAxisRangeChange()
       this._startScrollCoordinate = null
       this._prevYAxisRange = null
       this._xAxisStartScale = null
@@ -1059,6 +1065,7 @@ export default class Event implements EventHandler {
           displayTo: newDisplayTo,
           displayRange: newDisplayTo - newDisplayFrom
         })
+        this._yAxisRangeChanged = yAxis
       }
       const distance = event.x - this._startScrollCoordinate.x
       this._chart.getChartStore().scroll(distance)
@@ -1156,10 +1163,30 @@ export default class Event implements EventHandler {
       displayTo: newDisplayTo,
       displayRange: newDisplayTo - newDisplayFrom
     })
+    this._yAxisRangeChanged = yAxis
     this._chart.layout({
       measureWidth: true,
       update: true,
       buildYAxisTick: true
+    })
+  }
+
+  /**
+   * Reports the range a drag or a wheel step left the y-axis at, once per
+   * gesture, so a host can keep it (a manual range is otherwise lost on the
+   * next remount). Nothing when no gesture moved an axis.
+   */
+  private _reportYAxisRangeChange (): void {
+    const yAxis = this._yAxisRangeChanged
+    this._yAxisRangeChanged = null
+    if (yAxis === null) return
+    const chartStore = this._chart.getChartStore()
+    if (!chartStore.hasAction('onYAxisRangeChange')) return
+    const { from, to } = yAxis.getRange()
+    chartStore.executeAction('onYAxisRangeChange', {
+      paneId: yAxis.getParent().getId(),
+      range: { from, to },
+      auto: yAxis.getAutoCalcTickFlag()
     })
   }
 

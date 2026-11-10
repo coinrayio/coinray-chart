@@ -90,3 +90,50 @@ describe('chart-level reset', () => {
     expect(axes.every(a => a.getAutoCalcTickFlag())).toBe(true)
   })
 })
+
+describe('y-axis range change', () => {
+  function setup (): { event: Event, actions: Array<[string, unknown]>, axis: { auto: boolean, range: Record<string, number> } } {
+    const actions: Array<[string, unknown]> = []
+    const axis = {
+      auto: true,
+      scrollZoomEnabled: true,
+      range: { from: 100, to: 200, range: 100, realFrom: 100, realTo: 200, realRange: 100, displayFrom: 100, displayTo: 200, displayRange: 100 },
+      getAutoCalcTickFlag: () => axis.auto,
+      getRange: () => axis.range,
+      setRange: (r: typeof axis.range) => { axis.range = r; axis.auto = false },
+      realValueToValue: (v: number) => v,
+      realValueToDisplayValue: (v: number) => v,
+      getParent: () => ({ getId: () => 'candle_pane' })
+    }
+    const chart = {
+      getChartStore: () => ({
+        hasAction: () => true,
+        executeAction: (type: string, data: unknown) => { actions.push([type, data]) }
+      }),
+      layout: vi.fn()
+    }
+    const event = Object.create(Event.prototype) as Event
+    Object.assign(event, { _chart: chart, _yAxisRangeChanged: null })
+    return { event, actions, axis }
+  }
+
+  it('reports the range once, when the axis drag ends', () => {
+    const { event, actions, axis } = setup()
+    const internals = event as unknown as {
+      _applyYAxisRange: (axis: unknown, base: unknown, scale: number) => void
+      _reportYAxisRangeChange: () => void
+    }
+    internals._applyYAxisRange(axis, { ...axis.range }, 2)
+    internals._applyYAxisRange(axis, { ...axis.range }, 1)
+    expect(actions).toEqual([])
+    internals._reportYAxisRangeChange()
+    internals._reportYAxisRangeChange()
+    expect(actions).toEqual([['onYAxisRangeChange', { paneId: 'candle_pane', range: { from: 50, to: 250 }, auto: false }]])
+  })
+
+  it('says nothing for a gesture that moved no axis', () => {
+    const { event, actions } = setup()
+    ;(event as unknown as { _reportYAxisRangeChange: () => void })._reportYAxisRangeChange()
+    expect(actions).toEqual([])
+  })
+})
