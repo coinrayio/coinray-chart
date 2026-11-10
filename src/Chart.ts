@@ -890,6 +890,17 @@ export default class ChartImp implements Chart {
         }
         // A new pane starts on the side the candle pane's scale is on, so a
         // chart with the scale moved left does not grow right-hand panes.
+        // A new pane goes below the others unless told otherwise. Every pane
+        // used to start at order 0, so the order a host saved was 0 for all
+        // and a restore fell back to creation order; with real orders saved, a
+        // new pane at 0 would jump above them all.
+        if (!isNumber(paneOpts.order)) {
+          let last = 0
+          this._drawPanes.forEach(pane => {
+            if (pane.getId() !== PaneIdConstants.X_AXIS) last = Math.max(last, pane.getOptions().order)
+          })
+          paneOpts.order = last + 1
+        }
         const candleAxis = this._candlePane.getAxisComponent() as unknown as YAxis
         const position = paneOpts.axis?.position ?? candleAxis.position
         this._createPane(IndicatorPane, paneOpts.id, { ...paneOpts, axis: { ...paneOpts.axis, position } })
