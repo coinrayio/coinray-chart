@@ -149,6 +149,71 @@ export function buildProfile (bars: KLineData[], from: number, to: number, rowCo
   return { rows, poc, vaFrom, vaTo }
 }
 
+/** TV's colours for a profile, for anything else that draws one (Volume Profile Visible Range). */
+export const VOLUME_PROFILE_COLORS = { up: UP, down: DOWN, vaUp: VA_UP, vaDown: VA_DOWN, poc: POC }
+
+/** Where and how a profile's rows are drawn. */
+export interface ProfileLayout {
+  /** The span the histogram grows across, in pixels. */
+  x0: number
+  x1: number
+  /** Grow from `x1` leftward (TV's `right_to_left`), else from `x0`. */
+  fromRight: boolean
+  /** The busiest row's length, as a share of `x1 - x0`. */
+  widthPercent: number
+  mode: 'upDown' | 'total' | 'delta'
+  upColor: string
+  downColor: string
+  vaUpColor: string
+  vaDownColor: string
+}
+
+export interface ProfileBox { key: string, x: number, y: number, width: number, height: number, color: string }
+
+/**
+ * The profile's rows as filled boxes, and the POC row's middle, in pixels.
+ * `toY` converts a price to the pane's y. Shared by the fixed-range drawing
+ * and anything else that draws a profile, so they read the same.
+ */
+export function profileBoxes (profile: VolumeProfile, layout: ProfileLayout, toY: (price: number) => number): { boxes: ProfileBox[], pocY: number } {
+  const { x0, x1, fromRight, mode } = layout
+  const maxLength = ((x1 - x0) * layout.widthPercent) / 100
+  const busiest = profile.rows[profile.poc].up + profile.rows[profile.poc].down
+  const upDown = mode === 'upDown'
+  const boxes: ProfileBox[] = []
+  const box = (key: string, start: number, length: number, y: number, height: number, color: string): void => {
+    if (length <= 0) return
+    boxes.push({ key, x: fromRight ? x1 - start - length : x0 + start, y, width: length, height, color })
+  }
+  profile.rows.forEach((row, r) => {
+    const inside = r >= profile.vaFrom && r <= profile.vaTo
+    const y1 = toY(row.high)
+    const y2 = toY(row.low)
+    const y = Math.min(y1, y2)
+    const height = Math.max(1, Math.abs(y2 - y1) - 1)
+    if (mode === 'delta') {
+      // TV's Delta (measured on its canvas): the row's whole volume in the colour of its net side, as three
+      // runs from the baseline: |up - down| at full alpha, then the matched volume, min(up, down) twice,
+      // at half and at a quarter of it.
+      const net = row.up - row.down
+      const color = net >= 0 ? (inside ? layout.vaUpColor : layout.upColor) : (inside ? layout.vaDownColor : layout.downColor)
+      const lengths = [Math.abs(net), Math.min(row.up, row.down), Math.min(row.up, row.down)].map((v) => (busiest > 0 ? (maxLength * v) / busiest : 0))
+      let start = 0
+      lengths.forEach((length, k) => {
+        box(`delta_${r}_${k}`, start, length, y, height, scaleAlpha(color, [1, 0.5, 0.25][k]))
+        start += length
+      })
+      return
+    }
+    const upLength = busiest > 0 ? (maxLength * (upDown ? row.up : row.up + row.down)) / busiest : 0
+    const downLength = upDown && busiest > 0 ? (maxLength * row.down) / busiest : 0
+    box(`up_${r}`, 0, upLength, y, height, inside ? layout.vaUpColor : layout.upColor)
+    box(`down_${r}`, upLength, downLength, y, height, inside ? layout.vaDownColor : layout.downColor)
+  })
+  const pocRow = profile.rows[profile.poc]
+  return { boxes, pocY: (toY(pocRow.high) + toY(pocRow.low)) / 2 }
+}
+
 interface Cached { key: string, profile: VolumeProfile | null }
 
 export const fixedRangeVolumeProfile = (): ProOverlayTemplate => {
@@ -185,51 +250,29 @@ export const fixedRangeVolumeProfile = (): ProOverlayTemplate => {
       const props = store.get(overlay.id)
       const x0 = Math.min(coordinates[0].x, coordinates[1].x)
       const x1 = Math.max(coordinates[0].x, coordinates[1].x)
-      const fromRight = ext.direction === 'right'
-      const maxLength = ((x1 - x0) * (ext.widthPercent ?? 30)) / 100
-      const busiest = profile.rows[profile.poc].up + profile.rows[profile.poc].down
-      const mode = ext.volumeMode ?? 'upDown'
-      const upDown = mode === 'upDown'
       const figures: Figure[] = []
 
       const top = yAxis.convertToPixel(profile.rows[profile.rows.length - 1].high)
       const bottom = yAxis.convertToPixel(profile.rows[0].low)
       figures.push({ type: 'rect', key: 'box', attrs: { x: x0, y: Math.min(top, bottom), width: x1 - x0, height: Math.abs(bottom - top) }, styles: { style: 'fill', color: props.backgroundColor ?? BOX, borderSize: 0 } })
 
-      profile.rows.forEach((row, r) => {
-        const inside = r >= profile.vaFrom && r <= profile.vaTo
-        const y1 = yAxis.convertToPixel(row.high)
-        const y2 = yAxis.convertToPixel(row.low)
-        const y = Math.min(y1, y2)
-        const height = Math.max(1, Math.abs(y2 - y1) - 1)
-        const upLength = busiest > 0 ? (maxLength * (upDown ? row.up : row.up + row.down)) / busiest : 0
-        const downLength = upDown && busiest > 0 ? (maxLength * row.down) / busiest : 0
-        if (mode === 'delta') {
-          // TV's Delta (measured on its canvas): the row's whole volume in the colour of its net side, as three
-          // runs from the baseline: |up - down| at full alpha, then the matched volume, min(up, down) twice,
-          // at half and at a quarter of it.
-          const net = row.up - row.down
-          const color = net >= 0 ? (inside ? (ext.vaUpColor ?? VA_UP) : (ext.upColor ?? UP)) : (inside ? (ext.vaDownColor ?? VA_DOWN) : (ext.downColor ?? DOWN))
-          const lengths = [Math.abs(net), Math.min(row.up, row.down), Math.min(row.up, row.down)].map((v) => (busiest > 0 ? (maxLength * v) / busiest : 0))
-          let start = 0
-          lengths.forEach((length, k) => {
-            if (length > 0) figures.push({ type: 'rect', key: `delta_${r}_${k}`, attrs: { x: fromRight ? x1 - start - length : x0 + start, y, width: length, height }, styles: { style: 'fill', color: scaleAlpha(color, [1, 0.5, 0.25][k]), borderSize: 0 } })
-            start += length
-          })
-          return
-        }
-        const segment = (start: number, length: number, color: string, k: string): void => {
-          if (length <= 0) return
-          figures.push({ type: 'rect', key: `${k}_${r}`, attrs: { x: fromRight ? x1 - start - length : x0 + start, y, width: length, height }, styles: { style: 'fill', color, borderSize: 0 } })
-        }
-        segment(0, upLength, inside ? (ext.vaUpColor ?? VA_UP) : (ext.upColor ?? UP), 'up')
-        segment(upLength, downLength, inside ? (ext.vaDownColor ?? VA_DOWN) : (ext.downColor ?? DOWN), 'down')
-      })
+      const { boxes, pocY } = profileBoxes(profile, {
+        x0,
+        x1,
+        fromRight: ext.direction === 'right',
+        widthPercent: ext.widthPercent ?? 30,
+        mode: ext.volumeMode ?? 'upDown',
+        upColor: ext.upColor ?? UP,
+        downColor: ext.downColor ?? DOWN,
+        vaUpColor: ext.vaUpColor ?? VA_UP,
+        vaDownColor: ext.vaDownColor ?? VA_DOWN
+      }, (price) => yAxis.convertToPixel(price))
+      for (const b of boxes) {
+        figures.push({ type: 'rect', key: b.key, attrs: { x: b.x, y: b.y, width: b.width, height: b.height }, styles: { style: 'fill', color: b.color, borderSize: 0 } })
+      }
 
       if (ext.showPoc !== false) {
-        const row = profile.rows[profile.poc]
-        const y = (yAxis.convertToPixel(row.high) + yAxis.convertToPixel(row.low)) / 2
-        figures.push({ type: 'line', key: 'poc', attrs: { coordinates: [{ x: x0, y }, { x: x1, y }] }, styles: { color: props.lineColor ?? POC, size: props.lineWidth ?? 2, style: props.lineStyle ?? 'solid', dashedValue: props.lineDashedValue ?? [4, 4] }, ignoreEvent: true })
+        figures.push({ type: 'line', key: 'poc', attrs: { coordinates: [{ x: x0, y: pocY }, { x: x1, y: pocY }] }, styles: { color: props.lineColor ?? POC, size: props.lineWidth ?? 2, style: props.lineStyle ?? 'solid', dashedValue: props.lineDashedValue ?? [4, 4] }, ignoreEvent: true })
       }
       return figures
     },

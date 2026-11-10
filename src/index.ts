@@ -99,6 +99,7 @@ import { registerStyles } from './extension/styles/index'
 import { registerXAxis } from './extension/x-axis'
 import { registerYAxis } from './extension/y-axis'
 import { OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR } from './view/OverlayView'
+import { buildProfile, profileBoxes, VOLUME_PROFILE_COLORS, type VolumeProfile, type ProfileRow, type ProfileLayout, type ProfileBox } from './extension/overlay/tv/forecastData/volumeProfile'
 
 const charts = new Map<string, ChartImp>()
 let chartBaseId = 1
@@ -215,6 +216,9 @@ export {
   createPriceLine, createTradeLine, isProOverlayTemplate, createPropertiesStore, DEFAULT_OVERLAY_PROPERTIES,
   // Trade-arrow glyph point geometry — internal to Superchart, not consumer-facing
   wideArrowGeometry,
+  // Volume profile by price, shared with the host's Volume Profile Visible Range
+  buildProfile, profileBoxes, VOLUME_PROFILE_COLORS,
+  type VolumeProfile, type ProfileRow, type ProfileLayout, type ProfileBox,
   // Volume footprint helpers, shared with the host's footprint store
   footprintImbalances, footprintPoc, formatFootprintVolume,
   type FootprintRow, type FootprintBarData, type FootprintImbalances, type CandleFootprintStyle,
