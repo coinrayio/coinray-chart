@@ -203,6 +203,8 @@ export interface Store {
   removeOverlay: (filter?: OverlayFilter) => boolean
   setZoomEnabled: (enabled: boolean) => void
   isZoomEnabled: () => boolean
+  setOverlayInteractionEnabled: (enabled: boolean) => void
+  isOverlayInteractionEnabled: () => boolean
   setZoomAnchor: (behavior: ZoomAnchor) => void
   getZoomAnchor: () => ZoomAnchor
   setScrollEnabled: (enabled: boolean) => void
@@ -394,6 +396,13 @@ export default class StoreImp implements Store {
    * Scale enabled flag
    */
   private _zoomEnabled = true
+
+  /**
+   * Whether overlays take pointer events (hover, select, drag, click). Off
+   * while a host picks a price or time off the chart, so a click over a
+   * drawing reaches the chart instead of selecting the drawing.
+   */
+  private _overlayInteractionEnabled = true
 
   /**
    * Zoom anchor point flag
@@ -1727,6 +1736,20 @@ export default class StoreImp implements Store {
 
   isZoomEnabled (): boolean {
     return this._zoomEnabled
+  }
+
+  setOverlayInteractionEnabled (enabled: boolean): void {
+    if (this._overlayInteractionEnabled === enabled) return
+    this._overlayInteractionEnabled = enabled
+    if (!enabled && this._hoverOverlayInfo.overlay !== null) {
+      // Nothing reaches the overlays any more, so no mouse-leave would clear it
+      this._hoverOverlayInfo = { paneId: this._hoverOverlayInfo.paneId, overlay: null, figureType: 'none', figureIndex: -1, figure: null }
+      this._chart.updatePane(UpdateLevel.Overlay)
+    }
+  }
+
+  isOverlayInteractionEnabled (): boolean {
+    return this._overlayInteractionEnabled
   }
 
   setZoomAnchor (anchor: ZoomAnchorType | Partial<ZoomAnchor>): void {

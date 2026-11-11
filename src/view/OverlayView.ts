@@ -1204,7 +1204,10 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   override dispatchEvent (name: EventName, event: MouseTouchEvent): boolean {
-    const isDrawing = this.getWidget().getPane().getChart().getChartStore().isOverlayDrawing()
+    const store = this.getWidget().getPane().getChart().getChartStore()
+    // A host is picking a point off the chart: the event belongs to the chart
+    if (!store.isOverlayInteractionEnabled()) return false
+    const isDrawing = store.isOverlayDrawing()
     if (isDrawing) {
       return this.onEvent(name, event)
     }

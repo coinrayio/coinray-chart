@@ -1292,6 +1292,14 @@ export default class ChartImp implements Chart {
     return this._chartStore.isZoomEnabled()
   }
 
+  setOverlayInteractionEnabled (enabled: boolean): void {
+    this._chartStore.setOverlayInteractionEnabled(enabled)
+  }
+
+  isOverlayInteractionEnabled (): boolean {
+    return this._chartStore.isOverlayInteractionEnabled()
+  }
+
   setZoomAnchor (anchor: ZoomAnchor): void {
     this._chartStore.setZoomAnchor(anchor)
   }
