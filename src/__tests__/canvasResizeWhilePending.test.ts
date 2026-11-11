@@ -44,7 +44,7 @@ describe('Canvas resize while a redraw is pending', () => {
   beforeEach(() => {
     FakeObserver.all = []
     frames = []
-    element = { style: {}, clientWidth: 1973, clientHeight: 100, width: 0, height: 0, ownerDocument: { defaultView: { devicePixelRatio: 1 } }, getContext: () => ({ scale () {}, clearRect () {} }) }
+    element = { style: {}, clientWidth: 1973, clientHeight: 100, width: 0, height: 0, ownerDocument: { defaultView: { devicePixelRatio: 1 } }, getContext: () => ({ scale () {}, clearRect () {}, save () {}, restore () {}, setTransform () {} }) }
     vi.stubGlobal('ResizeObserver', FakeObserver)
     vi.stubGlobal('window', {
       requestAnimationFrame: (cb: () => void) => { frames.push(cb); return frames.length },

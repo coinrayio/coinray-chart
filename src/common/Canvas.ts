@@ -38,9 +38,6 @@ export default class Canvas {
 
   private readonly _listener: DrawListener
 
-  private _width = 0
-  private _height = 0
-
   private _pixelWidth = 0
   private _pixelHeight = 0
 
@@ -103,18 +100,30 @@ export default class Canvas {
     this._executeListener()
   }
 
+  /**
+   * Scaled by the device pixel ratio itself, not by backing size / CSS size.
+   * The backing store is whole device pixels, so at a fractional ratio it can't
+   * be exactly CSS size × ratio (1545px at 2.5 is 3862.5, backed by 3862), and
+   * `clientWidth` is rounded too. The quotient (2.4997) drew everything up to
+   * half a device pixel off the grid candles and lines are rounded to, which
+   * uses the ratio, and their edges went soft at 105%, 115% and 125% zoom.
+   * Each backing pixel is one device pixel, so the ratio is the true scale.
+   */
   private _applyPixelRatio (): void {
-    const width = this._element.clientWidth
-    const height = this._element.clientHeight
-    this._width = width
-    this._height = height
     this._pixelWidth = this._nextPixelWidth
     this._pixelHeight = this._nextPixelHeight
     this._element.width = this._nextPixelWidth
     this._element.height = this._nextPixelHeight
-    const horizontalPixelRatio = this._nextPixelWidth / width
-    const verticalPixelRatio = this._nextPixelHeight / height
-    this._ctx.scale(horizontalPixelRatio, verticalPixelRatio)
+    const pixelRatio = getPixelRatio(this._element)
+    this._ctx.scale(pixelRatio, pixelRatio)
+  }
+
+  /** Every backing pixel, in device space: the CSS size, read rounded, can fall short of it. */
+  private _clear (): void {
+    this._ctx.save()
+    this._ctx.setTransform(1, 0, 0, 1, 0, 0)
+    this._ctx.clearRect(0, 0, this._element.width, this._element.height)
+    this._ctx.restore()
   }
 
   private _executeListener (): void {
@@ -127,7 +136,7 @@ export default class Canvas {
             this._resizePending = false
             this._applyPixelRatio()
           }
-          this._ctx.clearRect(0, 0, this._width, this._height)
+          this._clear()
           this._listener()
         } finally {
           this._requestAnimationId = DEFAULT_REQUEST_ID
@@ -137,8 +146,8 @@ export default class Canvas {
   }
 
   /**
-   * The size last asked for, compared as given. `_width` / `_height` come from
-   * `clientWidth` / `clientHeight`, which the browser rounds: a pane 763.667px
+   * The size last asked for, compared as given, not `clientWidth` /
+   * `clientHeight`, which the browser rounds: a pane 763.667px
    * tall reads back as 764, so comparing against those saw a resize on every
    * update and never drew again. Panes split the chart into such fractions, so
    * any chart with an indicator pane could freeze.

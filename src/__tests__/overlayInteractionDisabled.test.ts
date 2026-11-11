@@ -80,7 +80,7 @@ function setup (): { store: StoreImp, view: OverlayView, a: OverlayImp, x: (i: n
   const widget = { getPane: () => pane, setForceCursor: () => {}, getBounding: () => ({ width: 400, height: 200, left: 0, top: 0 }) }
   const view = new OverlayView(widget as never)
   // Added B first, so A paints (and, unaided, hit-tests) on top.
-  const [bId, aId] = store.addOverlays([
+  const [, aId] = store.addOverlays([
     { name: 'test-pick-box', id: 'b', points: [{ timestamp: ts(2), value: 10 }, { timestamp: ts(6), value: 50 }] },
     { name: 'test-pick-box', id: 'a', points: [{ timestamp: ts(4), value: 30 }, { timestamp: ts(8), value: 70 }] }
   ], [false, false])
