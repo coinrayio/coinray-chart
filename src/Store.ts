@@ -146,7 +146,9 @@ function segmentIntersectsRect (a: XY, b: XY, left: number, top: number, right: 
   }
 }
 
-const DEFAULT_BAR_SPACE = 10
+// TradingView's default spacing. At 10 a chart showed about 60% of the bars
+// TradingView shows in the same space.
+const DEFAULT_BAR_SPACE = 6
 
 const DEFAULT_OFFSET_RIGHT_DISTANCE = 80
 

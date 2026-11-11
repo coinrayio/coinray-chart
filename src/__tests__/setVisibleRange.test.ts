@@ -222,8 +222,9 @@ describe('_processDataLoad init-generation gating', () => {
 describe('resetView defaults', () => {
   it('exposes default bar-space and offset-right via Store getters', () => {
     const store = new StoreImp(createMockChart())
-    // Constants from Store.ts (DEFAULT_BAR_SPACE = 10, DEFAULT_OFFSET_RIGHT_DISTANCE = 80)
-    expect(store.getDefaultBarSpace()).toBe(10)
+    // Constants from Store.ts (DEFAULT_BAR_SPACE = 6, TradingView's default
+    // spacing, DEFAULT_OFFSET_RIGHT_DISTANCE = 80)
+    expect(store.getDefaultBarSpace()).toBe(6)
     expect(store.getDefaultOffsetRightDistance()).toBe(80)
   })
 
@@ -245,7 +246,13 @@ describe('resetView defaults', () => {
     store.setBarSpace(store.getDefaultBarSpace())
     store.setOffsetRightDistance(store.getDefaultOffsetRightDistance(), true)
 
-    expect(store.getBarSpace().bar).toBe(10)
+    expect(store.getBarSpace().bar).toBe(6)
     expect(store.getInitialOffsetRightDistance()).toBe(80)
+  })
+
+  it('a fresh chart starts at the default bar space', () => {
+    // 10px showed ~60% of the bars TradingView shows on the same chart.
+    const store = new StoreImp(createMockChart())
+    expect(store.getBarSpace().bar).toBe(6)
   })
 })
