@@ -119,3 +119,33 @@ describe('overlay interaction disabled (price pick)', () => {
     expect(store.getClickOverlayInfo().overlay?.id).toBe(a.id)
   })
 })
+
+// A locked drawing can't be moved, so a press on it must start a pan like a
+// press on empty chart. It used to take the press and do nothing with it: the
+// chart couldn't be dragged while the cursor was over a locked long position.
+describe('locked drawing', () => {
+  it('a press on it is not consumed, so the chart pans', () => {
+    const { store, view, a, x, draw } = setup()
+    store.overrideOverlay({ id: a.id, lock: true })
+    draw()
+    // (7, 60) is inside A only; B lies under A's left half.
+    expect(view.dispatchEvent('mouseDownEvent', at(x(7), 60))).toBe(false)
+    expect(store.getPressedOverlayInfo().overlay).toBeNull()
+    expect(view.dispatchEvent('pressedMouseMoveEvent', at(x(7) + 30, 65))).toBe(false)
+  })
+
+  it('a click still selects it', () => {
+    const { store, view, a, x, draw } = setup()
+    store.overrideOverlay({ id: a.id, lock: true })
+    draw()
+    expect(view.dispatchEvent('mouseClickEvent', at(x(7), 60))).toBe(true)
+    expect(store.getClickOverlayInfo().overlay?.id).toBe(a.id)
+  })
+
+  it('unlocked, a press still grabs it', () => {
+    const { store, view, a, x, draw } = setup()
+    draw()
+    expect(view.dispatchEvent('mouseDownEvent', at(x(7), 60))).toBe(true)
+    expect(store.getPressedOverlayInfo().overlay?.id).toBe(a.id)
+  })
+})

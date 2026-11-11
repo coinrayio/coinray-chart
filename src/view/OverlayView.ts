@@ -899,6 +899,11 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       const pane = this.getWidget().getPane()
       const paneId = pane.getId()
       const chartStore = pane.getChart().getChartStore()
+      // A locked drawing can't be moved, so the press is the chart's: it pans,
+      // as it would over empty space. Taking it did nothing and the chart
+      // couldn't be dragged while the cursor was over a locked long position.
+      // Clicks (select, the right-click menu) still reach the drawing.
+      if (overlay.lock && !overlay.isDrawing()) return false
       this._pressStart = { x: event.x, y: event.y }
       overlay.startPressedMove(this._coordinateToPoint(overlay, event), chartStore)
 
