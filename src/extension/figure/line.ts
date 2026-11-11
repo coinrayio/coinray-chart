@@ -161,6 +161,35 @@ function drawLineHitArea (ctx: CanvasRenderingContext2D, lines: LineAttrs[], smo
   ctx.restore()
 }
 
+/**
+ * The canvas's scale per axis: how many backing pixels one CSS pixel covers.
+ * Read from the context rather than `devicePixelRatio`, because the backing
+ * store is rounded per axis (a pane 1012 CSS px tall at ratio 2.2 is 2226
+ * device px, not 2226.4), and that rounding is what the pixels really follow.
+ */
+function canvasScale (ctx: CanvasRenderingContext2D): { x: number, y: number } {
+  const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : undefined
+  const x = typeof t?.a === 'number' && t.a > 0 ? t.a : 1
+  const y = typeof t?.d === 'number' && t.d > 0 ? t.d : 1
+  return { x, y }
+}
+
+/**
+ * Where to stroke a horizontal or vertical line of `size` CSS px drawn at
+ * `at`, and how wide, so it covers whole device pixels. Half a CSS pixel only
+ * lands on the grid when the ratio is a whole number: at 110% zoom on a 2x
+ * screen (2.2) a 1px grid line spread over three device rows and the chart
+ * looked blurry. The width rounds to whole device pixels (at least one), and
+ * the line starts on the pixel nearest where the old half-pixel rule put it,
+ * so on whole ratios with whole coordinates nothing moves.
+ */
+function snapAxisLine (at: number, size: number, ratio: number): { at: number, width: number } {
+  const devWidth = Math.max(1, Math.round(size * ratio))
+  const centre = at + (size % 2 === 1 ? 0.5 : 0)
+  const start = Math.round(centre * ratio - devWidth / 2)
+  return { at: (start + devWidth / 2) / ratio, width: devWidth / ratio }
+}
+
 export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | LineAttrs[], styles: Partial<SmoothLineStyle> & { lineCap?: CanvasLineCap, lineJoin?: CanvasLineJoin }): void {
   let lines: LineAttrs[] = []
   lines = lines.concat(attrs)
@@ -190,7 +219,7 @@ export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | Line
   } else {
     ctx.setLineDash([])
   }
-  const correction = size % 2 === 1 ? 0.5 : 0
+  let scale: { x: number, y: number } | null = null
   lines.forEach(({ coordinates }) => {
     if (coordinates.length > 1) {
       if (
@@ -200,16 +229,22 @@ export function drawLine (ctx: CanvasRenderingContext2D, attrs: LineAttrs | Line
           coordinates[0].y === coordinates[1].y
         )
       ) {
+        scale ??= canvasScale(ctx)
         ctx.beginPath()
         if (coordinates[0].x === coordinates[1].x) {
-          ctx.moveTo(coordinates[0].x + correction, coordinates[0].y)
-          ctx.lineTo(coordinates[1].x + correction, coordinates[1].y)
+          const snap = snapAxisLine(coordinates[0].x, size, scale.x)
+          ctx.lineWidth = snap.width
+          ctx.moveTo(snap.at, coordinates[0].y)
+          ctx.lineTo(snap.at, coordinates[1].y)
         } else {
-          ctx.moveTo(coordinates[0].x, coordinates[0].y + correction)
-          ctx.lineTo(coordinates[1].x, coordinates[1].y + correction)
+          const snap = snapAxisLine(coordinates[0].y, size, scale.y)
+          ctx.lineWidth = snap.width
+          ctx.moveTo(coordinates[0].x, snap.at)
+          ctx.lineTo(coordinates[1].x, snap.at)
         }
         ctx.stroke()
         ctx.closePath()
+        ctx.lineWidth = size
       } else {
         ctx.save()
         if (size % 2 === 1) {
