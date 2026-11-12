@@ -68,7 +68,7 @@ export default class IndicatorLastValueView extends View<YAxis> {
               }
               text = yAxis.isInCandle()
                 ? decimalFold.formatPrice(thousandsSeparator.format(text))
-                : decimalFold.format(thousandsSeparator.format(text))
+                : decimalFold.format(thousandsSeparator.format(text)) + indicator.valueSuffix
               let x = 0
               let textAlign: CanvasTextAlign = 'left'
               if (yAxis.isFromZero()) {

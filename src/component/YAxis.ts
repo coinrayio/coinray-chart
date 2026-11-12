@@ -449,12 +449,17 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     const styles = chartStore.getStyles()
     let precision = 0
     let shouldFormatBigNumber = false
+    // A unit the scale shows only when every indicator on it reads in it: an
+    // RSI sharing Aroon's pane is not in percent.
+    let suffix: string | null = null
     if (this.isInCandle()) {
       precision = chartStore.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
     } else {
       indicators.forEach(indicator => {
         precision = Math.max(precision, indicator.precision)
         shouldFormatBigNumber ||= indicator.shouldFormatBigNumber
+        const own = indicator.valueSuffix
+        suffix = suffix === null || suffix === own ? own : ''
       })
     }
     const formatter = chartStore.getInnerFormatter()
@@ -474,6 +479,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
         v = formatter.formatBigNumber(value)
       }
       v = thousandsSeparator.format(v)
+      if (suffix !== null && suffix !== '') v += suffix
       const validYNumber = isNumber(validY)
       if (
         y > textHeight &&

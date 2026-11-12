@@ -60,6 +60,12 @@ export interface IndicatorFigure<D = unknown> {
   type?: string
   baseValue?: number
   /**
+   * A line drawn as steps: flat from each bar to the next, then straight up or
+   * down to the next value. Where the next bar has no value the step still
+   * runs flat to it and stops there, with no riser.
+   */
+  step?: boolean
+  /**
    * Per-bar style. Evaluated once per bar and cached until the result, the
    * figures, the indicator or the chart's styles change, so it must depend only
    * on its params.
@@ -153,6 +159,13 @@ export interface Indicator<D = unknown, C = unknown, E = unknown> {
    * Whether large data values need to be formatted, starting from 1000, for example, whether 100000 needs to be formatted with 100K
    */
   shouldFormatBigNumber: boolean
+
+  /**
+   * Text after every value the indicator shows in a pane of its own: its
+   * scale, its last-value label and its legend. `'%'` for an oscillator that
+   * reads in percent, as tradingview.com shows Aroon. Empty by default.
+   */
+  valueSuffix: string
 
   /**
    * Whether the indicator is visible
@@ -463,6 +476,7 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
   calcParams: C[] = []
   shouldOhlc = false
   shouldFormatBigNumber = false
+  valueSuffix = ''
   visible = true
   zLevel = 0
   yAxis: IndicatorYAxis = 'primary'
@@ -485,6 +499,7 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
       prev.precision !== current.precision ||
       prev.shouldOhlc !== current.shouldOhlc ||
       prev.shouldFormatBigNumber !== current.shouldFormatBigNumber ||
+      prev.valueSuffix !== current.valueSuffix ||
       prev.visible !== current.visible ||
       prev.zLevel !== current.zLevel ||
       prev.yAxis !== current.yAxis ||

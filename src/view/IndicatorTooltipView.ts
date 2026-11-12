@@ -355,7 +355,7 @@ export default class IndicatorTooltipView extends View<YAxis> {
             if (indicator.shouldFormatBigNumber) {
               value = formatter.formatBigNumber(value as string)
             }
-            value = decimalFold.format(thousandsSeparator.format(value as string))
+            value = decimalFold.format(thousandsSeparator.format(value as string)) + indicator.valueSuffix
           }
           legends.push({ title: { text: figure.title, color }, value: { text: (value ?? defaultValue) as string, color } })
         }

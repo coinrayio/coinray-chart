@@ -27,6 +27,7 @@ interface FakeIndicator {
   visible: boolean
   yAxis?: 'primary' | 'secondary'
   rebase?: boolean
+  valueSuffix?: string
   minValue?: number
   maxValue?: number
   figures: Array<{ key: string }>
@@ -198,5 +199,21 @@ describe('y-axis range', () => {
     const axis = makeAxis(normal, [indicator([1, 2, 3, 4], { yAxis: 'secondary', rebase: true })], { secondary: true })
     axis.buildTicks(true)
     expect(axis.getRange().to).toBeLessThan(10)
+  })
+})
+
+describe('a scale in percent', () => {
+  it('labels its ticks with the unit its indicators read in', () => {
+    const axis = makeAxis(normal, [indicator([10, 40, 70, 90], { valueSuffix: '%' })], { paneId: 'pane_aroon' })
+    axis.buildTicks(true)
+    const texts = axis.getTicks().map(t => t.text)
+    expect(texts.length).toBeGreaterThan(0)
+    expect(texts.every(t => t.endsWith('%'))).toBe(true)
+  })
+
+  it('leaves the unit off when another indicator on the scale does not read in it', () => {
+    const axis = makeAxis(normal, [indicator([10, 40, 70, 90], { valueSuffix: '%' }), indicator([20, 30, 40, 50], { valueSuffix: '' })], { paneId: 'pane_aroon' })
+    axis.buildTicks(true)
+    expect(axis.getTicks().some(t => t.text.endsWith('%'))).toBe(false)
   })
 })

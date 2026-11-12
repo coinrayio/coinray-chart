@@ -40,6 +40,20 @@ export function circleRadius (size: unknown, halfGapBar: number): number {
   return isNumber(size) && size > 0 ? size + 1 : Math.max(1, halfGapBar)
 }
 
+/**
+ * Carries a line from its current end to the next bar at `nextX`. A plain
+ * line goes straight to the next value; a step runs flat at `fromY` and then
+ * rises to it, or stays flat where the next bar has no value.
+ */
+export function extendLine (coordinates: Coordinate[], nextX: number, fromY: number, toY: number | undefined, step: boolean): void {
+  if (!step) {
+    if (isNumber(toY)) coordinates.push({ x: nextX, y: toY })
+    return
+  }
+  coordinates.push({ x: nextX, y: fromY })
+  if (isNumber(toY) && toY !== fromY) coordinates.push({ x: nextX, y: toY })
+}
+
 export default class IndicatorView extends CandleBarView {
   override getCandleBarOptions (): Nullable<CandleBarOptions> {
     const pane = this.getWidget().getPane()
@@ -224,6 +238,7 @@ export default class IndicatorView extends CandleBarView {
           for (let f = 0; f < lineFigures.length; f++) {
             const position = lineFigures[f]
             const key = figureDefaults[position].figure.key
+            const step = figureDefaults[position].figure.step === true
             const polylines: Array<{ coordinates: Coordinate[], styles: Partial<SmoothLineStyle> }> = []
             let segments = 0
             // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
@@ -235,15 +250,16 @@ export default class IndicatorView extends CandleBarView {
               const next = coordinateAt(dataIndex + 1)
               const fromY = current[key]
               const toY = next[key]
-              if (!isNumber(fromY) || !isNumber(toY)) continue
+              if (!isNumber(fromY) || (!step && !isNumber(toY))) continue
               const styles = figureStyleAt(indicator, figureDefaults, position, dataIndex, defaultStyles) as unknown as SmoothLineStyle
               const last = polylines[polylines.length - 1] as typeof polylines[number] | undefined
               const end = last?.coordinates[last.coordinates.length - 1]
-              if (last !== undefined && end?.x === current.x && end.y === fromY && isSameLineStyle(last.styles, styles)) {
-                last.coordinates.push({ x: next.x, y: toY })
-              } else {
-                polylines.push({ coordinates: [{ x: current.x, y: fromY }, { x: next.x, y: toY }], styles })
-              }
+              // A step runs flat to the next bar, then rises to its value if
+              // it has one.
+              const continues = last !== undefined && end?.x === current.x && end.y === fromY && isSameLineStyle(last.styles, styles)
+              const coordinates: Coordinate[] = continues ? last.coordinates : [{ x: current.x, y: fromY }]
+              if (!continues) polylines.push({ coordinates, styles })
+              extendLine(coordinates, next.x, fromY, toY, step)
               segments++
             }
             if (segments > 1) {
