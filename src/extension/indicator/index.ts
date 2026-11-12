@@ -79,6 +79,20 @@ function registerIndicator<D = unknown, C = unknown, E = unknown> (indicator: In
   templates[indicator.name] = indicator as unknown as IndicatorTemplate
 }
 
+/**
+ * Forget a template registered with `registerIndicator`. Hosts that register
+ * per-instance templates (one per script run) must call this once the
+ * indicator is off every chart: the registry is module-level, so a template
+ * left here keeps everything its callbacks close over reachable for the life
+ * of the page. A no-op for an unknown name.
+ */
+function unregisterIndicator (name: string): void {
+  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the registry is keyed by name
+  delete indicators[name]
+  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the registry is keyed by name
+  delete templates[name]
+}
+
 function getIndicatorClass (name: string): Nullable<IndicatorConstructor> {
   return indicators[name] ?? null
 }
@@ -92,4 +106,4 @@ function getSupportedIndicators (): string[] {
   return Object.keys(indicators)
 }
 
-export { registerIndicator, getIndicatorClass, getIndicatorTemplate, getSupportedIndicators }
+export { registerIndicator, unregisterIndicator, getIndicatorClass, getIndicatorTemplate, getSupportedIndicators }

@@ -80,7 +80,7 @@ import { checkCoordinateOnRect } from './extension/figure/rect'
 import { checkCoordinateOnText } from './extension/figure/text'
 
 import { registerFigure, getSupportedFigures, getFigureClass } from './extension/figure/index'
-import { registerIndicator, getSupportedIndicators, getIndicatorTemplate } from './extension/indicator/index'
+import { registerIndicator, unregisterIndicator, getSupportedIndicators, getIndicatorTemplate } from './extension/indicator/index'
 import { registerLocale, getSupportedLocales } from './extension/i18n/index'
 import {
   registerOverlay, getOverlayClass, getSupportedOverlays,
@@ -204,7 +204,7 @@ export {
   setHitAreaDebug,
   // Development aid: trace how a drag moves an overlay's anchors.
   setOverlayDragDebug,
-  registerIndicator, getSupportedIndicators, getIndicatorTemplate,
+  registerIndicator, unregisterIndicator, getSupportedIndicators, getIndicatorTemplate,
   registerOverlay, getSupportedOverlays, getOverlayClass,
   // Overlays at this zLevel or higher paint above the crosshair line.
   OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR,
