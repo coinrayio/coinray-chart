@@ -13,6 +13,7 @@
  */
 
 import type Nullable from '../common/Nullable'
+import type Coordinate from '../common/Coordinate'
 import type DeepPartial from '../common/DeepPartial'
 import type ExcludePickPartial from '../common/ExcludePickPartial'
 import type { KLineData, NeighborData } from '../common/Data'
@@ -95,6 +96,22 @@ export type IndicatorCreateTooltipDataSourceCallback<D> = (params: IndicatorCrea
 
 export type IndicatorEventTarget = 'feature'
 
+/**
+ * Where a custom `draw` reports what it painted, so a click or hover on it
+ * finds the indicator as one on a figure does, and a selected indicator's
+ * handles sit on it. Pane coordinates, as drawn.
+ */
+export interface IndicatorHitArea {
+  /**
+   * A polyline, its points in ascending x. `handles: false` keeps it
+   * clickable without selection handles, as a volume profile's POC line.
+   */
+  line: (coordinates: Coordinate[], options?: { handles?: boolean }) => void
+  /** Handles only on one a bar wide (a column); a wider box is clickable only. */
+  rect: (rect: { x: number, y: number, width: number, height: number }) => void
+  circle: (circle: { x: number, y: number, r: number }) => void
+}
+
 export interface IndicatorDrawParams<D, C, E> {
   ctx: CanvasRenderingContext2D
   chart: Chart
@@ -102,6 +119,8 @@ export interface IndicatorDrawParams<D, C, E> {
   bounding: Bounding
   xAxis: XAxis
   yAxis: YAxis
+  /** Report painted shapes for clicks, hover and selection handles. */
+  hitArea?: IndicatorHitArea
 }
 
 export type IndicatorDrawCallback<D, C, E> = (params: IndicatorDrawParams<D, C, E>) => boolean

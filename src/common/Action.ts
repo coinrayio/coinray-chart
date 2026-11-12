@@ -16,7 +16,7 @@ import { isFunction } from './utils/typeChecks'
 
 export type ActionCallback = (data?: unknown) => void
 
-export type ActionType = 'onZoom' | 'onScroll' | 'onVisibleRangeChange' | 'onCandleTooltipFeatureClick' | 'onIndicatorTooltipFeatureClick'| 'onCrosshairFeatureClick' | 'onCrosshairChange' | 'onCandleBarClick' | 'onChartClick' | 'onChartRightClick' | 'onYAxisRightClick' | 'onYAxisAutoScaleRelease' | 'onYAxisRangeChange' | 'onChartDoubleClick' | 'onPaneDrag' | 'onInitLoadComplete' | 'onSelectedOverlaysChange' | 'onTouchDrawingChange'
+export type ActionType = 'onZoom' | 'onScroll' | 'onVisibleRangeChange' | 'onCandleTooltipFeatureClick' | 'onIndicatorTooltipFeatureClick'| 'onCrosshairFeatureClick' | 'onCrosshairChange' | 'onCandleBarClick' | 'onIndicatorClick' | 'onIndicatorDoubleClick' | 'onIndicatorRightClick' | 'onChartClick' | 'onChartRightClick' | 'onYAxisRightClick' | 'onYAxisAutoScaleRelease' | 'onYAxisRangeChange' | 'onChartDoubleClick' | 'onPaneDrag' | 'onInitLoadComplete' | 'onSelectedOverlaysChange' | 'onTouchDrawingChange'
 export default class Action {
   private _callbacks: ActionCallback[] = []
 

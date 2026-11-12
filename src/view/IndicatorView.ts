@@ -18,8 +18,13 @@ import { formatValue } from '../common/utils/format'
 import { isNumber, isString, isValid } from '../common/utils/typeChecks'
 import type Coordinate from '../common/Coordinate'
 
-import { figureStyleAt, getFigureDefaults, getRebaseFactor, isRebased, type IndicatorFigureStyle } from '../component/Indicator'
-import type { RectAttrs } from '../extension/figure/rect'
+import { figureStyleAt, getFigureDefaults, getRebaseFactor, isRebased, type Indicator, type IndicatorFigureStyle } from '../component/Indicator'
+import { checkCoordinateOnRect, type RectAttrs } from '../extension/figure/rect'
+import { checkCoordinateOnCircle, type CircleAttrs } from '../extension/figure/circle'
+import type { MouseTouchEvent } from '../common/EventHandler'
+import { DEVIATION } from '../component/Figure'
+import type DrawWidget from '../widget/DrawWidget'
+import type DrawPane from '../pane/DrawPane'
 import RectBatch from '../common/RectBatch'
 
 import type { YAxis } from '../component/YAxis'
@@ -54,7 +59,229 @@ export function extendLine (coordinates: Coordinate[], nextX: number, fromY: num
   if (isNumber(toY) && toY !== fromY) coordinates.push({ x: nextX, y: toY })
 }
 
+/** What one indicator painted this frame, for hit-testing and its selection handles. */
+interface IndicatorHit {
+  indicator: Indicator
+  lines: Coordinate[][]
+  rects: RectAttrs[]
+  circles: CircleAttrs[]
+  /** The colour handles on each line take, in `lines`' order; null for a line without handles. */
+  lineColors: Array<string | null>
+}
+
+/** The payload of `onIndicatorClick`, `onIndicatorDoubleClick` and `onIndicatorRightClick`. */
+export interface IndicatorClickData {
+  id: string
+  name: string
+  paneId: string
+  /** Where on the page, for a menu at the pointer. */
+  pageX?: number
+  pageY?: number
+}
+
+/** A style worth hit-testing: one the user can see. A plot hidden in the Style tab paints transparent. */
+function isVisibleStyle (styles: { color?: unknown, size?: unknown }): boolean {
+  return styles.color !== 'transparent' && styles.size !== 0
+}
+
+/** Squared distance from `p` to the segment `a`-`b`. */
+function distanceSqToSegment (p: Coordinate, a: Coordinate, b: Coordinate): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = dx * dx + dy * dy
+  const t = len === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len))
+  const x = a.x + t * dx - p.x
+  const y = a.y + t * dy - p.y
+  return x * x + y * y
+}
+
+/**
+ * Whether `p` is within `tolerance` of a polyline whose points ascend in x.
+ * Binary-searches to the segments around `p.x`, so a hover test over a
+ * thousand-bar line looks at a handful of segments, not all of them.
+ */
+export function isNearPolyline (p: Coordinate, coordinates: Coordinate[], tolerance: number): boolean {
+  const n = coordinates.length
+  if (n === 0) return false
+  if (n === 1) return distanceSqToSegment(p, coordinates[0], coordinates[0]) <= tolerance * tolerance
+  let lo = 0
+  let hi = n - 1
+  const left = p.x - tolerance
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (coordinates[mid].x < left) lo = mid + 1
+    else hi = mid
+  }
+  const tol2 = tolerance * tolerance
+  for (let i = Math.max(1, lo); i < n && coordinates[i - 1].x <= p.x + tolerance; i++) {
+    if (distanceSqToSegment(p, coordinates[i - 1], coordinates[i]) <= tol2) return true
+  }
+  return false
+}
+
+/** How close a click has to come to a line, in pixels: the engine's own figure tolerance. */
+const HIT_TOLERANCE = DEVIATION
+
+/**
+ * Selection handles, as tradingview.com draws them: hollow blue circles of
+ * this radius. Their spacing is `handleStep`, fixed when selected.
+ */
+const HANDLE_RADIUS = 4
+const HANDLE_COLOR = '#2962ff'
+
+/**
+ * Where a column's handle goes: its value end, the edge away from zero, as
+ * tradingview.com marks a histogram (the bottom of a bar below zero).
+ */
+export function columnHandleY (top: number, bottom: number, zeroY: number): number {
+  return Math.abs(bottom - zeroY) > Math.abs(top - zeroY) ? bottom : top
+}
+
 export default class IndicatorView extends CandleBarView {
+  private _indicatorHits: IndicatorHit[] = []
+  private _clickedIndicator: Nullable<Indicator> = null
+
+  constructor (widget: DrawWidget<DrawPane<YAxis>>) {
+    super(widget)
+    // Over a plot, the arrow, as on tradingview.com: drawings reset the force
+    // cursor on every move they do not claim, so it only needs setting here.
+    // Claimed, so the engine keeps the crosshair, as for a drawing.
+    this.registerEvent('mouseMoveEvent', () => {
+      if (this._clickedIndicator === null) return false
+      this.getWidget().setForceCursor('default')
+      return true
+    })
+    this.registerEvent('mouseDoubleClickEvent', () => this._fire('onIndicatorDoubleClick'))
+    this.registerEvent('mouseRightClickEvent', event => this._fire('onIndicatorRightClick', event))
+  }
+
+  /** The indicator whose painted shape is under `event`, last drawn first. */
+  private _hitAt (event: Coordinate): Nullable<Indicator> {
+    for (let i = this._indicatorHits.length - 1; i > -1; i--) {
+      const { indicator, lines, rects, circles } = this._indicatorHits[i]
+      if (circles.length > 0 && checkCoordinateOnCircle(event, circles)) return indicator
+      if (rects.length > 0 && checkCoordinateOnRect(event, rects)) return indicator
+      if (lines.some(line => isNearPolyline(event, line, HIT_TOLERANCE))) return indicator
+    }
+    return null
+  }
+
+  /**
+   * An event on a drawn plot of an indicator. Claimed only while something
+   * listens to `onIndicatorClick`, so a host that does not select indicators
+   * keeps its chart clicks and cursor.
+   */
+  override checkEventOn (event: MouseTouchEvent): boolean {
+    this._clickedIndicator = null
+    const chartStore = this.getWidget().getPane().getChart().getChartStore()
+    if (chartStore.hasAction('onIndicatorClick')) {
+      this._clickedIndicator = this._hitAt(event)
+      if (this._clickedIndicator !== null) return true
+    }
+    return super.checkEventOn(event)
+  }
+
+  private _fire (action: 'onIndicatorClick' | 'onIndicatorDoubleClick' | 'onIndicatorRightClick', event?: MouseTouchEvent): boolean {
+    const indicator = this._clickedIndicator
+    if (indicator === null) return false
+    const data: IndicatorClickData = {
+      id: indicator.id,
+      name: indicator.name,
+      paneId: this.getWidget().getPane().getId(),
+      ...(event !== undefined ? { pageX: event.pageX, pageY: event.pageY } : {})
+    }
+    this.getWidget().getPane().getChart().getChartStore().executeAction(action, data)
+    return true
+  }
+
+  /** An indicator click is consumed: it selects the indicator, not the chart. */
+  protected override onClick (): boolean {
+    return this._clickedIndicator === null ? super.onClick() : this._fire('onIndicatorClick')
+  }
+
+  /**
+   * Markers along a selected indicator's plots, as tradingview.com marks one:
+   * on the bars whose time falls on a step, so they stay on the same bars as
+   * the chart scrolls and as older history loads (spacing by pixels from the
+   * left edge, then by index, made them hop). The step is the one chosen when
+   * it was selected, so zooming does not move them either.
+   */
+  private _drawHandles (ctx: CanvasRenderingContext2D, hit: IndicatorHit): void {
+    const chartStore = this.getWidget().getPane().getChart().getChartStore()
+    const bar = Math.max(chartStore.getBarSpace().bar, 0.0001)
+    const step = chartStore.getSelectedIndicatorHandleStep()
+    /** A pixel's bar, as a float: bar `i`'s centre is exactly `i`. */
+    const indexOf = (x: number): number => chartStore.coordinateToFloatIndex(x) - 0.5
+    const xOf = (index: number): number => chartStore.dataIndexToCoordinate(index)
+    // Which bars carry handles is decided by the bar's TIME, not its index:
+    // loading older history shifts every index (and made the handles hop to
+    // other bars); a bar's time never changes.
+    const dataList = chartStore.getDataList()
+    const last = dataList.length - 1
+    let interval = Infinity
+    for (let i = Math.max(1, last - 100); i <= last; i++) {
+      const gap = dataList[i].timestamp - dataList[i - 1].timestamp
+      if (gap > 0 && gap < interval) interval = gap
+    }
+    if (!Number.isFinite(interval)) interval = 1
+    const timeOf = (index: number): number => {
+      if (index >= 0 && index <= last) return dataList[index].timestamp
+      // Off either end (a plot shifted into the future): extrapolated.
+      const edge = index < 0 ? 0 : last
+      return (dataList[edge]?.timestamp ?? 0) + (index - edge) * interval
+    }
+    const carries = (index: number): boolean => Math.round(timeOf(index) / interval) % step === 0
+    // Hollow: the disc under the ring is cleared first, so the plot does not
+    // run through it, whatever the chart's background.
+    const marker = (x: number, y: number): void => {
+      ctx.beginPath()
+      ctx.arc(x, y, HANDLE_RADIUS + 1, 0, Math.PI * 2)
+      ctx.globalCompositeOperation = 'destination-out'
+      ctx.fill()
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.beginPath()
+      ctx.arc(x, y, HANDLE_RADIUS, 0, Math.PI * 2)
+      ctx.strokeStyle = HANDLE_COLOR
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+    }
+    ctx.save()
+    ctx.setLineDash([])
+    // Lines: every multiple of the step along each segment, so a level drawn
+    // as two points across the pane gets them as well as a plot does.
+    hit.lines.forEach((coordinates, l) => {
+      if (hit.lineColors[l] === null) return
+      let placed = NaN
+      for (let i = 1; i < coordinates.length; i++) {
+        const a = coordinates[i - 1]
+        const b = coordinates[i]
+        const lo = Math.min(a.x, b.x)
+        const hi = Math.max(a.x, b.x)
+        for (let index = Math.ceil(indexOf(lo) - 1e-6); ; index++) {
+          const x = xOf(index)
+          if (x > hi + 0.5) break
+          if (index === placed || !carries(index)) continue
+          const y = hi === lo ? a.y : a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x)
+          marker(x, y)
+          placed = index
+        }
+      }
+    })
+    // A column or dot on one bar: on the same bars as the lines. Anything
+    // wider (a volume profile's rows, which follow no bar) gets none, as on
+    // tradingview.com: its legend row shows the selection.
+    const onBar = (x: number, y: number): void => {
+      if (carries(Math.round(indexOf(x)))) marker(x, y)
+    }
+    const zeroY = this.getWidget().getPane().getAxisComponent().convertToPixel(0)
+    hit.rects.forEach(({ x, y, width, height }) => {
+      if (width > bar * 1.5) return
+      onBar(x + width / 2, columnHandleY(Math.min(y, y + height), Math.max(y, y + height), zeroY))
+    })
+    hit.circles.forEach(({ x, y }) => { onBar(x, y) })
+    ctx.restore()
+  }
+
   override getCandleBarOptions (): Nullable<CandleBarOptions> {
     const pane = this.getWidget().getPane()
     const yAxis = pane.getAxisComponent()
@@ -102,6 +329,7 @@ export default class IndicatorView extends CandleBarView {
     const chartStore = chart.getChartStore()
     const indicators = chartStore.getIndicatorsByPaneId(pane.getId())
     const defaultStyles = chartStore.getStyles().indicator
+    this._indicatorHits = []
     ctx.save()
     indicators.forEach(indicator => {
       // An indicator bound to the secondary axis has nothing to draw against
@@ -115,6 +343,8 @@ export default class IndicatorView extends CandleBarView {
         } else {
           ctx.globalCompositeOperation = 'source-over'
         }
+        const hit: IndicatorHit = { indicator, lines: [], rects: [], circles: [], lineColors: [] }
+        this._indicatorHits.push(hit)
         let isCover = false
         if (indicator.draw !== null) {
           ctx.save()
@@ -124,7 +354,16 @@ export default class IndicatorView extends CandleBarView {
             indicator,
             bounding,
             xAxis,
-            yAxis: factor === 1 ? yAxis : rebasedAxis(yAxis, factor)
+            yAxis: factor === 1 ? yAxis : rebasedAxis(yAxis, factor),
+            hitArea: {
+              line: (coordinates, options) => {
+                if (coordinates.length === 0) return
+                hit.lines.push(coordinates)
+                hit.lineColors.push(options?.handles === false ? null : '#2962ff')
+              },
+              rect: rect => { hit.rects.push(rect) },
+              circle: circle => { hit.circles.push(circle) }
+            }
           })
           ctx.restore()
         }
@@ -194,11 +433,9 @@ export default class IndicatorView extends CandleBarView {
                 const figureStyles = figureStyleAt(indicator, figureDefaults, position, dataIndex, defaultStyles)
                 const valueY = currentCoordinate[figure.key]
                 if (figure.type === 'circle') {
-                  this.createFigure({
-                    name: 'circle',
-                    attrs: { x, y: valueY, r: circleRadius(figureStyles.size, halfGapBar) },
-                    styles: figureStyles
-                  })?.draw(ctx)
+                  const circle = { x, y: valueY, r: circleRadius(figureStyles.size, halfGapBar) }
+                  this.createFigure({ name: 'circle', attrs: circle, styles: figureStyles })?.draw(ctx)
+                  if (isVisibleStyle(figureStyles)) hit.circles.push(circle)
                   continue
                 }
                 const baseValueY = isNumber(figure.baseValue) ? toPixel(figure.baseValue) : yAxis.convertToPixel(yAxis.getRange().from)
@@ -221,6 +458,7 @@ export default class IndicatorView extends CandleBarView {
                 // always even, could never line up with one.
                 const columnWidth = Math.max(1, Math.round(bar) - 1)
                 const rect: RectAttrs = { x: x - Math.floor(columnWidth / 2), y, width: columnWidth, height }
+                if (isVisibleStyle(figureStyles)) hit.rects.push(rect)
                 if (figure.type === 'bar' && isPlainFill(figureStyles)) {
                   bars.fill(figureIndex, figureStyles.color as string, rect)
                 } else {
@@ -264,6 +502,10 @@ export default class IndicatorView extends CandleBarView {
             }
             if (segments > 1) {
               polylines.forEach(({ coordinates, styles }) => {
+                if (isVisibleStyle(styles)) {
+                  hit.lines.push(coordinates)
+                  hit.lineColors.push(isString(styles.color) ? styles.color : '#2962ff')
+                }
                 this.createFigure({
                   name: 'line',
                   attrs: { coordinates },
@@ -275,6 +517,15 @@ export default class IndicatorView extends CandleBarView {
         }
       }
     })
+    // The selected indicator's handles, over everything in the pane.
+    const selected = chartStore.getSelectedIndicator()
+    if (selected !== null) {
+      const hit = this._indicatorHits.find(h => h.indicator.name === selected)
+      if (hit !== undefined) {
+        ctx.globalCompositeOperation = 'source-over'
+        this._drawHandles(ctx, hit)
+      }
+    }
     ctx.restore()
   }
 }

@@ -91,6 +91,10 @@ export interface Chart extends Store {
   setSelectedOverlayIds: (ids: string[]) => void
   /** Deselect everything, the clicked overlay included — as a click on empty space does. */
   clearOverlaySelection: () => void
+  /** The indicator selected on the chart (by name), whose plots carry handles. */
+  getSelectedIndicator: () => Nullable<string>
+  /** Select an indicator by name, or none with `null`. */
+  setSelectedIndicator: (name: Nullable<string>) => void
   /** Move overlays one bar sideways or a few pixels vertically. False when none moved. */
   nudgeOverlays: (ids: string[], direction: OverlayNudgeDirection) => boolean
   setPaneOptions: (options: PaneOptions) => void
@@ -1063,6 +1067,14 @@ export default class ChartImp implements Chart {
 
   setSelectedOverlayIds (ids: string[]): void {
     this._chartStore.setSelectedOverlayIds(ids)
+  }
+
+  getSelectedIndicator (): Nullable<string> {
+    return this._chartStore.getSelectedIndicator()
+  }
+
+  setSelectedIndicator (name: Nullable<string>): void {
+    this._chartStore.setSelectedIndicator(name)
   }
 
   /**

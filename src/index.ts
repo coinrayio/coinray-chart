@@ -99,6 +99,7 @@ import { registerStyles } from './extension/styles/index'
 import { registerXAxis } from './extension/x-axis'
 import { registerYAxis } from './extension/y-axis'
 import { OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR } from './view/OverlayView'
+import type { IndicatorClickData } from './view/IndicatorView'
 import { buildProfile, profileBoxes, VOLUME_PROFILE_COLORS, type VolumeProfile, type ProfileRow, type ProfileLayout, type ProfileBox } from './extension/overlay/tv/forecastData/volumeProfile'
 
 const charts = new Map<string, ChartImp>()
@@ -197,6 +198,7 @@ const utils = {
   checkCoordinateOnText
 }
 
+export type { IndicatorClickData }
 export {
   version, init, dispose,
   registerFigure, getSupportedFigures, getFigureClass,

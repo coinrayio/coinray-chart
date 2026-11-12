@@ -37,6 +37,7 @@ import { binarySearchNearest } from './common/utils/number'
 import { logWarn } from './common/utils/logger'
 import { windowPixelRatio } from './common/utils/canvas'
 import { UpdateLevel } from './common/Updater'
+import { handleStep } from './common/indicatorHandles'
 import type { DataLoader, DataLoaderGetBarsParams, DataLoadMore, DataLoadType } from './common/DataLoader'
 
 import type { Options, Formatter, ThousandsSeparator, DecimalFold, BarSpaceLimit, FormatDateType, FormatDateParams, FormatBigNumber, FormatExtendText, FormatExtendTextParams, ZoomAnchor, ZoomAnchorType } from './Options'
@@ -2605,6 +2606,28 @@ export default class StoreImp implements Store {
 
   isOverlaySelected (id: string): boolean {
     return this._selectedOverlayIds.has(id)
+  }
+
+  /** The indicator selected on the chart, by name: its plots carry handles. */
+  private _selectedIndicator: Nullable<string> = null
+
+  getSelectedIndicator (): Nullable<string> {
+    return this._selectedIndicator
+  }
+
+  /** Bars between the selected indicator's handles, fixed when it was selected. */
+  private _selectedIndicatorHandleStep = 1
+
+  getSelectedIndicatorHandleStep (): number {
+    return this._selectedIndicatorHandleStep
+  }
+
+  /** Select an indicator by name, or none with `null`; repaints its handles. */
+  setSelectedIndicator (name: Nullable<string>): void {
+    if (name === this._selectedIndicator) return
+    this._selectedIndicator = name
+    this._selectedIndicatorHandleStep = name === null ? 1 : handleStep(this.getBarSpace().bar)
+    this._chart.updatePane(UpdateLevel.Main)
   }
 
   /** Replace the selection wholesale. Pass `[]` to clear. */

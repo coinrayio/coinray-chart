@@ -36,6 +36,8 @@ export default class IndicatorWidget extends DrawWidget<DrawPane<YAxis>> {
 
   constructor (rootContainer: HTMLElement, pane: DrawPane<YAxis>) {
     super(rootContainer, pane)
+    // First, so it is hit-tested last: a drawing or the legend over a line wins.
+    this.addChild(this._indicatorView)
     this.addChild(this._tooltipView)
     this.addChild(this._overlayView)
   }

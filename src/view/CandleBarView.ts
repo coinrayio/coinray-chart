@@ -52,16 +52,19 @@ export default class CandleBarView extends ChildrenView {
    * instead of through a child figure per bar.
    */
   private _barHits: Array<{ rects: RectAttrs[], data: VisibleRangeData }> = []
-  private _clickedBar: Nullable<VisibleRangeData> = null
+  protected _clickedBar: Nullable<VisibleRangeData> = null
 
   constructor (widget: DrawWidget<DrawPane<YAxis>>) {
     super(widget)
-    this.registerEvent('mouseClickEvent', () => {
-      if (this._clickedBar !== null) {
-        this.getWidget().getPane().getChart().getChartStore().executeAction('onCandleBarClick', this._clickedBar)
-      }
-      return false
-    })
+    this.registerEvent('mouseClickEvent', () => this.onClick())
+  }
+
+  /** A click this view's `checkEventOn` claimed. Not consumed: the chart's own click still follows. */
+  protected onClick (): boolean {
+    if (this._clickedBar !== null) {
+      this.getWidget().getPane().getChart().getChartStore().executeAction('onCandleBarClick', this._clickedBar)
+    }
+    return false
   }
 
   override checkEventOn (event: MouseTouchEvent): boolean {
