@@ -31,7 +31,7 @@ interface FakeIndicator {
   precision: number
   minValue?: number
   maxValue?: number
-  figures: Array<{ key: string }>
+  figures: Array<{ key: string, type?: string, baseValue?: number }>
   result: Array<Record<string, number>>
 }
 
@@ -150,6 +150,28 @@ describe('scaleSeriesOnly (E4)', () => {
     f.axis.override({ name: 'normal', scaleSeriesOnly: true })
     f.axis.buildTicks(true)
     expect(f.axis.getRange().to).toBeGreaterThan(900)
+  })
+})
+
+describe('column base in range', () => {
+  const columns = (v = 1): FakeIndicator => ({
+    shouldOhlc: false,
+    precision: 2,
+    figures: [{ key: 'v', type: 'bar', baseValue: 0 }],
+    result: [{ v }, { v }, { v }, { v }]
+  })
+
+  it('reaches down to a column\'s base in its own pane, so a constant series fills it', () => {
+    const f = makeAxis(normal, { indicators: [columns()], paneId: 'indicator_pane_1' })
+    f.axis.buildTicks(true)
+    expect(f.axis.getRange().realFrom).toBeLessThanOrEqual(0)
+    expect(f.axis.getRange().realTo).toBeGreaterThanOrEqual(1)
+  })
+
+  it('leaves the price pane alone, where reaching 0 would flatten the candles', () => {
+    const f = makeAxis(normal, { indicators: [columns(120)] })
+    f.axis.buildTicks(true)
+    expect(f.axis.getRange().realFrom).toBeGreaterThan(50)
   })
 })
 

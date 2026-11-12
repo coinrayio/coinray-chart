@@ -304,6 +304,15 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
             const drawn = value * factor
             min = Math.min(min, drawn)
             max = Math.max(max, drawn)
+            // A column grows from its base, so in its own pane the base is in
+            // range, as TradingView has it: Volume starts at 0 rather than at
+            // the quietest bar, and a constant series (Chop Zone's 1s) fills
+            // the pane from 0 instead of collapsing to a line. Not on the
+            // price pane, where reaching 0 would flatten the candles.
+            if (!inCandle && figure.type === 'bar' && isNumber(figure.baseValue)) {
+              min = Math.min(min, figure.baseValue)
+              max = Math.max(max, figure.baseValue)
+            }
           }
         })
       })
