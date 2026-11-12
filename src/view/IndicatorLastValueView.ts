@@ -61,7 +61,9 @@ export default class IndicatorLastValueView extends View<YAxis> {
                 ),
                 precision
               )
-              if (indicator.shouldFormatBigNumber) {
+              // Never on the price pane: an indicator moved there labels in
+              // prices, as the axis beside it does.
+              if (indicator.shouldFormatBigNumber && !yAxis.isInCandle()) {
                 text = formatter.formatBigNumber(text)
               }
               text = yAxis.isInCandle()

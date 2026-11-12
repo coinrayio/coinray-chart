@@ -903,8 +903,10 @@ export default class ChartImp implements Chart {
         }
         const candleAxis = this._candlePane.getAxisComponent() as unknown as YAxis
         const position = paneOpts.axis?.position ?? candleAxis.position
+        // Measured before the pane exists, so it does not count itself.
+        const height = this._newPaneHeight()
         this._createPane(IndicatorPane, paneOpts.id, { ...paneOpts, axis: { ...paneOpts.axis, position } })
-        paneOpts.height ??= PANE_DEFAULT_HEIGHT
+        paneOpts.height ??= height
         shouldSort = true
       }
       this.setPaneOptions(paneOpts)
@@ -919,6 +921,26 @@ export default class ChartImp implements Chart {
       return indicator.id
     }
     return null
+  }
+
+  /**
+   * A new indicator pane's height, as tradingview.com sizes one: a share of
+   * the panes' total, the price pane counting as two shares and every other
+   * pane as one (the first oscillator gets a third of the chart, the second a
+   * quarter). Never below the old fixed default, which is also what a chart
+   * that has not been laid out yet gets.
+   */
+  private _newPaneHeight (): number {
+    let total = 0
+    let panes = 0
+    this._drawPanes.forEach(pane => {
+      const id = pane.getId()
+      if (id === PaneIdConstants.X_AXIS) return
+      total += pane.getBounding().height
+      if (id !== PaneIdConstants.CANDLE) panes++
+    })
+    if (total <= 0) return PANE_DEFAULT_HEIGHT
+    return Math.max(PANE_DEFAULT_HEIGHT, Math.round(total / (panes + 3)))
   }
 
   overrideIndicator (override: IndicatorOverride): boolean {
@@ -1089,7 +1111,14 @@ export default class ChartImp implements Chart {
             shouldLayout = true
             shouldMeasureHeight = true
             currentPane.setOriginalBounding({ height })
-            this._recalculatePaneHeight(currentPane, height, -height)
+            // What the pane gives up (or takes): its height now less the new
+            // one, as every other caller passes it. Upstream passed `-height`,
+            // taking the pane's whole height from the price pane on every
+            // call, even one that changed nothing. Once that drove the price
+            // pane to its minimum the shortfall was ADDED to this pane, so
+            // re-applying a saved layout (once per script as each starts)
+            // grew panes it should have left alone.
+            this._recalculatePaneHeight(currentPane, height, currentPane.getBounding().height - height)
           }
           if (
             isValid(options.state) &&

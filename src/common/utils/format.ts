@@ -120,14 +120,18 @@ export function formatPrecision (value: string | number, precision?: number): st
 export function formatBigNumber (value: string | number): string {
   const v = +value
   if (isNumber(v)) {
-    if (v > 1000000000) {
-      return `${+((v / 1000000000).toFixed(3))}B`
+    // By magnitude, so a negative value (an A/D line, a falling OBV) is
+    // abbreviated too: -2400000 is -2.4M, as on tradingview.com.
+    const sign = v < 0 ? '-' : ''
+    const a = Math.abs(v)
+    if (a > 1000000000) {
+      return `${sign}${+((a / 1000000000).toFixed(3))}B`
     }
-    if (v > 1000000) {
-      return `${+((v / 1000000).toFixed(3))}M`
+    if (a > 1000000) {
+      return `${sign}${+((a / 1000000).toFixed(3))}M`
     }
-    if (v > 1000) {
-      return `${+((v / 1000).toFixed(3))}K`
+    if (a > 1000) {
+      return `${sign}${+((a / 1000).toFixed(3))}K`
     }
   }
   return `${value}`
