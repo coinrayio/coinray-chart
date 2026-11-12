@@ -298,6 +298,16 @@ export default class Event implements EventHandler {
           return widget.dispatchEvent('mouseDownEvent', event)
         }
         case WidgetNameConstants.MAIN: {
+          // Shift+press starts the quick measure, before any overlay can take
+          // the press: starting on a line at the current price used to grab
+          // the line, and on empty space the press panned. Taking it on the
+          // press gives both of TradingView's gestures: drag and release, or
+          // click, move and click. A selected drawing keeps the press, so
+          // Shift still axis-locks its drag and snaps its handles.
+          if (this._shouldStartQuickMeasure(pane, event)) {
+            this._startQuickMeasure(widget, event)
+            return true
+          }
           // Dispatch event first to allow overlays (e.g., continuous drawing) to consume it
           const consumed = widget.dispatchEvent('mouseDownEvent', event)
           // Cmd/Ctrl + press on empty chart space starts a marquee rather than
@@ -508,16 +518,6 @@ export default class Event implements EventHandler {
       const consumed = widget.dispatchEvent('mouseClickEvent', event)
       // Fire onChartClick only when no overlay consumed the click
       const widgetName = widget.getName()
-      if (
-        !consumed &&
-        event.shiftKey === true &&
-        pane?.getId() === PaneIdConstants.CANDLE &&
-        widgetName === WidgetNameConstants.MAIN &&
-        !this._chart.getChartStore().isOverlayDrawing()
-      ) {
-        this._startQuickMeasure(widget, event)
-        return true
-      }
       if (!consumed && pane !== null && widgetName === WidgetNameConstants.MAIN) {
         const chartStore = this._chart.getChartStore()
         if (chartStore.hasAction('onChartClick')) {
@@ -1001,9 +1001,20 @@ export default class Event implements EventHandler {
     return false
   }
 
-  // TradingView's Shift+click measure: the click places the first point, the
-  // next click finishes it, the click after that dismisses it. Engine-owned and
-  // never persisted, so the host needs no wiring.
+  private _shouldStartQuickMeasure (pane: Nullable<Pane>, event: MouseTouchEvent): boolean {
+    if (event.shiftKey !== true || event.isTouch === true) return false
+    if (pane?.getId() !== PaneIdConstants.CANDLE) return false
+    const chartStore = this._chart.getChartStore()
+    if (chartStore.isOverlayDrawing()) return false
+    // The mouse move before the press hit-tested what is under the cursor.
+    const hovered = chartStore.getHoverOverlayInfo().overlay
+    return hovered === null || !chartStore.getSelectedOverlayIds().includes(hovered.id)
+  }
+
+  // TradingView's Shift measure: the press places the first point; letting go
+  // after a drag finishes it, a still press leaves it following the mouse until
+  // the next click. The press after that dismisses it. Engine-owned and never
+  // persisted, so the host needs no wiring.
   private _startQuickMeasure (widget: Widget, event: MouseTouchEvent): void {
     this._measureDismiss?.()
     const id = this._chart.createOverlay({
@@ -1025,7 +1036,9 @@ export default class Event implements EventHandler {
       }
     })
     if (id === null) return
-    widget.dispatchEvent('mouseClickEvent', event)
+    // OverlayView takes the first point on the press and arms its
+    // press-drag-release, exactly as for a drawing tool.
+    widget.dispatchEvent('mouseDownEvent', event)
     this._chart.updatePane(UpdateLevel.Overlay)
   }
 

@@ -196,8 +196,8 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
           event.shiftKey === true
         )(event)
       }
-      // Shift+click on empty space starts a quick measure, which must not
-      // cost the user their selection.
+      // A Shift+click on empty space is the quick measure (Event takes the
+      // press), which must not cost the user their selection.
       if (event.shiftKey === true) return false
       chartStore.setClickOverlayInfo(
         {
