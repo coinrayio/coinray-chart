@@ -24,6 +24,7 @@ import type { OverlayFigure, Overlay } from '../component/Overlay'
 import type OverlayImp from '../component/Overlay'
 
 import OverlayView from './OverlayView'
+import { layoutLastPriceTag } from './lastPriceTagLayout'
 
 import type YAxisImp from '../component/YAxis'
 
@@ -189,25 +190,23 @@ export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayVie
     if (!yAxis.isInCandle()) return null
     const chartStore = pane.getChart().getChartStore()
     const priceMark = chartStore.getStyles().candle.priceMark
-    if (!priceMark.show || !priceMark.last.show || !priceMark.last.text.show) return null
+    const priceShown = priceMark.last.text.show
+    if (!priceMark.show || !priceMark.last.show) return null
     const dataList = chartStore.getDataList(true)
     const data = dataList[dataList.length - 1]
     if (!isValid(data)) return null
     // The whole tag: the price line plus the rows drawn above and below it
-    // (the bar countdown), laid out as `CandleLastPriceLabelView` lays them
-    // out. Counting the price line alone let a tag pushed below it land under
+    // (the bar countdown), from the layout `CandleLastPriceLabelView` draws
+    // with. Counting the price line alone let a tag pushed below it land under
     // the countdown, which draws on top of it.
-    const { size, paddingTop, paddingBottom } = priceMark.last.text
     const priceY = yAxis.convertToNicePixel(data.close)
-    let top = priceY - size / 2 - paddingTop
-    let bottom = priceY + size / 2 + paddingBottom
     const formatExtendText = chartStore.getInnerFormatter().formatExtendText
-    priceMark.last.extendTexts.forEach((item, index) => {
-      if (!item.show || formatExtendText({ type: 'last_price', data, index }).length === 0) return
-      const rowHeight = item.paddingTop + item.size + item.paddingBottom
-      if (item.position === 'above_price') top -= rowHeight
-      else bottom += rowHeight
-    })
+    const rows = priceMark.last.extendTexts.flatMap((style, index) =>
+      style.show ? [{ text: formatExtendText({ type: 'last_price', data, index }), style }] : []
+    )
+    const tag = layoutLastPriceTag(priceY, priceShown ? priceMark.last.text : null, rows)
+    if (tag === null) return null
+    const { top, bottom } = tag
     return { key: '__last_price__', y: (top + bottom) / 2, height: bottom - top, fixed: true, value: data.close }
   }
 

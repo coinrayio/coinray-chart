@@ -18,6 +18,7 @@ import type { TextStyle } from '../common/Styles'
 import { SymbolDefaultPrecisionConstants } from '../common/SymbolInfo'
 
 import View from './View'
+import { layoutLastPriceTag } from './lastPriceTagLayout'
 
 import type { FigureCreate } from '../component/Figure'
 import type YAxis from '../component/YAxis'
@@ -32,7 +33,11 @@ export default class CandleLastPriceLabelView extends View {
     const priceMarkStyles = chartStore.getStyles().candle.priceMark
     const lastPriceMarkStyles = priceMarkStyles.last
     const lastPriceMarkTextStyles = lastPriceMarkStyles.text
-    if (priceMarkStyles.show && lastPriceMarkStyles.show && lastPriceMarkTextStyles.show) {
+    // The rows (the bar countdown) don't need the price: with the price label
+    // off, the first row takes its place on the last price.
+    const priceShown = lastPriceMarkTextStyles.show
+    const rowsShown = lastPriceMarkStyles.extendTexts.some(item => item.show)
+    if (priceMarkStyles.show && lastPriceMarkStyles.show && (priceShown || rowsShown)) {
       const precision = chartStore.getSymbol()?.pricePrecision ?? SymbolDefaultPrecisionConstants.PRICE
       const yAxis = pane.getAxisComponent() as YAxis
       const dataList = chartStore.getDataList(true)
@@ -71,57 +76,45 @@ export default class CandleLastPriceLabelView extends View {
         )
         priceText = chartStore.getDecimalFold().formatPrice(chartStore.getThousandsSeparator().format(priceText))
         const { paddingLeft, paddingRight, paddingTop, paddingBottom, size, family, weight } = lastPriceMarkTextStyles
-        let textWidth = paddingLeft + calcTextWidth(priceText, size, weight, family) + paddingRight
+        let textWidth = priceShown ? paddingLeft + calcTextWidth(priceText, size, weight, family) + paddingRight : 0
         const priceTextHeight = paddingTop + size + paddingBottom
-        textFigures.push({
-          name: 'text',
-          attrs: {
-            x,
-            y: priceY,
-            width: textWidth,
-            height: priceTextHeight,
-            text: priceText,
-            align: textAlgin,
-            baseline: 'middle'
-          },
-          styles: {
-            ...lastPriceMarkTextStyles,
-            backgroundColor
-          }
-        })
-        const formatExtendText = chartStore.getInnerFormatter().formatExtendText
-        const priceTextHalfHeight = size / 2
-        let aboveY = priceY - priceTextHalfHeight - paddingTop
-        let belowY = priceY + priceTextHalfHeight + paddingBottom
-        lastPriceMarkStyles.extendTexts.forEach((item, index) => {
-          const text = formatExtendText({ type: 'last_price', data, index })
-          if (text.length > 0 && item.show) {
-            const textHalfHeight = item.size / 2
-            let textY = 0
-            if (item.position === 'above_price') {
-              aboveY -= (item.paddingBottom + textHalfHeight)
-              textY = aboveY
-              aboveY -= (textHalfHeight + item.paddingTop)
-            } else {
-              belowY += (item.paddingTop + textHalfHeight)
-              textY = belowY
-              belowY += (textHalfHeight + item.paddingBottom)
+        if (priceShown) {
+          textFigures.push({
+            name: 'text',
+            attrs: {
+              x,
+              y: priceY,
+              width: textWidth,
+              height: priceTextHeight,
+              text: priceText,
+              align: textAlgin,
+              baseline: 'middle'
+            },
+            styles: {
+              ...lastPriceMarkTextStyles,
+              backgroundColor
             }
-            textWidth = Math.max(textWidth, item.paddingLeft + calcTextWidth(text, item.size, item.weight, item.family) + item.paddingRight)
-            textFigures.push({
-              name: 'text',
-              attrs: {
-                x,
-                y: textY,
-                width: textWidth,
-                height: item.paddingTop + item.size + item.paddingBottom,
-                text,
-                align: textAlgin,
-                baseline: 'middle'
-              },
-              styles: { ...item, backgroundColor }
-            })
-          }
+          })
+        }
+        const formatExtendText = chartStore.getInnerFormatter().formatExtendText
+        const rows = lastPriceMarkStyles.extendTexts.flatMap((style, index) =>
+          style.show ? [{ text: formatExtendText({ type: 'last_price', data, index }), style }] : []
+        )
+        layoutLastPriceTag(priceY, priceShown ? lastPriceMarkTextStyles : null, rows)?.rows.forEach(({ text, style, y }) => {
+          textWidth = Math.max(textWidth, style.paddingLeft + calcTextWidth(text, style.size, style.weight, style.family) + style.paddingRight)
+          textFigures.push({
+            name: 'text',
+            attrs: {
+              x,
+              y,
+              width: textWidth,
+              height: style.paddingTop + style.size + style.paddingBottom,
+              text,
+              align: textAlgin,
+              baseline: 'middle'
+            },
+            styles: { ...style, backgroundColor }
+          })
         })
         textFigures.forEach(figure => {
           figure.attrs.width = textWidth

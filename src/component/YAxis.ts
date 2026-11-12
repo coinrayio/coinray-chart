@@ -519,7 +519,10 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     }
 
     const priceMarkStyles = styles.candle.priceMark
-    const lastPriceMarkTextVisible = !this.secondary && priceMarkStyles.show && priceMarkStyles.last.show && priceMarkStyles.last.text.show
+    // The countdown rows show without the price label, so they size the axis too.
+    const lastPriceTextShown = priceMarkStyles.last.text.show
+    const lastPriceMarkTextVisible = !this.secondary && priceMarkStyles.show && priceMarkStyles.last.show &&
+      (lastPriceTextShown || priceMarkStyles.last.extendTexts.some(item => item.show))
     let lastPriceTextWidth = 0
 
     const crosshairStyles = styles.crosshair
@@ -535,7 +538,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
         const data = dataList[dataList.length - 1]
         if (isValid(data)) {
           const { paddingLeft, paddingRight, size, family, weight } = priceMarkStyles.last.text
-          lastPriceTextWidth = paddingLeft + calcTextWidth(formatPrecision(data.close, pricePrecision), size, weight, family) + paddingRight
+          lastPriceTextWidth = lastPriceTextShown ? paddingLeft + calcTextWidth(formatPrecision(data.close, pricePrecision), size, weight, family) + paddingRight : 0
           const formatExtendText = chartStore.getInnerFormatter().formatExtendText
           priceMarkStyles.last.extendTexts.forEach((item, index) => {
             const text = formatExtendText({ type: 'last_price', data, index })
