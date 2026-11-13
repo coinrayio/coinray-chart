@@ -27,6 +27,7 @@ import OverlayView from './OverlayView'
 import { layoutLastPriceTag } from './lastPriceTagLayout'
 
 import type YAxisImp from '../component/YAxis'
+import type ChartStore from '../Store'
 
 export interface TagBox {
   key: string
@@ -99,6 +100,33 @@ export function stackTags (input: readonly TagBox[], reversed = false, bounds?: 
     if (Math.abs(dy) > 0.01) shifts.set(box.key, dy)
   })
   return shifts
+}
+
+/**
+ * The last-price tag on a price pane's axis, as a fixed box the other tags
+ * there stack around: the price line plus the rows drawn above and below it.
+ */
+export function lastPriceTagBox (yAxis: YAxisImp, chartStore: ChartStore): Nullable<TagBox> {
+  if (!yAxis.isInCandle()) return null
+  const priceMark = chartStore.getStyles().candle.priceMark
+  const priceShown = priceMark.last.text.show
+  if (!priceMark.show || !priceMark.last.show) return null
+  const dataList = chartStore.getDataList(true)
+  const data = dataList[dataList.length - 1]
+  if (!isValid(data)) return null
+  // The whole tag: the price line plus the rows drawn above and below it
+  // (the bar countdown), from the layout `CandleLastPriceLabelView` draws
+  // with. Counting the price line alone let a tag pushed below it land under
+  // the countdown, which draws on top of it.
+  const priceY = yAxis.convertToNicePixel(data.close)
+  const formatExtendText = chartStore.getInnerFormatter().formatExtendText
+  const rows = priceMark.last.extendTexts.flatMap((style, index) =>
+    style.show ? [{ text: formatExtendText({ type: 'last_price', data, index }), style }] : []
+  )
+  const tag = layoutLastPriceTag(priceY, priceShown ? priceMark.last.text : null, rows)
+  if (tag === null) return null
+  const { top, bottom } = tag
+  return { key: '__last_price__', y: (top + bottom) / 2, height: bottom - top, fixed: true, value: data.close }
 }
 
 export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayView<C> {
@@ -184,30 +212,8 @@ export default class OverlayYAxisView<C extends Axis = YAxis> extends OverlayVie
   }
 
   private _lastPriceBox (): Nullable<TagBox> {
-    const widget = this.getWidget()
-    const pane = widget.getPane()
-    const yAxis = pane.getAxisComponent() as unknown as YAxisImp
-    if (!yAxis.isInCandle()) return null
-    const chartStore = pane.getChart().getChartStore()
-    const priceMark = chartStore.getStyles().candle.priceMark
-    const priceShown = priceMark.last.text.show
-    if (!priceMark.show || !priceMark.last.show) return null
-    const dataList = chartStore.getDataList(true)
-    const data = dataList[dataList.length - 1]
-    if (!isValid(data)) return null
-    // The whole tag: the price line plus the rows drawn above and below it
-    // (the bar countdown), from the layout `CandleLastPriceLabelView` draws
-    // with. Counting the price line alone let a tag pushed below it land under
-    // the countdown, which draws on top of it.
-    const priceY = yAxis.convertToNicePixel(data.close)
-    const formatExtendText = chartStore.getInnerFormatter().formatExtendText
-    const rows = priceMark.last.extendTexts.flatMap((style, index) =>
-      style.show ? [{ text: formatExtendText({ type: 'last_price', data, index }), style }] : []
-    )
-    const tag = layoutLastPriceTag(priceY, priceShown ? priceMark.last.text : null, rows)
-    if (tag === null) return null
-    const { top, bottom } = tag
-    return { key: '__last_price__', y: (top + bottom) / 2, height: bottom - top, fixed: true, value: data.close }
+    const pane = this.getWidget().getPane()
+    return lastPriceTagBox(pane.getAxisComponent() as unknown as YAxisImp, pane.getChart().getChartStore())
   }
 
   protected override drawFigures (ctx: CanvasRenderingContext2D, overlay: OverlayImp, figures: OverlayFigure[]): void {
