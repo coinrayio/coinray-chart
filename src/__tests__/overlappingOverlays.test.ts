@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import StoreImp from '../Store'
-import OverlayView from '../view/OverlayView'
+import OverlayView, { OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR } from '../view/OverlayView'
 import { registerOverlay } from '../extension/overlay/index'
 import type { KLineData } from '../common/Data'
 import type { DataLoader } from '../common/DataLoader'
@@ -39,6 +39,21 @@ registerOverlay({
       styles: { style: 'fill' }
     }]
   }
+})
+
+// A host's chart controls over the drawings, like Superchart's trade handles
+// (`tradeHandles`): one button, above the crosshair, inside box B.
+const controlEvents: string[] = []
+registerOverlay({
+  name: 'test-controls',
+  totalStep: 2,
+  needDefaultPointFigure: false,
+  needDefaultXAxisFigure: false,
+  needDefaultYAxisFigure: false,
+  createPointFigures: () => [{ key: 'remove', type: 'rect', attrs: { x: 300, y: 25, width: 20, height: 10 }, styles: { style: 'fill' } }],
+  onMouseMove: () => { controlEvents.push('move'); return true },
+  onPressedMoveStart: () => { controlEvents.push('press'); return true },
+  onClick: () => { controlEvents.push('click'); return true }
 })
 
 const HOUR_MS = 3_600_000
@@ -155,5 +170,66 @@ describe('overlapping drawings', () => {
     draw()
     view.dispatchEvent('mouseClickEvent', at(x(3), 20))
     expect(store.getClickOverlayInfo().overlay?.id).toBe(b.id)
+  })
+
+  describe('a chart control over a drawing (a trade handle inside a rectangle)', () => {
+    const setupControls = (): ReturnType<typeof setup> & { button: MouseTouchEvent } => {
+      const ctx = setup()
+      ctx.store.addOverlays([
+        { name: 'test-controls', id: 'controls', zLevel: OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR, points: [{ value: 0 }] }
+      ], [false])
+      controlEvents.length = 0
+      // Both passes, as the widget draws them.
+      const draw = (): void => { ctx.view.draw(noopCtx); ctx.view.drawAboveCrosshair(noopCtx) }
+      return { ...ctx, draw, button: at(310, 30) }
+    }
+    const press = ({ view, draw, button }: ReturnType<typeof setupControls>): void => {
+      draw(); view.dispatchEvent('mouseMoveEvent', button)
+      draw(); view.dispatchEvent('mouseDownEvent', button)
+      draw(); view.dispatchEvent('mouseUpEvent', button)
+      draw(); view.dispatchEvent('mouseClickEvent', button)
+    }
+
+    it('the button sits inside the drawing', () => {
+      const { view, draw, button } = setupControls()
+      draw()
+      const owners = (view as unknown as { getChildren: () => Array<{ checkEventOn: (e: MouseTouchEvent) => boolean }>, _figureOwners: Map<unknown, { overlay: OverlayImp }> })
+      const hit = owners.getChildren().filter(c => c.checkEventOn(button)).map(c => owners._figureOwners.get(c)?.overlay.id)
+      expect(hit).toEqual(expect.arrayContaining(['b', 'controls']))
+    })
+
+    it('fires the control and does not select the drawing', () => {
+      const ctx = setupControls()
+      press(ctx)
+      expect(controlEvents).toEqual(['move', 'press', 'click'])
+      expect(ctx.store.getClickOverlayInfo().overlay?.id).toBe('controls')
+      expect(ctx.store.getSelectedOverlayIds()).not.toContain('b')
+    })
+
+    // The reported bug: adding a DCA level (a click on the control) left the
+    // control selected, and the next click on its ✕ cycled to the rectangle.
+    it('still fires the control when the control was the selected overlay', () => {
+      const ctx = setupControls()
+      select(ctx.store, ctx.store.getOverlaysByFilter({ id: 'controls' })[0])
+      press(ctx)
+      expect(controlEvents).toEqual(['move', 'press', 'click'])
+      expect(ctx.store.getSelectedOverlayIds()).not.toContain('b')
+    })
+
+    it('still fires the control when the drawing under it was selected', () => {
+      const ctx = setupControls()
+      select(ctx.store, ctx.b)
+      press(ctx)
+      expect(controlEvents).toEqual(['move', 'press', 'click'])
+      expect(ctx.store.getClickOverlayInfo().overlay?.id).toBe('controls')
+    })
+
+    it('leaves the drawing clickable outside the control', () => {
+      const ctx = setupControls()
+      ctx.draw()
+      ctx.view.dispatchEvent('mouseClickEvent', at(310, 45))
+      expect(ctx.store.getClickOverlayInfo().overlay?.id).toBe('b')
+      expect(controlEvents).toEqual([])
+    })
   })
 })

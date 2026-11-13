@@ -1237,6 +1237,12 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
    * drawing under another can never be selected, since the topmost always
    * takes the click. A click that misses the selected drawing, lands on a
    * handle, or adds to the selection is left to the normal path.
+   *
+   * So is one whose topmost hit is a chart control: an overlay painted above
+   * the crosshair (`OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR`, a host's trade handles)
+   * is not a drawing in the stack. Counted as one, a click on a control that
+   * was itself the selected overlay (it had just been clicked) walked on to
+   * the drawing under it: the control got the press, the drawing the click.
    */
   private _cycleSelection (event: MouseTouchEvent): boolean {
     if (event.metaKey === true || event.ctrlKey === true || event.shiftKey === true) return false
@@ -1250,9 +1256,10 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       const child = children[i]
       const owner = this._figureOwners.get(child)
       if (owner === undefined || !child.checkEventOn(event)) continue
-      if (first && owner.handle) return false
+      const control = owner.overlay.zLevel >= OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR
+      if (first && (owner.handle || control)) return false
       first = false
-      if (owner.handle || hits.has(owner.overlay.id)) continue
+      if (owner.handle || control || hits.has(owner.overlay.id)) continue
       hits.set(owner.overlay.id, { overlay: owner.overlay, figure: child })
     }
     if (hits.size < 2 || !hits.has(selected.id)) return false
