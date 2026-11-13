@@ -50,7 +50,7 @@ import XAxisPane from './pane/XAxisPane'
 import type DrawPane from './pane/DrawPane'
 import SeparatorPane from './pane/SeparatorPane'
 
-import { type PaneOptions, PANE_DEFAULT_HEIGHT, PaneIdConstants, PANE_MIN_HEIGHT } from './pane/types'
+import { type PaneOptions, type YAxisColumns, PANE_DEFAULT_HEIGHT, PaneIdConstants, PANE_MIN_HEIGHT } from './pane/types'
 
 import type AxisImp from './component/Axis'
 import type { YAxis } from './component/YAxis'
@@ -477,40 +477,35 @@ export default class ChartImp implements Chart {
       const totalWidth = this._chartBounding.width
       const styles = this.getStyles()
 
-      let leftYAxisWidth = 0
       let leftYAxisOutside = true
-      let rightYAxisWidth = 0
       let rightYAxisOutside = true
+      // Each side has a column next to the plot and, for a second scale on
+      // the same side as a pane's own, one outside it. A column is as wide as
+      // its widest scale in any pane, so the scales of every pane line up.
+      const columns: YAxisColumns = { left: { inner: 0, outer: 0 }, right: { inner: 0, outer: 0 } }
 
       this._drawPanes.forEach(pane => {
         if (pane.getId() !== PaneIdConstants.X_AXIS) {
-          const axes = [pane.getAxisComponent() as YAxis]
-          const secondary = pane.getSecondaryYAxis()
-          if (secondary !== null) {
-            axes.push(secondary)
-          }
-          axes.forEach(yAxis => {
-            const inside = yAxis.inside
-            const yAxisWidth = yAxis.getAutoSize()
-            if (yAxis.position === 'left') {
-              leftYAxisWidth = Math.max(leftYAxisWidth, yAxisWidth)
-              if (inside) {
-                leftYAxisOutside = false
-              }
-            } else {
-              rightYAxisWidth = Math.max(rightYAxisWidth, yAxisWidth)
-              if (inside) {
-                rightYAxisOutside = false
-              }
+          pane.getYAxisPlacements().forEach(({ axis, side, outer }) => {
+            const column = columns[side]
+            const width = axis.getAutoSize()
+            if (outer) column.outer = Math.max(column.outer, width)
+            else column.inner = Math.max(column.inner, width)
+            if (axis.inside) {
+              if (side === 'left') leftYAxisOutside = false
+              else rightYAxisOutside = false
             }
           })
         }
       })
 
       if (cacheYAxisWidth) {
-        leftYAxisWidth = Math.max(this._cacheYAxisWidth.left, leftYAxisWidth)
-        rightYAxisWidth = Math.max(this._cacheYAxisWidth.right, rightYAxisWidth)
+        // Only the inner column is held: the outer one goes with its scale.
+        columns.left.inner = Math.max(this._cacheYAxisWidth.left - columns.left.outer, columns.left.inner)
+        columns.right.inner = Math.max(this._cacheYAxisWidth.right - columns.right.outer, columns.right.inner)
       }
+      const leftYAxisWidth = columns.left.inner + columns.left.outer
+      const rightYAxisWidth = columns.right.inner + columns.right.outer
 
       this._cacheYAxisWidth.left = leftYAxisWidth
       this._cacheYAxisWidth.right = rightYAxisWidth
@@ -559,6 +554,7 @@ export default class ChartImp implements Chart {
       }
       this._drawPanes.forEach((pane) => {
         this._separatorPanes.get(pane)?.setBounding(separatorBounding)
+        pane.setYAxisColumns(columns)
         pane.setBounding(paneBounding, mainBounding, leftYAxisBounding, rightYAxisBounding)
       })
     }
@@ -1265,7 +1261,7 @@ export default class ChartImp implements Chart {
             }
           }
         }
-        if (isValid(options.axis)) {
+        if (isValid(options.axis) || isValid(options.secondaryAxis)) {
           shouldLayout = true
         }
         // Moving a pane: without the sort the new order was stored and never

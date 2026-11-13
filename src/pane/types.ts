@@ -24,6 +24,27 @@ export interface PaneOptions {
   order?: number
   state?: PaneState,
   axis?: Partial<AxisCreate>
+  /** The pane's second scale, which indicators pinned to a scale of their own use. */
+  secondaryAxis?: SecondaryAxisOptions
+}
+
+/**
+ * The second scale's own settings. `null` (the default) follows the pane's
+ * scale: the opposite side, inverted with it.
+ */
+export interface SecondaryAxisOptions {
+  /** Its side. On the pane scale's side it stands outside it. */
+  position?: 'left' | 'right' | null
+  reverse?: boolean | null
+}
+
+/**
+ * The width of the scale columns on each side of the chart: `inner` next to
+ * the plot, `outer` beyond it for a second scale on the same side.
+ */
+export interface YAxisColumns {
+  left: { inner: number, outer: number }
+  right: { inner: number, outer: number }
 }
 
 export const PANE_MIN_HEIGHT = 30

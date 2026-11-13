@@ -25,7 +25,7 @@ import type DrawWidget from '../widget/DrawWidget'
 import type YAxisWidget from '../widget/YAxisWidget'
 
 import Pane from './Pane'
-import { type PaneOptions, PANE_DEFAULT_HEIGHT, PANE_MIN_HEIGHT, PaneIdConstants } from './types'
+import { type PaneOptions, type YAxisColumns, PANE_DEFAULT_HEIGHT, PANE_MIN_HEIGHT, PaneIdConstants } from './types'
 
 import type Chart from '../Chart'
 
@@ -38,6 +38,7 @@ export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
   private readonly _yAxisWidget: Nullable<YAxisWidget> = null
 
   private _axis: C
+  private _yAxisColumns: Nullable<YAxisColumns> = null
 
   private readonly _options: DeepRequired<PaneOptions> = {
     id: '',
@@ -46,7 +47,8 @@ export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
     order: 0,
     height: PANE_DEFAULT_HEIGHT,
     state: 'normal',
-    axis: { name: 'normal', scrollZoomEnabled: true }
+    axis: { name: 'normal', scrollZoomEnabled: true },
+    secondaryAxis: { position: null, reverse: null }
   }
 
   constructor (chart: Chart, id: string, options: Omit<PaneOptions, 'id' | 'height'>) {
@@ -129,50 +131,66 @@ export default abstract class DrawPane<C extends Axis = Axis> extends Pane {
     if (mainBoundingValid) {
       this._mainWidget.setBounding(mainBounding)
     }
-    if (isValid(this._yAxisWidget)) {
-      this._yAxisWidget.setBounding(contentBounding)
-      const yAxis = this._axis as unknown as YAxis
-      if (yAxis.position === 'left') {
+    // Each scale in its column: on a side with two, the pane's own scale
+    // stands next to the plot and the second one outside it. The columns are
+    // the chart's, so the scales of every pane line up.
+    const leftWidth = leftYAxisBounding?.width ?? 0
+    const rightWidth = rightYAxisBounding?.width ?? 0
+    const cols = this._yAxisColumns ?? { left: { inner: leftWidth, outer: 0 }, right: { inner: rightWidth, outer: 0 } }
+    const place = (widget: YAxisWidget, side: 'left' | 'right', outer: boolean): void => {
+      widget.setBounding(contentBounding)
+      if (side === 'left') {
         if (isValid(leftYAxisBounding)) {
-          this._yAxisWidget.setBounding({ ...leftYAxisBounding, left: 0 })
+          widget.setBounding(outer
+            ? { width: cols.left.outer, left: 0 }
+            : { width: cols.left.inner, left: cols.left.outer })
         }
-      } else {
-        if (isValid(rightYAxisBounding)) {
-          this._yAxisWidget.setBounding(rightYAxisBounding)
-          if (mainBoundingValid) {
-            this._yAxisWidget.setBounding({
-              left: (mainBounding.left ?? 0) +
-                (mainBounding.width ?? 0) +
-                (mainBounding.right ?? 0) -
-                (rightYAxisBounding.width ?? 0)
-            })
-          }
+      } else if (isValid(rightYAxisBounding)) {
+        widget.setBounding({ width: outer ? cols.right.outer : cols.right.inner })
+        if (mainBoundingValid) {
+          const start = (mainBounding.left ?? 0) + (mainBounding.width ?? 0) + (mainBounding.right ?? 0) - rightWidth
+          widget.setBounding({ left: outer ? start + cols.right.inner : start })
         }
       }
     }
-    const secondaryWidget = this.getSecondaryYAxisWidget()
-    if (secondaryWidget !== null) {
-      secondaryWidget.setBounding(contentBounding)
-      if (this.getSecondaryYAxis()!.position === 'left') {
-        if (isValid(leftYAxisBounding)) {
-          secondaryWidget.setBounding({ ...leftYAxisBounding, left: 0 })
-        }
-      } else {
-        if (isValid(rightYAxisBounding)) {
-          secondaryWidget.setBounding(rightYAxisBounding)
-          if (mainBoundingValid) {
-            secondaryWidget.setBounding({
-              left: (mainBounding.left ?? 0) +
-                (mainBounding.width ?? 0) +
-                (mainBounding.right ?? 0) -
-                (rightYAxisBounding.width ?? 0)
-            })
-          }
-        }
-      }
+    for (const { widget, side, outer } of this.getYAxisPlacements()) {
+      place(widget, side, outer)
+    }
+    // A scale nothing uses takes no room and no events.
+    if (isValid(this._yAxisWidget) && this.isYAxisHidden()) {
+      this._yAxisWidget.setBounding({ width: 0 })
     }
     return this
   }
+
+  /**
+   * Where each shown scale of the pane goes: its side, and whether it stands
+   * outside the pane's own scale there (a second scale on the same side).
+   */
+  getYAxisPlacements (): Array<{ axis: YAxis, widget: YAxisWidget, side: 'left' | 'right', outer: boolean }> {
+    const out: Array<{ axis: YAxis, widget: YAxisWidget, side: 'left' | 'right', outer: boolean }> = []
+    const primaryWidget = this._yAxisWidget
+    const primaryShown = primaryWidget !== null && !this.isYAxisHidden()
+    const primary = this._axis as unknown as YAxis
+    if (primaryWidget !== null && primaryShown) {
+      out.push({ axis: primary, widget: primaryWidget, side: primary.position === 'left' ? 'left' : 'right', outer: false })
+    }
+    const secondary = this.getSecondaryYAxis()
+    const secondaryWidget = this.getSecondaryYAxisWidget()
+    if (secondary !== null && secondaryWidget !== null) {
+      const side = secondary.position === 'left' ? 'left' : 'right'
+      out.push({ axis: secondary, widget: secondaryWidget, side, outer: primaryShown && primary.position === side })
+    }
+    return out
+  }
+
+  /** The chart's scale columns, for the next `setBounding`. */
+  setYAxisColumns (columns: Nullable<YAxisColumns>): void {
+    this._yAxisColumns = columns
+  }
+
+  /** Whether the pane's own scale is hidden: nothing is bound to it, and a second scale is shown. */
+  isYAxisHidden (): boolean { return false }
 
   getMainWidget (): DrawWidget<DrawPane<C>> { return this._mainWidget }
 

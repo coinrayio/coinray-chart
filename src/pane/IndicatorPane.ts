@@ -34,6 +34,12 @@ export default class IndicatorPane extends DrawPane<YAxis> {
   private _secondaryAxis: Nullable<YAxis> = null
   private _secondaryWidget: Nullable<YAxisWidget> = null
   private _secondaryActive = false
+  // Nothing bound to the pane's own scale while a second one is shown.
+  private _primaryHidden = false
+
+  override isYAxisHidden (): boolean {
+    return this._primaryHidden
+  }
 
   override getSecondaryYAxis (): Nullable<YAxis> {
     return this._secondaryActive ? this._secondaryAxis : null
@@ -44,8 +50,8 @@ export default class IndicatorPane extends DrawPane<YAxis> {
   }
 
   override syncSecondaryYAxis (): boolean {
-    const bound = this.getChart().getChartStore().getIndicatorsByPaneId(this.getId())
-      .some(indicator => indicator.yAxis === 'secondary' && indicator.visible)
+    const indicators = this.getChart().getChartStore().getIndicatorsByPaneId(this.getId())
+    const bound = indicators.some(indicator => indicator.yAxis === 'secondary' && indicator.visible)
     const primary = this.getAxisComponent()
     const primaryWidget = this.getYAxisWidget()
     if (bound && this._secondaryAxis === null && primaryWidget !== null) {
@@ -56,20 +62,34 @@ export default class IndicatorPane extends DrawPane<YAxis> {
       this._secondaryAxis = axis
       this._secondaryWidget = new YAxisWidget(this.getContainer(), this, true)
     }
-    const changed = bound !== this._secondaryActive
-    this._secondaryActive = bound && this._secondaryAxis !== null
+    const active = bound && this._secondaryAxis !== null
+    // A pane below the price pane whose indicators are all on the second
+    // scale shows that one alone, as tradingview.com moves an indicator's
+    // only scale to the side it was pinned to. The price pane always has the
+    // candles on its own.
+    const primaryHidden = active && !this.getAxisComponent().isInCandle() &&
+      !indicators.some(indicator => indicator.yAxis !== 'secondary')
+    const changed = active !== this._secondaryActive || primaryHidden !== this._primaryHidden
+    this._secondaryActive = active
+    this._primaryHidden = primaryHidden
+    if (primaryWidget !== null) {
+      primaryWidget.getContainer().style.display = primaryHidden ? 'none' : ''
+    }
     const axis = this._secondaryAxis
     const widget = this._secondaryWidget
     if (widget !== null) {
       widget.getContainer().style.display = this._secondaryActive ? '' : 'none'
     }
     if (this._secondaryActive && axis !== null && widget !== null && primaryWidget !== null) {
-      // Opposite side of the primary, same inside/reverse/gap; the range is its own.
+      // Its own side and invert when set (`secondaryAxis`), else the opposite
+      // side of the primary, inverted with it; the same inside and gap, and
+      // a range of its own.
+      const own = this.getOptions().secondaryAxis
       axis.override({
         name: 'normal',
-        position: primary.position === 'left' ? 'right' : 'left',
+        position: own.position ?? (primary.position === 'left' ? 'right' : 'left'),
         inside: primary.inside,
-        reverse: primary.reverse,
+        reverse: own.reverse ?? primary.reverse,
         gap: { ...primary.gap }
       })
       const { top, height } = primaryWidget.getBounding()
