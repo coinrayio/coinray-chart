@@ -564,8 +564,10 @@ export default class Event implements EventHandler {
           })
         }
       }
-      if (!consumed && pane !== null && name === WidgetNameConstants.Y_AXIS) {
-        this._fireYAxisRightClick(pane, event)
+      // Either scale: the pane's own, or the second one an indicator pinned
+      // to a scale of its own gets on the other side.
+      if (!consumed && pane !== null && (name === WidgetNameConstants.Y_AXIS || name === WidgetNameConstants.Y_AXIS_SECONDARY)) {
+        this._fireYAxisRightClick(pane, event, name === WidgetNameConstants.Y_AXIS_SECONDARY)
       }
       if (consumed) {
         this._chart.updatePane(UpdateLevel.Overlay)
@@ -575,7 +577,7 @@ export default class Event implements EventHandler {
   }
 
   // The crosshair is cleared over the axis, so the payload names the pane itself.
-  private _fireYAxisRightClick (pane: Pane, event: MouseTouchEvent): void {
+  private _fireYAxisRightClick (pane: Pane, event: MouseTouchEvent, secondary: boolean): void {
     const chartStore = this._chart.getChartStore()
     if (chartStore.hasAction('onYAxisRightClick')) {
       chartStore.executeAction('onYAxisRightClick', {
@@ -583,7 +585,8 @@ export default class Event implements EventHandler {
         x: event.x,
         y: event.y,
         pageX: event.pageX,
-        pageY: event.pageY
+        pageY: event.pageY,
+        ...(secondary ? { secondary: true } : {})
       })
     }
   }
@@ -963,8 +966,12 @@ export default class Event implements EventHandler {
     if (widget !== null && pane !== null && widget.getName() === WidgetNameConstants.Y_AXIS) {
       const event = this._makeWidgetEvent(e, widget)
       if (!widget.dispatchEvent('mouseRightClickEvent', event)) {
-        this._fireYAxisRightClick(pane, event)
+        this._fireYAxisRightClick(pane, event, false)
       }
+      return true
+    }
+    if (widget !== null && pane !== null && widget.getName() === WidgetNameConstants.Y_AXIS_SECONDARY) {
+      this._fireYAxisRightClick(pane, this._makeWidgetEvent(e, widget), true)
       return true
     }
     if (widget !== null && widget.getName() === WidgetNameConstants.MAIN) {

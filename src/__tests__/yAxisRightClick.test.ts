@@ -34,11 +34,17 @@ function setup (consume = false): {
     getBounding: () => bounds(400, 0, 60, 300),
     dispatchEvent: vi.fn(() => consume)
   }
+  const secondaryWidget = {
+    getName: () => 'yAxisSecondary',
+    getBounding: () => bounds(460, 0, 60, 300),
+    dispatchEvent: vi.fn(() => consume)
+  }
   const pane = {
     getId: () => 'candle_pane',
-    getBounding: () => bounds(0, 0, 460, 300),
+    getBounding: () => bounds(0, 0, 520, 300),
     getMainWidget: () => mainWidget,
-    getYAxisWidget: () => yAxisWidget
+    getYAxisWidget: () => yAxisWidget,
+    getSecondaryYAxisWidget: () => secondaryWidget
   }
   const store = {
     hasAction: () => true,
@@ -68,6 +74,15 @@ describe('y-axis right-click', () => {
     const { event, actions } = setup()
     event.mouseRightClickEvent(at(430, 100))
     expect(actions).toEqual([['onYAxisRightClick', { paneId: 'candle_pane', x: 30, y: 100, pageX: 440, pageY: 120 }]])
+  })
+
+  it('fires it on the second scale too, saying so', () => {
+    const { event, actions } = setup()
+    event.mouseRightClickEvent(at(480, 100))
+    expect(actions).toEqual([['onYAxisRightClick', { paneId: 'candle_pane', x: 20, y: 100, pageX: 490, pageY: 120, secondary: true }]])
+    const touch = setup()
+    expect(touch.event.longTapEvent(at(480, 100))).toBe(true)
+    expect(touch.actions).toEqual([['onYAxisRightClick', { paneId: 'candle_pane', x: 20, y: 100, pageX: 490, pageY: 120, secondary: true }]])
   })
 
   it('still fires only onChartRightClick on the main widget', () => {
