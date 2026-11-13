@@ -67,6 +67,26 @@ export interface IndicatorFigure<D = unknown> {
    */
   step?: boolean
   /**
+   * A line filled down (or up) to `baseValue`, 0 when unset, in the line's
+   * colour at `AREA_FILL_ALPHA`: tradingview.com's Area plot.
+   */
+  area?: boolean
+  /**
+   * A step line with a diamond where each step lands on a new value:
+   * tradingview.com's "Step line with diamonds".
+   */
+  diamonds?: boolean
+  /**
+   * A bar this many pixels wide, centred on its bar, instead of filling the
+   * bar: tradingview.com's Histogram, where Columns fill the bar.
+   */
+  barWidth?: number
+  /**
+   * A dotted line across the pane at the last value, in that value's colour:
+   * tradingview.com's "Price line" on a plot.
+   */
+  priceLine?: boolean
+  /**
    * Per-bar style. Evaluated once per bar and cached until the result, the
    * figures, the indicator or the chart's styles change, so it must depend only
    * on its params.

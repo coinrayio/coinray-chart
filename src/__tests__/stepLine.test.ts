@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extendLine } from '../view/IndicatorView'
+import { areaPolygon, columnWidthFor, extendLine } from '../view/IndicatorView'
 
 describe('step lines', () => {
   it('a plain line goes straight to the next value', () => {
@@ -24,5 +24,20 @@ describe('step lines', () => {
     const line = [{ x: 0, y: 10 }]
     extendLine(line, 8, 10, undefined, true)
     expect(line).toEqual([{ x: 0, y: 10 }, { x: 8, y: 10 }])
+  })
+})
+
+describe('tradingview.com plot styles', () => {
+  it('Columns fill the bar less a 1px gap; a Histogram is its own width', () => {
+    expect(columnWidthFor(10)).toBe(9)
+    expect(columnWidthFor(10, 2)).toBe(2)
+    expect(columnWidthFor(10, 0)).toBe(1)
+  })
+
+  it('an Area closes its line down to the base', () => {
+    expect(areaPolygon([{ x: 0, y: 10 }, { x: 8, y: 20 }], 50)).toEqual([
+      { x: 0, y: 50 }, { x: 0, y: 10 }, { x: 8, y: 20 }, { x: 8, y: 50 },
+    ])
+    expect(areaPolygon([], 50)).toEqual([])
   })
 })

@@ -59,6 +59,33 @@ export function extendLine (coordinates: Coordinate[], nextX: number, fromY: num
   if (isNumber(toY) && toY !== fromY) coordinates.push({ x: nextX, y: toY })
 }
 
+/** How opaque an Area plot's fill is over its line's colour. */
+const AREA_FILL_ALPHA = 0.3
+/** Half the diagonal of a "Step line with diamonds" diamond, in pixels. */
+const DIAMOND_SIZE = 3.5
+
+/**
+ * A column's width in pixels. A set `barWidth` (a Histogram) is that wide;
+ * otherwise (Columns) it fills the bar less a FIXED 1px separator, not the
+ * candle's proportional gap: a histogram is read as a band, a colour ribbon
+ * like Chop Zone carries its whole meaning in adjacent columns touching.
+ * Measured against TradingView / Altrady: their gap is 1px at every bar
+ * spacing, ~85% duty.
+ */
+export function columnWidthFor (bar: number, barWidth?: number): number {
+  return isNumber(barWidth) ? Math.max(1, Math.round(barWidth)) : Math.max(1, Math.round(bar) - 1)
+}
+
+/** An Area's outline: down from its first point to `baseY`, along the line, and back. */
+export function areaPolygon (coordinates: Coordinate[], baseY: number): Coordinate[] {
+  if (coordinates.length === 0) return []
+  return [
+    { x: coordinates[0].x, y: baseY },
+    ...coordinates,
+    { x: coordinates[coordinates.length - 1].x, y: baseY }
+  ]
+}
+
 /** What one indicator painted this frame, for hit-testing and its selection handles. */
 interface IndicatorHit {
   indicator: Indicator
@@ -445,18 +472,7 @@ export default class IndicatorView extends CandleBarView {
                   height = Math.max(1, height)
                 }
                 const y = valueY > baseValueY ? baseValueY : valueY
-                // Column plots take a FIXED 1px separator, not the
-                // candle's proportional gap. A histogram is read as a
-                // band — a colour ribbon like Chop Zone carries its whole
-                // meaning in adjacent columns touching — where a candle
-                // is read as a discrete mark and wants air around it.
-                // Measured against TradingView / Altrady: their gap is
-                // 1px at every bar spacing, ~85% duty, while borrowing
-                // `halfGapBar * 2` here gave 60% at a 10px bar space.
-                // That also loses a pixel to the floor, so a column came
-                // out narrower than the candle above it and, being
-                // always even, could never line up with one.
-                const columnWidth = Math.max(1, Math.round(bar) - 1)
+                const columnWidth = columnWidthFor(bar, figure.barWidth)
                 const rect: RectAttrs = { x: x - Math.floor(columnWidth / 2), y, width: columnWidth, height }
                 if (isVisibleStyle(figureStyles)) hit.rects.push(rect)
                 if (figure.type === 'bar' && isPlainFill(figureStyles)) {
@@ -475,9 +491,12 @@ export default class IndicatorView extends CandleBarView {
           // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
           for (let f = 0; f < lineFigures.length; f++) {
             const position = lineFigures[f]
-            const key = figureDefaults[position].figure.key
-            const step = figureDefaults[position].figure.step === true
+            const lineFigure = figureDefaults[position].figure
+            const key = lineFigure.key
+            const step = lineFigure.step === true
             const polylines: Array<{ coordinates: Coordinate[], styles: Partial<SmoothLineStyle> }> = []
+            // Where each step lands on a new value, for diamonds.
+            const diamonds: Array<{ x: number, y: number, color: string }> = []
             let segments = 0
             // eslint-disable-next-line @typescript-eslint/prefer-for-of -- ES5 target, see above
             for (let v = 0; v < visibleBars.length; v++) {
@@ -498,9 +517,28 @@ export default class IndicatorView extends CandleBarView {
               const coordinates: Coordinate[] = continues ? last.coordinates : [{ x: current.x, y: fromY }]
               if (!continues) polylines.push({ coordinates, styles })
               extendLine(coordinates, next.x, fromY, toY, step)
+              if (step && lineFigure.diamonds === true && isNumber(toY) && toY !== fromY && isString(styles.color)) {
+                diamonds.push({ x: next.x, y: toY, color: styles.color })
+              }
               segments++
             }
             if (segments > 1) {
+              // An Area's fill, under its line: each run closed down (or up)
+              // to the base value, kept inside the pane.
+              if (lineFigure.area === true) {
+                const baseY = Math.min(Math.max(toPixel(lineFigure.baseValue ?? 0), 0), bounding.height)
+                ctx.save()
+                ctx.globalAlpha = AREA_FILL_ALPHA
+                polylines.forEach(({ coordinates, styles }) => {
+                  if (coordinates.length < 2 || !isVisibleStyle(styles) || !isString(styles.color)) return
+                  ctx.beginPath()
+                  areaPolygon(coordinates, baseY).forEach(({ x, y }, i) => { if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) })
+                  ctx.closePath()
+                  ctx.fillStyle = styles.color
+                  ctx.fill()
+                })
+                ctx.restore()
+              }
               polylines.forEach(({ coordinates, styles }) => {
                 if (isVisibleStyle(styles)) {
                   hit.lines.push(coordinates)
@@ -512,8 +550,40 @@ export default class IndicatorView extends CandleBarView {
                   styles
                 })?.draw(ctx)
               })
+              diamonds.forEach(({ x, y, color }) => {
+                ctx.beginPath()
+                ctx.moveTo(x, y - DIAMOND_SIZE)
+                ctx.lineTo(x + DIAMOND_SIZE, y)
+                ctx.lineTo(x, y + DIAMOND_SIZE)
+                ctx.lineTo(x - DIAMOND_SIZE, y)
+                ctx.closePath()
+                ctx.fillStyle = color
+                ctx.fill()
+              })
             }
           }
+
+          // Price lines: dotted across the pane at each one's last value.
+          figureDefaults.forEach(({ figure }, position) => {
+            if (figure.priceLine !== true) return
+            for (let dataIndex = result.length - 1; dataIndex >= 0; dataIndex--) {
+              const value = (result[dataIndex] as Nullable<Record<string, unknown>>)?.[figure.key]
+              if (!isNumber(value)) continue
+              const styles = figureStyleAt(indicator, figureDefaults, position, dataIndex, defaultStyles)
+              if (!isString(styles.color) || !isVisibleStyle(styles)) return
+              const y = Math.round(toPixel(value)) + 0.5
+              ctx.save()
+              ctx.strokeStyle = styles.color
+              ctx.lineWidth = 1
+              ctx.setLineDash([1, 2])
+              ctx.beginPath()
+              ctx.moveTo(0, y)
+              ctx.lineTo(bounding.width, y)
+              ctx.stroke()
+              ctx.restore()
+              return
+            }
+          })
         }
       }
     })
