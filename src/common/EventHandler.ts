@@ -103,11 +103,15 @@ const Delay = {
   PreventFiresTouchEvents: 500
 }
 
+// A finger is not a mouse: it wobbles while down and never lands twice on
+// the same pixel. With 5px of slop and 30px between taps a double-tap only
+// worked when both taps landed dead still; these match Android's touch slop
+// (8dp) and iOS's tap tolerance (about 10pt), and a fingertip's width.
 const ManhattanDistance = {
   CancelClick: 5,
-  CancelTap: 5,
+  CancelTap: 10,
   DoubleClick: 5,
-  DoubleTap: 30
+  DoubleTap: 40
 }
 
 const MouseEventButton = {
