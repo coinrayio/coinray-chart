@@ -255,6 +255,9 @@ export default class ChartImp implements Chart {
   ): P {
     const pane = new DrawPaneClass(this, id, options ?? {})
     this._drawPanes.push(pane)
+    // A host keeping things for a pane that isn't there yet (drawings saved
+    // in an indicator's pane, restored before the indicator) hears it arrive.
+    this._chartStore.executeAction('onPaneChange', { paneId: id, change: 'add' })
     return pane
   }
 
@@ -990,6 +993,7 @@ export default class ChartImp implements Chart {
             this._recalculatePaneHeight(pane, 0, pane.getBounding().height)
             this._drawPanes.splice(index, 1)
             pane.destroy()
+            this._chartStore.executeAction('onPaneChange', { paneId, change: 'remove' })
           }
         }
       })
