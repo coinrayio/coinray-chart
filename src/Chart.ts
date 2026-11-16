@@ -115,6 +115,8 @@ export interface Chart extends Store {
   subscribeAction: (type: ActionType, callback: ActionCallback) => void
   unsubscribeAction: (type: ActionType, callback?: ActionCallback) => void
   getConvertPictureUrl: (includeOverlay?: boolean, type?: 'png' | 'jpeg' | 'bmp', backgroundColor?: string) => string
+  /** The same picture as `getConvertPictureUrl`, as a canvas at the device pixel ratio, for a caller that draws more onto it. */
+  getConvertPictureCanvas: (includeOverlay?: boolean, backgroundColor?: string) => HTMLCanvasElement
   resize: () => void
   getReplayEngine: () => ReplayEngine
 }
@@ -1586,6 +1588,10 @@ export default class ChartImp implements Chart {
   }
 
   getConvertPictureUrl (includeOverlay?: boolean, type?: 'png' | 'jpeg' | 'bmp', backgroundColor?: string): string {
+    return this.getConvertPictureCanvas(includeOverlay, backgroundColor).toDataURL(`image/${type ?? 'jpeg'}`)
+  }
+
+  getConvertPictureCanvas (includeOverlay?: boolean, backgroundColor?: string): HTMLCanvasElement {
     const { width, height } = this._chartBounding
     const canvas = createDom('canvas', {
       width: `${width}px`,
@@ -1617,7 +1623,7 @@ export default class ChartImp implements Chart {
         0, bounding.top, width, bounding.height
       )
     })
-    return canvas.toDataURL(`image/${type ?? 'jpeg'}`)
+    return canvas
   }
 
   resize (): void {
