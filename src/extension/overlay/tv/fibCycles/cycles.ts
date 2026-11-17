@@ -62,7 +62,7 @@ export function sineSamples (x0: number, span: number, width: number): number[] 
  */
 export function cycleDash (props: DeepPartial<OverlayProperties>): number[] {
   const w = props.lineWidth ?? 2
-  return (props.lineDashedValue?.[0] ?? 5) <= 1 ? [w, w * 2] : [w * 5, w * 6]
+  return (props.lineDashedValue?.[0] ?? 5) < 2 ? [w, w * 2] : [w * 5, w * 6]
 }
 
 const lineOf = (props: DeepPartial<OverlayProperties>, color: string): Partial<LineStyle> => ({

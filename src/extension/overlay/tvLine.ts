@@ -31,10 +31,11 @@ export const TV_BLUE = '#2962FF'
  * and a dotted one as dots of 1 with gaps of 2, so a thick dashed line stays
  * dashed. The settings dialog stores a fixed pattern (`[4, 4]` dashed, `[1, 3]`
  * dotted); this reads which of the two it means and scales it to `size`.
+ * A first value under 2 is dotted, so TV imports' `[1.5, 2.5]` reads as dotted too.
  */
 export function tvDashedValue (stored: number[] | undefined, size: number): number[] {
   const width = Math.max(1, size)
-  const dotted = Array.isArray(stored) && stored.length > 0 && Number(stored[0]) <= 1
+  const dotted = Array.isArray(stored) && stored.length > 0 && Number(stored[0]) < 2
   return dotted ? [width, 2 * width] : [5 * width, 6 * width]
 }
 
