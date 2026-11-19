@@ -6,6 +6,9 @@ import priceNote from '../extension/overlay/priceNote'
 import signpost from '../extension/overlay/signpost'
 import anchoredText from '../extension/overlay/tv/annotations/anchoredText'
 import anchoredNote from '../extension/overlay/tv/annotations/anchoredNote'
+import { pointFigures, type TestFigure } from './figureTestTypes'
+import type { OverlayTemplate } from '../component/Overlay'
+import type Coordinate from '../common/Coordinate'
 
 vi.mock('../common/utils/canvas', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -20,8 +23,8 @@ const chart = {
     getClickOverlayInfo: () => ({ overlay: null })
   })
 }
-const run = (tpl: any, extendData: unknown, coordinates: any[], styles: unknown = {}): any[] =>
-  tpl.createPointFigures({ overlay: { id: 'o', extendData, styles, points: [{ value: 1 }] }, coordinates, bounding, chart })
+const run = (tpl: Pick<OverlayTemplate, 'createPointFigures'>, extendData: unknown, coordinates: Coordinate[], styles: unknown = {}): TestFigure[] =>
+  pointFigures(tpl, { overlay: { id: 'o', extendData, styles, points: [{ value: 1 }] }, coordinates, bounding, chart })
 const at = [{ x: 100, y: 100 }]
 
 describe('settings-dialog flags and defaults', () => {
@@ -60,32 +63,32 @@ describe('settings-dialog flags and defaults', () => {
     // A saved two-point note keeps its first point as the pin.
     expect(run(note, { text: 'x' }, [at[0], { x: 200, y: 200 }]).map(f => f.type)).toEqual(kinds)
     // A note saved before the merge called its marker colour lineColor.
-    expect(one({ lineColor: '#123456' }).find(f => f.type === 'circle').styles.color).toBe('#123456')
+    expect(one({ lineColor: '#123456' }).find(f => f.type === 'circle')!.styles.color).toBe('#123456')
   })
 
   it('note: TV\'s fill and no border, and the tooltip only while hovered', () => {
-    const tip = (d: unknown) => run(note, d, at).find(f => f.type === 'polygon' && f.styles.style === 'stroke_fill')
+    const tip = (d: unknown) => run(note, d, at).find(f => f.type === 'polygon' && f.styles.style === 'stroke_fill')!
     expect(tip({ text: 'x' }).styles).toMatchObject({ color: '#2a2e39', borderSize: 0 })
     expect(tip({ backgroundVisible: false, borderVisible: true }).styles).toMatchObject({ color: 'transparent', borderColor: '#434651', borderSize: 1 })
   })
 
   it('anchored note: fill on, border off by default', () => {
-    const poly = (d: unknown) => run(anchoredNote, d, at).find(f => f.type === 'polygon' && f.styles.style === 'stroke_fill')
+    const poly = (d: unknown) => run(anchoredNote, d, at).find(f => f.type === 'polygon' && f.styles.style === 'stroke_fill')!
     expect(poly({ text: 'x' }).styles).toMatchObject({ color: '#2a2e39', borderSize: 0 })
     expect(poly({ text: 'x', borderVisible: true, backgroundVisible: false }).styles).toMatchObject({ color: 'transparent', borderSize: 1 })
   })
 
   it('callout: TV\'s teal and a border width that follows the style', () => {
-    const bubble = (styles: unknown) => run(callout, { text: 'hi' }, [at[0], { x: 300, y: 200 }], styles).find(f => f.type === 'polygon')
+    const bubble = (styles: unknown) => run(callout, { text: 'hi' }, [at[0], { x: 300, y: 200 }], styles).find(f => f.type === 'polygon')!
     expect(bubble({}).styles).toMatchObject({ color: 'rgba(0, 151, 167, 0.7)', borderColor: 'rgba(0, 151, 167, 1)', borderSize: 2 })
     expect(bubble({ polygon: { borderSize: 5 } }).styles.borderSize).toBe(5)
   })
 
   it('price note: the line text carries its own style, apart from the label', () => {
     const figs = run(priceNote, { lineText: 'x', lineTextVisible: true, lineTextSize: 20, lineTextBold: true, lineTextItalic: true, fontSize: 12 }, [at[0], { x: 300, y: 200 }])
-    const line = figs.find(f => f.type === 'editableText')
+    const line = figs.find(f => f.type === 'editableText')!
     expect(line.styles).toMatchObject({ size: 20, weight: 'bold', fontStyle: 'italic', color: '#2962ff' })
-    const label = figs.find(f => f.type === 'text')
+    const label = figs.find(f => f.type === 'text')!
     expect(label.styles).toMatchObject({ size: 12, color: '#ffffff' })
   })
 
@@ -94,28 +97,28 @@ describe('settings-dialog flags and defaults', () => {
     expect(figs.filter(f => f.type === 'text')).toHaveLength(2)
     expect(figs.some(f => f.type === 'editableText')).toBe(false)
     const on = run(priceNote, { lineText: 'x', lineTextVisible: true }, [at[0], { x: 300, y: 200 }])
-    const t = on.find(f => f.type === 'editableText')
+    const t = on.find(f => f.type === 'editableText')!
     // Down-right line: the text hangs below it, i.e. towards the lower left.
     expect(t.attrs.y).toBeGreaterThan((100 + 200) / 2)
     expect(t.attrs.x).toBeLessThan((100 + 300) / 2 + 40)
   })
 
   it('text: the box\'s top-left corner sits on the point, as in TV', () => {
-    const t = run(text, { text: 'hi' }, at).find(f => f.type === 'editableText')
+    const t = run(text, { text: 'hi' }, at).find(f => f.type === 'editableText')!
     expect(t.attrs).toMatchObject({ x: 100, y: 100, align: 'left', baseline: 'top' })
   })
 
   it('signpost: TV\'s wrapped, bordered label and a disc pin between it and the pole', () => {
     const long = 'Sample text that is quite long and should wrap around somewhere'
-    const figs = (signpost as any).createPointFigures({
+    const figs = pointFigures(signpost, {
       overlay: { id: 'o', extendData: { text: long, emojiEnabled: true, emojiRingColor: '#123456' }, styles: {}, points: [{ value: 1 }] },
       coordinates: [{ x: 200, y: 100 }], bounding, chart: { getDataList: () => [] }, yAxis: null
-    }) as any[]
-    const label = figs.find(f => f.type === 'editableText')
+    })
+    const label = figs.find(f => f.type === 'editableText')!
     expect(label.attrs.wrap).toBe(true)
     expect(label.styles.color).toBe('#d1d4dc')
     expect(figs.some(f => f.type === 'rect' && f.styles.borderColor === '#2a2e39')).toBe(true)
-    const pin = figs.find(f => f.type === 'circle')
+    const pin = figs.find(f => f.type === 'circle')!
     expect(pin.attrs.r).toBe(35)
     expect(pin.styles).toMatchObject({ style: 'fill', color: '#123456' })
   })

@@ -727,7 +727,7 @@ export default class StoreImp implements Store {
       let dateTimeFormat: Nullable<Intl.DateTimeFormat> = null
       try {
         dateTimeFormat = new Intl.DateTimeFormat('en', options)
-      } catch (e) {
+      } catch {
         logWarn('', '', 'Timezone is error!!!')
       }
       if (dateTimeFormat !== null) {

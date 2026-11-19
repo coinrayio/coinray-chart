@@ -14,10 +14,10 @@
 
 export function throttle (func: (...args: unknown[]) => unknown, wait?: number): () => void {
   let previous = 0
-  return function () {
+  return function (this: unknown, ...args: unknown[]) {
     const now = Date.now()
     if (now - previous > (wait ?? 20)) {
-      func.apply(this, arguments)
+      func.apply(this, args)
       previous = now
     }
   }
