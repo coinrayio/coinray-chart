@@ -34,4 +34,11 @@ describe('Shift snap while editing a handle', () => {
   it('leaves a circle alone', () => {
     expect(snapper()(line('circle'), { x: 30, y: 10 }, 1)).toEqual({ x: 30, y: 10 })
   })
+
+  // The Shift measure starts with Shift held. Snapping it to 45° made its box
+  // a square beside the cursor; tradingview.com's follows the cursor.
+  it('leaves the measure alone', () => {
+    expect(snapper()(line('measure'), { x: 30, y: 10 }, 1)).toEqual({ x: 30, y: 10 })
+    expect(snapper()(line('measure'), { x: 52, y: -40 }, 0)).toEqual({ x: 52, y: -40 })
+  })
 })

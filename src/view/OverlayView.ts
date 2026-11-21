@@ -1073,7 +1073,9 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
    * first click of a drawing, or an anchor with no resolvable position).
    */
   private _shiftSnapPoint (o: Overlay, coordinate: Coordinate, index: number): Coordinate {
-    if (o.name === 'circle') return coordinate
+    // A circle has no angle to snap; the measure (started with Shift held)
+    // follows the cursor, as on tradingview.com.
+    if (o.name === 'circle' || o.name === 'measure') return coordinate
     const anchor = this._pointToCoordinate(o.points[index === 0 ? 1 : index - 1])
     if (anchor === null) return coordinate
 
