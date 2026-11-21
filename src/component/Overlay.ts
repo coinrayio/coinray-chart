@@ -196,6 +196,15 @@ export interface Overlay<E = unknown> extends OverlayEventCollection<E> {
   lock: boolean
 
   /**
+   * Whether a finger can drag it without selecting it first. Off for
+   * drawings: as on TradingView's apps, a touch that lands on an unselected
+   * drawing pans the chart, and a tap selects it so the next touch moves it.
+   * On for chart controls a trader drags directly, such as order lines.
+   * The mouse is unaffected: a press drags any unlocked overlay.
+   */
+  dragUnselectedOnTouch: boolean
+
+  /**
    * Whether the overlay is visible
    */
   visible: boolean
@@ -382,6 +391,7 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
   currentStep = OVERLAY_DRAW_STEP_START
   drawingMode: OverlayDrawingMode = 'step'
   lock = false
+  dragUnselectedOnTouch = false
   visible = true
   zLevel = 0
   needDefaultPointFigure = false

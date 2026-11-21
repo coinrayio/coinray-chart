@@ -47,6 +47,15 @@ import View from './View'
 /** Marquee paint. Neutral blue, readable over both chart themes. */
 /** How far a press must travel before its release places the next drawing point. */
 const DRAG_DRAW_MIN_PX = 4
+/**
+ * How far a press on an existing drawing must travel before the drawing
+ * moves, so the wobble of a click (or of a finger) can't nudge it.
+ * TradingView ignores a ~3px drag and moves on a ~6px one; once past the
+ * threshold the drawing jumps to the full offset from the press.
+ */
+const DRAG_MOVE_MIN_PX = 4
+/** A finger wobbles more than a mouse. */
+const TOUCH_DRAG_MOVE_MIN_PX = 8
 const SELECTION_RECT_FILL = 'rgba(41, 98, 255, 0.12)'
 const TEXT_EDITOR_CLASS = 'klc-overlay-text-editor'
 
@@ -68,6 +77,8 @@ export const OVERLAY_Z_LEVEL_ABOVE_CROSSHAIR = 1000
 export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   // Where the current drag started, pane-local, for Shift axis-locking.
   private _pressStart: Nullable<Coordinate> = null
+  // Whether the current press has travelled past the drag threshold.
+  private _pressMoved = false
 
   /**
    * Which overlay each hit-testable figure belongs to, and whether it is one
@@ -357,6 +368,14 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       if (overlay !== null) {
         if (checkOverlayFigureEvent('onPressedMoving', figure)) {
           if (!overlay.lock) {
+            // Nothing moves until the press has travelled past the threshold;
+            // the press stays the drawing's, so the chart doesn't pan either.
+            if (!this._pressMoved && !overlay.isDrawing()) {
+              const start = this._pressStart
+              const min = event.isTouch === true ? TOUCH_DRAG_MOVE_MIN_PX : DRAG_MOVE_MIN_PX
+              if (start !== null && Math.hypot(event.x - start.x, event.y - start.y) < min) return true
+              this._pressMoved = true
+            }
             const shift = event.shiftKey === true
             // Shift on a body drag locks it to one axis; on a point handle it
             // snaps that point exactly as it would while drawing.
@@ -904,7 +923,16 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       // couldn't be dragged while the cursor was over a locked long position.
       // Clicks (select, the right-click menu) still reach the drawing.
       if (overlay.lock && !overlay.isDrawing()) return false
+      // A finger on an unselected drawing pans the chart, as on TradingView's
+      // apps: a drawing under a swipe moved instead, and a tap selects it so
+      // the next touch moves it. Chart controls opt out (dragUnselectedOnTouch).
+      if (event.isTouch === true && !overlay.isDrawing() && !overlay.dragUnselectedOnTouch) {
+        const selected = chartStore.getClickOverlayInfo().overlay?.id === overlay.id ||
+          chartStore.getSelectedOverlayIds().includes(overlay.id)
+        if (!selected) return false
+      }
       this._pressStart = { x: event.x, y: event.y }
+      this._pressMoved = false
       overlay.startPressedMove(this._coordinateToPoint(overlay, event), chartStore)
 
       // Multi-selection drag: grabbing the *body* (not a single point handle)
