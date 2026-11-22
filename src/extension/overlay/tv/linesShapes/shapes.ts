@@ -37,6 +37,7 @@ import {
 } from './geometry'
 import { createToolProperties, type ToolProperties } from './properties'
 import type { OverlayExtraHandle } from '../../../../component/Overlay'
+import { snapAngle, snapWidth } from '../../../../common/utils/shiftSnap'
 
 interface Figure { type: string, key: string, attrs: unknown, styles?: unknown, ignoreEvent?: boolean }
 
@@ -85,19 +86,58 @@ function across (a: Coordinate, b: Coordinate, c: Coordinate): { nx: number, ny:
   return { nx, ny, d: (c.x - a.x) * nx + (c.y - a.y) * ny }
 }
 
-/**
- * TV hides the third point's own handle on these and shows the shape's: both
- * ends of the ellipse's minor axis, the rectangle's corners on point 2's side.
- */
+/** TV hides the ellipse's third point and shows both ends of its minor axis instead. */
 const widthHandles: Record<string, (a: Coordinate, b: Coordinate, c: Coordinate) => OverlayExtraHandle[]> = {
   ellipse: (a, b, c) => {
     const { nx, ny, d } = across(a, b, c)
     const m = midpoint(a, b)
     return [{ x: m.x + nx * d, y: m.y + ny * d }, { x: m.x - nx * d, y: m.y - ny * d }]
+  }
+}
+
+type Hooks = Pick<ProOverlayTemplate, 'needDefaultPointFigure' | 'createExtraHandles' | 'moveExtraHandle'>
+
+/** Any width handle sets the width: point 2 goes where the cursor is. Shift makes the circle / square, as it does on point 2. */
+const moveWidth: NonNullable<ProOverlayTemplate['moveExtraHandle']> = ({ overlay, coordinate, coordinates, shiftKey, toPoint }) => {
+  const q = toPoint(shiftKey === true ? snapWidth(coordinates[0], coordinates[1], coordinate) : coordinate)
+  Object.assign(overlay.points[2], { timestamp: q.timestamp, dataIndex: q.dataIndex, value: q.value })
+}
+
+/**
+ * TV's rotated rectangle: both axis ends (0, 1) and all four corners (2–5).
+ * An axis end turns and stretches the rectangle and keeps its width; a corner
+ * sets the width on both sides at once and leaves the axis alone.
+ */
+const rotatedRectangleHooks: Hooks = {
+  needDefaultPointFigure: [],
+  createExtraHandles: ({ coordinates }) => {
+    if (coordinates.length < 3) return []
+    const [a, b, c] = coordinates
+    return [a, b, ...(rotatedRectangleCorners(a, b, c) ?? [a, b, b, a])]
   },
-  rotatedRectangle: (a, b, c) => {
-    const { nx, ny, d } = across(a, b, c)
-    return [{ x: a.x + nx * d, y: a.y + ny * d }, { x: b.x + nx * d, y: b.y + ny * d }]
+  moveExtraHandle: (params) => {
+    const { overlay, index, coordinate, coordinates, shiftKey, toPoint, toCoordinate, pressCoordinates } = params
+    if (index >= 2) { moveWidth(params); return }
+    const points = overlay.points
+    const other = 1 - index
+    // Only the dragged end is magnetised; point 2 follows it without the magnet.
+    const q = toPoint(shiftKey === true ? snapAngle(coordinates[other], coordinate) : coordinate)
+    // The width the press found: measured each step, whole-pixel rounding would make it creep.
+    const { d } = across(pressCoordinates[0], pressCoordinates[1], pressCoordinates[2])
+    Object.assign(points[index], { timestamp: q.timestamp, dataIndex: q.dataIndex, value: q.value })
+    const end = toCoordinate(points[index])
+    if (end === null) return
+    const a = index === 0 ? end : coordinates[0]
+    const b = index === 1 ? end : coordinates[1]
+    const { nx, ny } = across(a, b, b)
+    if (Math.abs(ny) > 1e-6) {
+      // Straight above or below point 1, so its time stays exact and only the price moves.
+      const value = toPoint({ x: b.x, y: b.y + d / ny }, true).value
+      Object.assign(points[2], { timestamp: points[1].timestamp, dataIndex: points[1].dataIndex, value })
+    } else {
+      const w = toPoint({ x: b.x + d / nx, y: b.y }, true)
+      Object.assign(points[2], { timestamp: w.timestamp, dataIndex: w.dataIndex, value: points[1].value })
+    }
   }
 }
 
@@ -106,19 +146,18 @@ function thirdPointShape (name: string, look: DeepPartial<OverlayProperties>, ou
   return () => {
     const tool = toolWithLook(look)
     const handles = widthHandles[name] as ((a: Coordinate, b: Coordinate, c: Coordinate) => OverlayExtraHandle[]) | undefined
-    return {
-      ...shapeBase(name, 4),
-      ...(handles !== undefined
+    const hooks: Hooks = name === 'rotatedRectangle'
+      ? rotatedRectangleHooks
+      : handles !== undefined
         ? {
             needDefaultPointFigure: [0, 1],
             createExtraHandles: ({ coordinates }) => coordinates.length < 3 ? [] : handles(coordinates[0], coordinates[1], coordinates[2]),
-            // Any of them sets the width: point 2 goes where the cursor is.
-            moveExtraHandle: ({ overlay, coordinate, toPoint }) => {
-              const q = toPoint(coordinate)
-              Object.assign(overlay.points[2], { timestamp: q.timestamp, dataIndex: q.dataIndex, value: q.value })
-            }
+            moveExtraHandle: moveWidth
           }
-        : {}),
+        : {}
+    return {
+      ...shapeBase(name, 4),
+      ...hooks,
       createPointFigures: ({ coordinates, overlay }) => {
         if (coordinates.length < 2) return []
         const [a, b] = coordinates

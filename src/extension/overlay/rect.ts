@@ -18,6 +18,7 @@ import { merge, clone } from '../../common/utils/typeChecks'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 import { boxHandles } from './extraHandles'
+import { snapSquare } from '../../common/utils/shiftSnap'
 
 /** Gap between the box edge and text aligned to it. */
 const TEXT_INSET = 8
@@ -94,7 +95,7 @@ const rect = (): ProOverlayTemplate => {
     totalStep: 3,
     needDefaultPointFigure: true,
     // TV's eight: every corner and every edge's midpoint.
-    ...boxHandles(true),
+    ...boxHandles(true, snapSquare),
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, bounding, overlay }) => {

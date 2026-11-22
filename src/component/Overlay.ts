@@ -323,7 +323,13 @@ export interface Overlay<E = unknown> extends OverlayEventCollection<E> {
     index: number
     coordinate: Coordinate
     coordinates: Coordinate[]
-    toPoint: (coordinate: Coordinate) => Partial<Point>
+    /** Shift is held: snap the handle the way the tool's own points snap. */
+    shiftKey?: boolean
+    /** `free` skips the magnet: for a point that only follows the dragged one. */
+    toPoint: (coordinate: Coordinate, free?: boolean) => Partial<Point>
+    toCoordinate: (point: Partial<Point>) => Coordinate | null
+    /** `coordinates` as they were at the press: a size kept through the drag measures from here, as each step's pixels are rounded. */
+    pressCoordinates: Coordinate[]
   }) => void>
 
   /**
@@ -337,7 +343,15 @@ export interface Overlay<E = unknown> extends OverlayEventCollection<E> {
 
 export type OverlayTemplate<E = unknown> = ExcludePickPartial<Omit<Overlay<E>, 'id' | 'groupId' | 'paneId' | 'points' | 'currentStep'>, 'name'>
 
-export interface OverlayExtraHandle { x: number, y: number, square?: boolean }
+export interface OverlayExtraHandle {
+  x: number
+  y: number
+  square?: boolean
+  /** Not drawn while it is being dragged, for a handle that stays put (a midpoint) instead of following the cursor. */
+  hideWhileDragged?: boolean
+  /** Dragging it moves the whole drawing, exactly like dragging its body (a circle's centre). `moveExtraHandle` is not called. */
+  movesDrawing?: boolean
+}
 
 export type OverlayCreate<E = unknown> = ExcludePickPartial<Omit<Overlay<E>, 'currentStep' | 'totalStep' | 'createPointFigures' | 'createXAxisFigures' | 'createYAxisFigures' | 'performEventPressedMove' | 'performEventMoveForDrawing' | 'completeDrawing' | 'createExtraHandles' | 'moveExtraHandle' | 'handleCursor'>, 'name'>
 export type OverlayOverride<E = unknown> = Partial<Omit<Overlay<E>, 'currentStep' | 'totalStep' | 'createPointFigures' | 'createXAxisFigures' | 'createYAxisFigures' | 'performEventPressedMove' | 'performEventMoveForDrawing' | 'completeDrawing' | 'createExtraHandles' | 'moveExtraHandle' | 'handleCursor'>>
@@ -604,7 +618,17 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
     })
   }
 
-  eventPressedPointMove (point: Partial<Point>, pointIndex: number): void {
+  /**
+   * `keep` holds one axis where the press left it — a Shift drag locked to
+   * the other one — so the point moves in time or in price only.
+   */
+  eventPressedPointMove (point: Partial<Point>, pointIndex: number, keep?: 'price' | 'time'): void {
+    const from = keep === undefined ? undefined : this._prevPressedPoints[pointIndex] as Partial<Point> | undefined
+    if (from !== undefined) {
+      point = keep === 'price'
+        ? { ...point, value: from.value }
+        : { ...point, timestamp: from.timestamp, dataIndex: from.dataIndex }
+    }
     // ALTD-1915.12 — per-point drag respects the Coordinates
     // tab's `lockPrice` / `lockTime` flags on `extendData`.
     // Both live on the overlay's own `extendData` so consumers
@@ -823,6 +847,11 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
     })
   }
 
+  /** The points as they were when the current press began. */
+  getPressedPoints (): Array<Partial<Point>> {
+    return this._prevPressedPoints
+  }
+
   startPressedMove (point: Partial<Point>, chartStore: ChartStore): void {
     // Re-derive dataIndex from timestamp before snapshotting, mirroring the
     // render path — a history load can shift bar indexes without touching
@@ -844,15 +873,16 @@ export default class OverlayImp<E = unknown> implements Overlay<E> {
     })
   }
 
-  eventPressedOtherMove (point: Partial<Point>, chartStore: ChartStore): void {
+  /** `keep` holds one axis still: a Shift drag moves the drawing in time or in price only. */
+  eventPressedOtherMove (point: Partial<Point>, chartStore: ChartStore, keep?: 'price' | 'time'): void {
     if (this._prevPressedPoint !== null) {
       // ALTD-1915.12 — whole-overlay drag respects the same
       // Coordinates-tab flags as per-point drag. Zero out the
       // deltas the flag suppresses so each mapped point keeps
       // its previous coordinate on the locked axis.
       const ext = this.extendData as { lockPrice?: boolean; lockTime?: boolean } | null | undefined
-      const lockPrice = ext?.lockPrice === true
-      const lockTime = ext?.lockTime === true
+      const lockPrice = ext?.lockPrice === true || keep === 'price'
+      const lockTime = ext?.lockTime === true || keep === 'time'
       let difDataIndex: Nullable<number> = null
       if (!lockTime && isNumber(point.dataIndex) && isNumber(this._prevPressedPoint.dataIndex)) {
         difDataIndex = point.dataIndex - this._prevPressedPoint.dataIndex
