@@ -3,6 +3,9 @@ import text from '../extension/overlay/text'
 import callout from '../extension/overlay/callout'
 import anchoredNote from '../extension/overlay/tv/annotations/anchoredNote'
 import { glyphFigure, rotatePath } from '../extension/overlay/emojiGlyph'
+import { pointFigures, type TestFigure } from './figureTestTypes'
+import type { OverlayTemplate } from '../component/Overlay'
+import type Coordinate from '../common/Coordinate'
 
 vi.mock('../common/utils/canvas', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -17,8 +20,8 @@ const chart = (hover?: string, click?: string) => ({
     getClickOverlayInfo: () => ({ overlay: click === undefined ? null : { id: click } })
   })
 })
-const run = (tpl: any, extendData: unknown, coordinates: any[], ch: unknown = chart()): any[] =>
-  tpl.createPointFigures({ overlay: { id: 'o', extendData, styles: {}, points: [] }, coordinates, bounding, chart: ch })
+const run = (tpl: Pick<OverlayTemplate, 'createPointFigures'>, extendData: unknown, coordinates: Coordinate[], ch: unknown = chart()): TestFigure[] =>
+  pointFigures(tpl, { overlay: { id: 'o', extendData, styles: {}, points: [] }, coordinates, bounding, chart: ch })
 
 describe('text overlay', () => {
   it('stays a bare editableText by default', () => {
@@ -40,10 +43,10 @@ describe('text overlay', () => {
 describe('callout word wrap', () => {
   it('sizes the bubble to the wrap width', () => {
     const figs = run(callout, { text: 'one two three four five six', fontSize: 12, wordWrap: true, wordWrapWidth: 60 }, [{ x: 10, y: 10 }, { x: 200, y: 100 }])
-    const t = figs.find(f => f.type === 'editableText')
+    const t = figs.find(f => f.type === 'editableText')!
     expect(t.attrs.wrap).toBe(true)
     const plain = run(callout, { text: 'one two three four five six', fontSize: 12 }, [{ x: 10, y: 10 }, { x: 200, y: 100 }])
-    expect(t.attrs.height).toBeGreaterThan(plain.find(f => f.type === 'editableText').attrs.height)
+    expect(t.attrs.height).toBeGreaterThan(plain.find(f => f.type === 'editableText')!.attrs.height)
   })
 })
 

@@ -6,14 +6,17 @@ import anyWaves from '../extension/overlay/anyWaves'
 import { timeCycles } from '../extension/overlay/tv/fibCycles/cycles'
 import xabcd from '../extension/overlay/xabcd'
 import headAndShoulders from '../extension/overlay/tv/patterns/headAndShoulders'
+import { pointFigures, type TestFigure } from './figureTestTypes'
+import type { OverlayTemplate } from '../component/Overlay'
+import type { ProOverlayTemplate } from '../extension/overlay/types'
+import type { PolygonType } from '../common/Styles'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const draw = (tpl: any, coordinates: Array<{ x: number, y: number }>, extendData?: unknown): any[] =>
-  tpl.createPointFigures({ coordinates, bounding: { width: 100, height: 100 }, overlay: { id: 'a', extendData, points: coordinates.map((p) => ({ value: -p.y })) } })
+const draw = (tpl: Pick<OverlayTemplate, 'createPointFigures'>, coordinates: Array<{ x: number, y: number }>, extendData?: unknown): TestFigure[] =>
+  pointFigures(tpl, { coordinates, bounding: { width: 100, height: 100 }, overlay: { id: 'a', extendData, points: coordinates.map((p) => ({ value: -p.y })) } })
 
 const c5 = [0, 1, 2, 3, 4, 5].map((i) => ({ x: i * 10, y: i % 2 === 0 ? 50 : 10 }))
 const c3 = c5.slice(0, 4)
-const texts = (figs: any[]): string[] => figs.filter((f) => f.type === 'text').map((f) => f.attrs.text)
+const texts = (figs: TestFigure[]): Array<string | undefined> => figs.filter((f) => f.type === 'text').map((f) => f.attrs.text)
 
 describe('fiveWaves and threeWaves degree', () => {
   it('defaults to TV\'s Intermediate degree and its blue, 2 px wave', () => {
@@ -48,9 +51,9 @@ describe('fiveWaves and threeWaves degree', () => {
 
 describe('pattern fills follow the dialog\'s Background checkbox', () => {
   const c = [0, 1, 2, 3, 4].map((i) => ({ x: i * 10, y: i % 2 === 0 ? 50 : 10 }))
-  const fill = (tpl: any, style?: string): any => {
-    tpl.setProperties(style === undefined ? {} : { style }, 'a')
-    return draw(tpl, c).find((f) => f.key === 'fill')
+  const fill = (tpl: ProOverlayTemplate, style?: PolygonType): TestFigure => {
+    tpl.setProperties?.(style === undefined ? {} : { style }, 'a')
+    return draw(tpl, c).find((f) => f.key === 'fill')!
   }
   it('draws xabcd\'s triangles in TV\'s blue, and hides them when style is stroke', () => {
     expect(fill(xabcd()).styles).toMatchObject({ style: 'fill', color: 'rgba(41, 98, 255, 0.15)' })
@@ -65,11 +68,11 @@ describe('pattern fills follow the dialog\'s Background checkbox', () => {
 describe('time cycles background', () => {
   const chart = { getChartStore: () => ({ timestampToDataIndex: (t: number) => t, coordinateToDataIndex: (x: number) => x / 10, dataIndexToCoordinate: (i: number) => i * 10 }) }
   const points = [{ dataIndex: 2, timestamp: 2 }, { dataIndex: 5, timestamp: 5 }]
-  const fills = (props: object, extendData?: object): any[] => {
+  const fills = (props: object, extendData?: object): TestFigure[] => {
     const tpl = timeCycles()
     tpl.setProperties?.(props as never, 'a')
-    const figs = (tpl as any).createPointFigures({ chart, coordinates: [{ x: 20, y: 5 }, { x: 50, y: 5 }], bounding: { width: 100, height: 100 }, overlay: { id: 'a', points, extendData } })
-    return figs.filter((f: any) => f.type === 'polygon')
+    const figs = pointFigures(tpl, { chart, coordinates: [{ x: 20, y: 5 }, { x: 50, y: 5 }], bounding: { width: 100, height: 100 }, overlay: { id: 'a', points, extendData } })
+    return figs.filter((f) => f.type === 'polygon')
   }
   it('fills with TV\'s colour, alpha included, unless style is stroke', () => {
     expect(fills({})[0].styles.color).toBe('rgba(106, 168, 79, 0.5)')

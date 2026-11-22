@@ -7,9 +7,12 @@ import fibonacciSpeedResistanceFan from '../extension/overlay/fibonacciSpeedResi
 import { formatFibRatio } from '../extension/overlay/fibonacciShared'
 import { pitchforkFactories } from '../extension/overlay/tv/pitchforkGann/pitchfork'
 import { gannSquareFactories } from '../extension/overlay/tv/pitchforkGann/gannSquare'
+import type { TestFigure } from './figureTestTypes'
+// A line figure may batch several lines: its attrs are then an array.
+import type { LineAttrs } from '../extension/figure/line'
 
 // What TradingView draws for these tools' settings, checked against its own charts (the numbers are pixels).
-interface Fig { type: string, key?: string, attrs: any, styles?: any }
+type Fig = TestFigure
 type Coord = { x: number, y: number }
 
 const chart = {
@@ -80,7 +83,7 @@ describe('fib level labels', () => {
   it('only follow a log scale when the axis is one', () => {
     const two = [{ x: 0, y: 100 }, { x: 100, y: 0 }]
     const y = (axis: string) => {
-      const t = fibonacciSegment() as any
+      const t = fibonacciSegment() as { createPointFigures: (a: unknown) => Fig[], setProperties: (p: unknown, id: string) => void }
       t.setProperties({ figureLevels: [{ value: 0.5, enabled: true }] }, 'a')
       const points = [{ value: 10, timestamp: 0 }, { value: 1000, timestamp: 100 }]
       const figs: Fig[] = t.createPointFigures({
@@ -127,7 +130,7 @@ describe('fib speed resistance fan', () => {
   const only = { fanPriceLevels: [{ value: 0, enabled: true }, { value: 1, enabled: true }], fanTimeLevels: [{ value: 0, enabled: true }, { value: 1, enabled: true }] }
   const grid = (reverse: boolean) => {
     const figs = draw(fibonacciSpeedResistanceFan, two, { ...only, reverse })
-    return figs.find((f) => f.type === 'line' && Array.isArray(f.attrs) && f.attrs[0]?.key?.startsWith('grid'))!.attrs as Array<{ key: string, coordinates: Coord[] }>
+    return figs.find((f) => f.type === 'line' && Array.isArray(f.attrs) && f.attrs[0]?.key?.startsWith('grid'))!.attrs as unknown as LineAttrs[]
   }
   it('measures the levels from the second anchor, and from the first when reversed', () => {
     const g = grid(false)

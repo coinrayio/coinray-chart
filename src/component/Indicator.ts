@@ -643,7 +643,7 @@ export default class IndicatorImp<D = unknown, C = unknown, E = unknown> impleme
       const result = await this.calc(dataList, this)
       this.result = result
       return true
-    } catch (e) {
+    } catch {
       return false
     }
   }

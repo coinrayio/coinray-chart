@@ -7,10 +7,11 @@ import { arrowMark } from '../extension/overlay/arrowMark'
 import { multiPoint } from '../extension/overlay/polyline'
 import { ellipse, doubleCurve } from '../extension/overlay/tv/linesShapes/shapes'
 import type { ProOverlayTemplate } from '../extension/overlay/types'
+import { pointFigures, type TestFigure } from './figureTestTypes'
 
 const bounding = { width: 800, height: 400, left: 0, right: 0, top: 0, bottom: 0 }
-const run = (tpl: ProOverlayTemplate, coordinates: Array<{ x: number, y: number }>, extendData?: unknown): any[] =>
-  tpl.createPointFigures!({ overlay: { id: 'o', extendData, styles: {}, points: [] }, coordinates, bounding } as never) as any[]
+const run = (tpl: ProOverlayTemplate, coordinates: Array<{ x: number, y: number }>, extendData?: unknown): TestFigure[] =>
+  pointFigures(tpl, { overlay: { id: 'o', extendData, styles: {}, points: [] }, coordinates, bounding })
 const box = [{ x: 100, y: 100 }, { x: 300, y: 200 }]
 const stroke = [{ x: 0, y: 0 }, { x: 50, y: 40 }, { x: 100, y: 0 }, { x: 150, y: 40 }]
 
@@ -41,18 +42,18 @@ describe('rect', () => {
     const tpl = rect()
     expect(run(tpl, box).some((f) => f.key === 'middleLine')).toBe(false)
     tpl.setProperties!({ showMiddleLine: true, middleLineColor: '#f00', middleLineWidth: 3 } as never, 'o')
-    const middle = run(tpl, box).find((f) => f.key === 'middleLine')
+    const middle = run(tpl, box).find((f) => f.key === 'middleLine')!
     expect(middle.attrs.coordinates).toEqual([{ x: 100, y: 150 }, { x: 300, y: 150 }])
     expect(middle.styles).toMatchObject({ color: '#f00', size: 3, style: 'dashed' })
   })
 
   it('aligns text as TV does: horizontally inside the box, vertical Top / Bottom hung outside the opposite edge', () => {
     const tpl = rect()
-    expect(run(tpl, box).find((f) => f.type === 'editableText').attrs).toMatchObject({ x: 200, y: 150, align: 'center', baseline: 'middle' })
+    expect(run(tpl, box).find((f) => f.type === 'editableText')!.attrs).toMatchObject({ x: 200, y: 150, align: 'center', baseline: 'middle' })
     tpl.setProperties!({ textAlignHorizontal: 'right', textAlignVertical: 'top' }, 'o')
-    expect(run(tpl, box).find((f) => f.type === 'editableText').attrs).toMatchObject({ x: 292, y: 203, align: 'right', baseline: 'top' })
+    expect(run(tpl, box).find((f) => f.type === 'editableText')!.attrs).toMatchObject({ x: 292, y: 203, align: 'right', baseline: 'top' })
     tpl.setProperties!({ textAlignHorizontal: 'left', textAlignVertical: 'bottom' }, 'o')
-    expect(run(tpl, box).find((f) => f.type === 'editableText').attrs).toMatchObject({ x: 108, y: 97, align: 'left', baseline: 'bottom' })
+    expect(run(tpl, box).find((f) => f.type === 'editableText')!.attrs).toMatchObject({ x: 108, y: 97, align: 'left', baseline: 'bottom' })
   })
 })
 
@@ -91,7 +92,7 @@ describe('line end arrows are TV\'s open head, not a filled triangle', () => {
   it('draws two barbs at 45 degrees, 7.5 px per pixel of width, on the path\'s last segment', () => {
     const tpl = multiPoint('path')()
     const figures = run(tpl, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }])
-    const head = figures.find((f) => f.key === 'head_end')
+    const head = figures.find((f) => f.key === 'head_end')!
     expect(head.type).toBe('line')
     const [a, tip, b] = head.attrs.coordinates
     expect(tip).toEqual({ x: 100, y: 100 })
@@ -107,19 +108,19 @@ describe('line end arrows are TV\'s open head, not a filled triangle', () => {
 describe('extend left / right on curves', () => {
   it('runs the curve on past its ends along its own parabola', () => {
     const pts = [{ x: 300, y: 200 }, { x: 500, y: 200 }, { x: 400, y: 260 }]
-    const plain = run(curve(), pts).find((f) => f.key === 'curve').attrs.coordinates
-    const both = run(curve(), pts, { extendLeft: true, extendRight: true }).find((f) => f.key === 'curve').attrs.coordinates
+    const plain = run(curve(), pts).find((f) => f.key === 'curve')!.attrs.coordinates
+    const both = run(curve(), pts, { extendLeft: true, extendRight: true }).find((f) => f.key === 'curve')!.attrs.coordinates
     expect(both.length).toBeGreaterThan(plain.length)
     const off = (p: { x: number, y: number }): boolean => p.x < 0 || p.x > 800 || p.y < 0 || p.y > 400
     expect(off(both[0])).toBe(true)
     expect(off(both[both.length - 1])).toBe(true)
-    const right = run(curve(), pts, { extendRight: true }).find((f) => f.key === 'curve').attrs.coordinates
+    const right = run(curve(), pts, { extendRight: true }).find((f) => f.key === 'curve')!.attrs.coordinates
     expect(right[0]).toEqual(plain[0])
   })
 
   it('draws a straight ray on a double curve', () => {
     const pts = [{ x: 300, y: 200 }, { x: 500, y: 200 }, { x: 350, y: 260 }, { x: 450, y: 140 }]
-    const line = run(doubleCurve(), pts, { extendRight: true }).find((f) => f.key === 'curve').attrs.coordinates
+    const line = run(doubleCurve(), pts, { extendRight: true }).find((f) => f.key === 'curve')!.attrs.coordinates
     const last = line[line.length - 1]
     expect(last.x).toBeGreaterThan(800)
   })
@@ -127,7 +128,7 @@ describe('extend left / right on curves', () => {
 
 describe('arrow mark', () => {
   it('is TV\'s size: 21 px across the head, 22 tall', () => {
-    const up = run(arrowMark('up')(), [{ x: 100, y: 100 }]).find((f) => f.key === 'arrow').attrs.coordinates
+    const up = run(arrowMark('up')(), [{ x: 100, y: 100 }]).find((f) => f.key === 'arrow')!.attrs.coordinates
     const xs = up.map((p: { x: number }) => p.x)
     const ys = up.map((p: { y: number }) => p.y)
     expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(21)
@@ -139,7 +140,7 @@ describe('ellipse', () => {
   it('carries a centred label once its third point is placed', () => {
     const tpl = ellipse()
     tpl.setProperties!({ text: 'hi', textFontStyle: 'italic' }, 'o')
-    const label = run(tpl, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 30 }]).find((f) => f.type === 'editableText')
+    const label = run(tpl, [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 30 }]).find((f) => f.type === 'editableText')!
     expect(label.attrs).toMatchObject({ x: 50, y: 0, text: 'hi' })
     expect(label.styles).toMatchObject({ fontStyle: 'italic', color: '#F23645', size: 14 })
   })

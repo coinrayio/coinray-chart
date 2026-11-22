@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { KLineData } from '../common/Data'
+import type DeepPartial from '../common/DeepPartial'
+import type { OverlayProperties } from '../extension/overlay/types'
+import { pointFigures, type TestFigure } from './figureTestTypes'
 import { position, positionStats } from '../extension/overlay/position'
 import { rangeTool } from '../extension/overlay/rangeTools'
 import { forecast } from '../extension/overlay/tv/forecastData/forecast'
@@ -13,7 +16,7 @@ vi.mock('../common/utils/canvas', async (importOriginal) => ({
 
 const bar = (open: number, high: number, low: number, close: number, volume: number, timestamp = 0): KLineData => ({ timestamp, open, high, low, close, volume })
 const bounding = { width: 800, height: 400, left: 0, right: 0, top: 0, bottom: 0 }
-const fake = (data: KLineData[], active = false, indexOf: (ts: number) => number = (ts) => ts): any => ({
+const fake = (data: KLineData[], active = false, indexOf: (ts: number) => number = (ts) => ts) => ({
   getDataList: () => data,
   convertToPixel: () => ({ y: 120 }),
   getChartStore: () => ({
@@ -42,13 +45,13 @@ describe('withAlpha and timeSpan', () => {
 })
 
 describe('long / short position', () => {
-  const run = (extendData: unknown, opts: { active?: boolean, lineColor?: string } = {}): any[] => {
+  const run = (extendData: unknown, opts: { active?: boolean, lineColor?: string } = {}): TestFigure[] => {
     const tpl = position('long')()
     const overlay = { id: 'p', paneId: 'candle_pane', extendData, points: [{ value: 100 }, { value: 90 }, { value: 120 }, { value: 100 }] }
-    if (opts.lineColor !== undefined) tpl.setProperties!({ lineColor: opts.lineColor } as any, 'p')
-    return tpl.createPointFigures!({ overlay, coordinates: [{ x: 100, y: 200 }, { x: 100, y: 260 }, { x: 100, y: 100 }, { x: 300, y: 200 }], bounding, chart: fake([bar(1, 1, 1, 101, 1)], opts.active) } as any) as any[]
+    if (opts.lineColor !== undefined) tpl.setProperties!({ lineColor: opts.lineColor }, 'p')
+    return pointFigures(tpl, { overlay, coordinates: [{ x: 100, y: 200 }, { x: 100, y: 260 }, { x: 100, y: 100 }, { x: 300, y: 200 }], bounding, chart: fake([bar(1, 1, 1, 101, 1)], opts.active) })
   }
-  const keys = (figs: any[]): Array<string | undefined> => figs.map((f) => f.key)
+  const keys = (figs: TestFigure[]): Array<string | undefined> => figs.map((f) => f.key)
 
   it('shows its pills only while hovered or selected, unless Always show stats is on (TV\'s default is off)', () => {
     expect(keys(run({}))).not.toContain('target_label')
@@ -58,7 +61,7 @@ describe('long / short position', () => {
   })
 
   it('takes presses anywhere on its box, selected or not, so a click or hover anywhere on it reaches it', () => {
-    const pressable = (figs: any[]): Array<string | undefined> => figs.filter((f) => f.ignoreEvent !== true).map((f) => f.key)
+    const pressable = (figs: TestFigure[]): Array<string | undefined> => figs.filter((f) => f.ignoreEvent !== true).map((f) => f.key)
     expect(pressable(run({}))).toEqual(['profit', 'stop', 'target_line', 'stop_line', 'entry'])
     expect(pressable(run({}, { active: true }))).toEqual(expect.arrayContaining(['profit', 'stop', 'target_line', 'stop_line', 'entry']))
   })
@@ -66,11 +69,11 @@ describe('long / short position', () => {
   it('takes the level lines and the pill colours from the stop and target colours', () => {
     const figs = run({ stopColor: 'rgba(255, 152, 0, 0.2)', profitColor: 'rgba(33, 150, 243, 0.2)', alwaysShowStats: true }, { lineColor: '#e91e63' })
     const by = (k: string) => figs.find((f) => f.key === k)
-    expect(by('target_line').styles.color).toBe('rgba(33, 150, 243, 1)')
-    expect(by('stop_line').styles.color).toBe('rgba(255, 152, 0, 1)')
-    expect(by('entry').styles.color).toBe('#e91e63')
-    expect(by('target_label').styles.color).toBe('rgba(33, 150, 243, 0.95)')
-    expect(by('stop_label').styles.color).toBe('rgba(255, 152, 0, 0.95)')
+    expect(by('target_line')?.styles.color).toBe('rgba(33, 150, 243, 1)')
+    expect(by('stop_line')?.styles.color).toBe('rgba(255, 152, 0, 1)')
+    expect(by('entry')?.styles.color).toBe('#e91e63')
+    expect(by('target_label')?.styles.color).toBe('rgba(33, 150, 243, 0.95)')
+    expect(by('stop_label')?.styles.color).toBe('rgba(255, 152, 0, 0.95)')
   })
 
   it('clamps a money risk to the account, as TV does', () => {
@@ -91,70 +94,70 @@ describe('long / short position', () => {
 })
 
 describe('range tools', () => {
-  const run = (kind: 'price' | 'date' | 'dateAndPrice', extendData: unknown, props: Record<string, unknown> = {}): any[] => {
+  const run = (kind: 'price' | 'date' | 'dateAndPrice', extendData: unknown, props: DeepPartial<OverlayProperties> = {}): TestFigure[] => {
     const tpl = rangeTool(kind)()
-    tpl.setProperties!(props as any, 'r')
+    tpl.setProperties!(props, 'r')
     const data = [bar(1, 1, 1, 1, 1000), bar(1, 1, 1, 1, 2500), bar(1, 1, 1, 1, 500)]
     const overlay = { id: 'r', extendData, points: [{ timestamp: 0, dataIndex: 0, value: 100 }, { timestamp: 7200000, dataIndex: 2, value: 110 }] }
-    return tpl.createPointFigures!({ overlay, coordinates: [{ x: 100, y: 300 }, { x: 300, y: 100 }], bounding, chart: fake(data) } as any) as any[]
+    return pointFigures(tpl, { overlay, coordinates: [{ x: 100, y: 300 }, { x: 300, y: 100 }], bounding, chart: fake(data) })
   }
-  const by = (figs: any[], k: string): any => figs.find((f) => f.key === k)
+  const by = (figs: TestFigure[], k: string): TestFigure | undefined => figs.find((f) => f.key === k)
 
   it('extends the fill with the bound lines', () => {
-    expect(by(run('price', { extendLeft: true, extendRight: true }), 'background').attrs).toMatchObject({ x: 0, width: 800, y: 100, height: 200 })
-    expect(by(run('date', { extendTop: true, extendBottom: true }), 'background').attrs).toMatchObject({ y: 0, height: 400, x: 100, width: 200 })
-    expect(by(run('price', {}), 'background').attrs).toMatchObject({ x: 100, width: 200 })
+    expect(by(run('price', { extendLeft: true, extendRight: true }), 'background')?.attrs).toMatchObject({ x: 0, width: 800, y: 100, height: 200 })
+    expect(by(run('date', { extendTop: true, extendBottom: true }), 'background')?.attrs).toMatchObject({ y: 0, height: 400, x: 100, width: 200 })
+    expect(by(run('price', {}), 'background')?.attrs).toMatchObject({ x: 100, width: 200 })
   })
 
   it('puts its own text at the centre of the box', () => {
     const text = by(run('price', { customTextVisible: true, text: 'hi' }), 'custom_text')
-    expect(text.attrs).toMatchObject({ x: 200, y: 200, baseline: 'middle' })
+    expect(text?.attrs).toMatchObject({ x: 200, y: 200, baseline: 'middle' })
   })
 
   it('ends the date tools\' label with the range volume, and counts ticks below three decimals', () => {
-    expect(by(run('date', {}), 'label').attrs.text).toBe('2 bars, 2h\nVol 4 K')
-    expect(by(run('price', {}), 'label').attrs.text).toBe('10.00 (10.00%) 1,000')
+    expect(by(run('date', {}), 'label')?.attrs.text).toBe('2 bars, 2h\nVol 4 K')
+    expect(by(run('price', {}), 'label')?.attrs.text).toBe('10.00 (10.00%) 1,000')
   })
 
   it('ends arrows in an open chevron, and breaks them around its own text', () => {
     const plain = run('price', {})
-    expect(by(plain, 'arrow_price_head').type).toBe('line')
-    expect(by(plain, 'arrow_price_head').attrs.coordinates).toHaveLength(3)
+    expect(by(plain, 'arrow_price_head')?.type).toBe('line')
+    expect(by(plain, 'arrow_price_head')?.attrs.coordinates).toHaveLength(3)
     expect(by(plain, 'arrow_price_1')).toBeUndefined()
     const broken = run('price', { customTextVisible: true, text: 'hi' })
     // Arrow runs y 300 -> 100 at x 200; the text (halfH 6 + 5) leaves 300..211 and 189..100.
-    expect(by(broken, 'arrow_price').attrs.coordinates.map((c: any) => c.y)).toEqual([300, 211])
-    expect(by(broken, 'arrow_price_1').attrs.coordinates.map((c: any) => c.y)).toEqual([189, 100])
+    expect(by(broken, 'arrow_price')?.attrs.coordinates.map((c) => c.y)).toEqual([300, 211])
+    expect(by(broken, 'arrow_price_1')?.attrs.coordinates.map((c) => c.y)).toEqual([189, 100])
   })
 
   it('draws an arrow\'s line even when it is too short for a head', () => {
     const tpl = rangeTool('price')()
-    const figs = tpl.createPointFigures!({ overlay: { id: 'x', extendData: {}, points: [{ timestamp: 0, dataIndex: 0, value: 100 }, { timestamp: 0, dataIndex: 1, value: 100.1 }] }, coordinates: [{ x: 100, y: 200 }, { x: 300, y: 195 }], bounding, chart: fake([bar(1, 1, 1, 1, 1), bar(1, 1, 1, 1, 1)]) } as any) as any[]
+    const figs = pointFigures(tpl, { overlay: { id: 'x', extendData: {}, points: [{ timestamp: 0, dataIndex: 0, value: 100 }, { timestamp: 0, dataIndex: 1, value: 100.1 }] }, coordinates: [{ x: 100, y: 200 }, { x: 300, y: 195 }], bounding, chart: fake([bar(1, 1, 1, 1, 1), bar(1, 1, 1, 1, 1)]) })
     expect(by(figs, 'arrow_price')).toBeDefined()
     expect(by(figs, 'arrow_price_head')).toBeUndefined()
   })
 })
 
 describe('forecast', () => {
-  const run = (target: number, data: KLineData[], extendData: unknown = {}): any[] => {
+  const run = (target: number, data: KLineData[], extendData: unknown = {}): TestFigure[] => {
     const tpl = forecast()
     const overlay = { id: 'f', extendData, points: [{ timestamp: 0, dataIndex: 0, value: 100 }, { timestamp: 86400000, dataIndex: 2, value: target }] }
     // Bar lookups go by timestamp; map the target's onto the bar its dataIndex names.
     const indexOf = (ts: number): number => (ts === 86400000 ? 2 : 0)
-    return tpl.createPointFigures!({ overlay, coordinates: [{ x: 100, y: 300 }, { x: 300, y: 100 }], bounding, chart: fake(data, false, indexOf) } as any) as any[]
+    return pointFigures(tpl, { overlay, coordinates: [{ x: 100, y: 300 }, { x: 300, y: 100 }], bounding, chart: fake(data, false, indexOf) })
   }
-  const by = (figs: any[], k: string): any => figs.find((f) => f.key === k)
+  const by = (figs: TestFigure[], k: string): TestFigure | undefined => figs.find((f) => f.key === k)
   const flat = [bar(100, 101, 99, 100, 1), bar(100, 105, 99, 104, 1), bar(100, 108, 99, 107, 1), bar(100, 109, 99, 108, 1)]
 
   it('judges success on the target bar alone, and keeps the target balloon in the target colours', () => {
     const hit = run(108, flat, { successBackColor: '#0f0', targetBackColor: '#00f' })
-    expect(by(hit, 'status').attrs.text).toContain('SUCCESS')
-    expect(by(hit, 'status').styles.backgroundColor).toBe('#0f0')
-    expect(by(hit, 'target_label').styles.backgroundColor).toBe('#00f')
+    expect(by(hit, 'status')?.attrs.text).toContain('SUCCESS')
+    expect(by(hit, 'status')?.styles.backgroundColor).toBe('#0f0')
+    expect(by(hit, 'target_label')?.styles.backgroundColor).toBe('#00f')
     // The path crossed 105 on the way, but the target bar itself only reached 108.
     const miss = run(112, flat, { failureBackColor: '#f00', failureTextColor: '#fff' })
-    expect(by(miss, 'status').attrs.text).toContain('FAILURE')
-    expect(by(miss, 'status').styles).toMatchObject({ backgroundColor: '#f00', color: '#fff' })
+    expect(by(miss, 'status')?.attrs.text).toContain('FAILURE')
+    expect(by(miss, 'status')?.styles).toMatchObject({ backgroundColor: '#f00', color: '#fff' })
   })
 
   it('has no outcome while the target bar is the last one and has not been reached, or is not there yet', () => {
@@ -164,8 +167,8 @@ describe('forecast', () => {
 
   it('writes TV\'s two-line balloons', () => {
     const figs = run(108, flat)
-    expect(by(figs, 'source_label').attrs.text).toBe('100.00\n1970-01-01')
-    expect(by(figs, 'target_label').attrs.text).toBe('8.00 (8.00%) in 1d\n108.00 1970-01-02')
+    expect(by(figs, 'source_label')?.attrs.text).toBe('100.00\n1970-01-01')
+    expect(by(figs, 'target_label')?.attrs.text).toBe('8.00 (8.00%) in 1d\n108.00 1970-01-02')
   })
 })
 
