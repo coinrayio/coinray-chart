@@ -43,6 +43,7 @@ import { DEFAULT_OVERLAY_PROPERTIES } from '../../types'
 import { fibOneColor, withAlpha } from '../../fibonacciShared'
 import { propertyStore } from './shared'
 import { boxHandles } from '../../extraHandles'
+import { snapAngle } from '../../../../common/utils/shiftSnap'
 
 export interface GannBoxLevel { value: number, color: string, visible: boolean }
 
@@ -94,7 +95,7 @@ const gannBox = (): ProOverlayTemplate => {
     totalStep: 3,
     needDefaultPointFigure: true,
     // TV's four corners.
-    ...boxHandles(false),
+    ...boxHandles(false, snapAngle),
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, overlay }) => {

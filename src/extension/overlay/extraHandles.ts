@@ -36,8 +36,10 @@ const setValue = (p: Partial<Point>, q: Partial<Point>): void => {
  * A box on two opposite corners (points 0 and 1): the other two corners and,
  * with `edges`, each edge's midpoint as TV's square handle. A corner moves the
  * time of one point and the price of the other; an edge moves one of the four.
+ * With Shift a corner snaps around the opposite one with `cornerSnap`, the
+ * snap the tool's own corner points use.
  */
-export function boxHandles (edges: boolean): Hooks {
+export function boxHandles (edges: boolean, cornerSnap: (anchor: Coordinate, coordinate: Coordinate) => Coordinate): Hooks {
   return {
     createExtraHandles: ({ coordinates }) => {
       if (coordinates.length < 2) return []
@@ -67,9 +69,15 @@ export function boxHandles (edges: boolean): Hooks {
       const down = index < 2 ? (b.x - a.x) * (b.y - a.y) > 0 : (b.x - a.x) * (b.y - a.y) < 0
       return down ? 'nwse-resize' : 'nesw-resize'
     },
-    moveExtraHandle: ({ overlay, index, coordinate, toPoint }) => {
+    moveExtraHandle: ({ overlay, index, coordinate, coordinates, shiftKey, toPoint }) => {
       const [a, b] = overlay.points
-      const q = toPoint(coordinate)
+      // Extra corners 0 and 1 sit at (a.x, b.y) and (b.x, a.y): each one's
+      // opposite corner is the other.
+      const [ca, cb] = coordinates
+      const snapped = shiftKey === true && index < 2 && coordinates.length >= 2
+        ? cornerSnap(index === 0 ? { x: cb.x, y: ca.y } : { x: ca.x, y: cb.y }, coordinate)
+        : coordinate
+      const q = toPoint(snapped)
       switch (index) {
         case 0: setTime(a, q); setValue(b, q); break
         case 1: setTime(b, q); setValue(a, q); break

@@ -23,7 +23,7 @@ import { UpdateLevel } from '../common/Updater'
 
 import type { Axis } from '../component/Axis'
 import type { YAxis } from '../component/YAxis'
-import type { OverlayFigure, Overlay } from '../component/Overlay'
+import type { OverlayFigure, Overlay, OverlayExtraHandle } from '../component/Overlay'
 import type OverlayImp from '../component/Overlay'
 import { checkOverlayFigureEvent, OVERLAY_FIGURE_KEY_PREFIX } from '../component/Overlay'
 import { setDrawingOverlay } from '../component/Figure'
@@ -43,6 +43,25 @@ import { getTextRect } from '../extension/figure/text'
 import { scaleDialogDashes } from '../extension/overlay/tvLine'
 
 import View from './View'
+import { snapAngle, snapSquare, snapWidth } from '../common/utils/shiftSnap'
+
+// Below this, a snapped coordinate counts as level with its anchor: the 45°
+// steps carry float noise (cos 90° is 6e-17, not 0).
+const SNAP_EPSILON = 1e-6
+
+// The third point of these channels only sets the width: snapping it to an
+// angle around point 1 changes the width to whatever that angle lands on.
+const CHANNEL_WIDTH_POINT_TOOLS = new Set(['parallelChannel', 'parallelStraightLine', 'priceChannelLine', 'fibonacciLine', 'flatBottom', 'disjointAngle'])
+
+/**
+ * Whether Shift on handle `index` locks its drag to one axis rather than
+ * snapping it to an angle: every handle of the position tools (each moves the
+ * entry, a level or the right edge on its own) and the width point of a channel.
+ */
+export function shiftLocksAxis (o: Pick<Overlay, 'name'>, index: number): boolean {
+  if (o.name === 'longPosition' || o.name === 'shortPosition') return true
+  return index === 2 && CHANNEL_WIDTH_POINT_TOOLS.has(o.name)
+}
 
 /** Marquee paint. Neutral blue, readable over both chart themes. */
 /** How far a press must travel before its release places the next drawing point. */
@@ -96,6 +115,8 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   private _dragDraw: Nullable<{ overlay: OverlayImp, x: number, y: number, moved: boolean }> = null
   /** The click that ends a press `_dragDraw` already handled. */
   private _swallowClick = false
+  // The extra handle a drag has moved, so one that hides while dragged stays hidden until release.
+  private _draggedHandle: Nullable<{ overlayId: string, index: number }> = null
 
   private _activeTextEditor: Nullable<{
     input: HTMLInputElement | HTMLTextAreaElement
@@ -335,6 +356,10 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         this._coDraggedOverlays = []
       }
       this._pressStart = null
+      if (this._draggedHandle !== null) {
+        this._draggedHandle = null
+        chart.updatePane(UpdateLevel.Overlay)
+      }
       chartStore.setPressedOverlayInfo({
         paneId,
         overlay: null,
@@ -377,15 +402,27 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
               this._pressMoved = true
             }
             const shift = event.shiftKey === true
-            // Shift on a body drag locks it to one axis; on a point handle it
-            // snaps that point exactly as it would while drawing.
-            const extraHandle = figureType === 'point' && figureIndex >= overlay.points.length
-            const moveEvent = shift && !extraHandle
-              ? (figureType === 'point'
-                  ? { ...event, ...this._shiftSnapPoint(overlay, event, figureIndex) }
-                  : this._constrainToDragAxis(event))
-              : event
-            const point = this._coordinateToPoint(overlay, moveEvent, shift && figureType === 'point')
+            const isExtra = figureType === 'point' && figureIndex >= overlay.points.length
+            // A handle that moves the whole drawing (a circle's centre) drags
+            // exactly like its body.
+            const bodyLike = figureType !== 'point' || (isExtra && this._extraHandleAt(overlay, figureIndex)?.movesDrawing === true)
+            const extraHandle = isExtra && !bodyLike
+            // Shift on a body drag, or on a handle with no angle to snap, locks
+            // the drag to one axis; on any other point handle it snaps that
+            // point exactly as it would while drawing. Extra handles get Shift
+            // passed on and snap themselves.
+            const keep = shift && !extraHandle && (bodyLike || shiftLocksAxis(overlay, figureIndex))
+              ? this._dragKeeps(event)
+              : null
+            const snapHandle = shift && !bodyLike && !extraHandle && keep === null
+            const moveEvent = keep !== null
+              ? this._constrainToDragAxis(event, keep)
+              : (snapHandle ? { ...event, ...this._shiftSnapPoint(overlay, event, figureIndex) } : event)
+            // A Shift body drag goes free of the magnet, like every other Shift
+            // edit, so the rail's magnet reads off for all of them.
+            const lockedBody = keep !== null && bodyLike
+            const point = lockedBody ? this._freeDragPoint(overlay, moveEvent) : this._coordinateToPoint(overlay, moveEvent, snapHandle || keep !== null)
+            if (snapHandle) this._alignToAnchor(overlay, figureIndex, moveEvent, point)
             // When the pressed figure declares `noTranslate`, the
             // engine skips the default point-translation step
             // entirely — the overlay's `onPressedMoving` handler
@@ -400,21 +437,29 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
                   index: figureIndex - overlay.points.length,
                   coordinate: { x: event.x, y: event.y },
                   coordinates,
-                  toPoint: (c) => this._coordinateToPoint(overlay, { ...event, ...c })
+                  shiftKey: shift,
+                  // A Shift-snapped handle drops the magnet, as a point handle does.
+                  toPoint: (c, free = false) => this._coordinateToPoint(overlay, { ...event, ...c, ...(free ? { shiftKey: true } : {}) }, shift || free),
+                  toCoordinate: (p) => this._pointToCoordinate(p),
+                  pressCoordinates: (() => {
+                    const pressed = overlay.getPressedPoints().map(p => this._pointToCoordinate(p))
+                    return pressed.length === coordinates.length && pressed.every(c => c !== null) ? pressed : coordinates
+                  })()
                 })
+                this._draggedHandle = { overlayId: overlay.id, index: figureIndex }
               }
             } else if (!noTranslate) {
-              if (figureType === 'point') {
-                overlay.eventPressedPointMove(point, figureIndex)
+              if (!bodyLike) {
+                overlay.eventPressedPointMove(point, figureIndex, keep ?? undefined)
               } else {
-                overlay.eventPressedOtherMove(point, this.getWidget().getPane().getChart().getChartStore())
+                overlay.eventPressedOtherMove(point, this.getWidget().getPane().getChart().getChartStore(), keep ?? undefined)
                 // Multi-selection: translate every other armed drawing by
                 // its own delta from the same cursor position, so the whole
                 // selection moves together in time/price space.
                 if (this._coDraggedOverlays.length > 0) {
                   const store = this.getWidget().getPane().getChart().getChartStore()
                   for (const other of this._coDraggedOverlays) {
-                    other.eventPressedOtherMove(this._coordinateToPoint(other, moveEvent), store)
+                    other.eventPressedOtherMove(lockedBody ? this._freeDragPoint(other, moveEvent) : this._coordinateToPoint(other, moveEvent), store, keep ?? undefined)
                   }
                 }
               }
@@ -422,14 +467,9 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
             // A handle drag puts the crosshair on the handle where it landed:
             // candle, magnet and Shift snapping all move it off the pointer.
             if (figureType === 'point') {
-              const at = extraHandle
-                ? (() => {
-                    const coordinates = overlay.points.map(p => this._pointToCoordinate(p))
-                    if (!coordinates.every(c => c !== null)) return null
-                    return overlay.createExtraHandles?.({ overlay, coordinates })[figureIndex - overlay.points.length] ?? null
-                  })()
-                : this._pointToCoordinate(overlay.points[figureIndex])
-              if (at !== null) this.getWidget().setPinnedCrosshair({ x: at.x, y: at.y })
+              const at = isExtra ? this._extraHandleAt(overlay, figureIndex) : this._pointToCoordinate(overlay.points[figureIndex])
+              // A hidden handle is not where the eye is: the crosshair stays on the pointer.
+              if (at !== null && !('hideWhileDragged' in at && at.hideWhileDragged === true)) this.getWidget().setPinnedCrosshair({ x: at.x, y: at.y })
             }
             let prevented = false
             overlay.onPressedMoving?.({
@@ -1065,6 +1105,8 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
    * Shift only. Per tool: a square for rect/box, a circle for the ellipse and a
    * square for the rotated rectangle (their third point sets the width), nothing
    * for circle (already round), and 45° steps from the last anchor otherwise.
+   * Points that only move along one axis or set a channel's width have no
+   * angle to snap (`shiftLocksAxis`): a drag locks them to an axis instead.
    *
    * The anchor is the point before `index`, or the next one for the first
    * point, so dragging either end of a line snaps around the other end.
@@ -1075,50 +1117,36 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   private _shiftSnapPoint (o: Overlay, coordinate: Coordinate, index: number): Coordinate {
     // A circle has no angle to snap; the measure (started with Shift held)
     // follows the cursor, as on tradingview.com.
-    if (o.name === 'circle' || o.name === 'measure') return coordinate
+    if (o.name === 'circle' || o.name === 'measure' || shiftLocksAxis(o, index)) return coordinate
     const anchor = this._pointToCoordinate(o.points[index === 0 ? 1 : index - 1])
     if (anchor === null) return coordinate
 
-    const dx = coordinate.x - anchor.x
-    const dy = coordinate.y - anchor.y
-    if (dx === 0 && dy === 0) return coordinate
-
-    if (o.name === 'rect' || o.name === 'box') {
-      const side = Math.max(Math.abs(dx), Math.abs(dy))
-      return { x: anchor.x + (dx < 0 ? -side : side), y: anchor.y + (dy < 0 ? -side : side) }
-    }
+    if (o.name === 'rect' || o.name === 'box') return snapSquare(anchor, coordinate)
 
     const widthTool = o.name === 'ellipse' || o.name === 'rotatedRectangle'
     if (widthTool && index === 2) {
       const axisStart = this._pointToCoordinate(o.points[0])
-      if (axisStart === null) return coordinate
-      const ax = anchor.x - axisStart.x
-      const ay = anchor.y - axisStart.y
-      const length = Math.hypot(ax, ay)
-      if (length === 0) return coordinate
-      // Keep the cursor's position along the axis and its side of it; only the
-      // distance from the axis is fixed, at half the axis length.
-      const nx = -ay / length
-      const ny = ax / length
-      const side = (coordinate.x - axisStart.x) * nx + (coordinate.y - axisStart.y) * ny < 0 ? -1 : 1
-      const along = ((coordinate.x - axisStart.x) * ax + (coordinate.y - axisStart.y) * ay) / length
-      const mid = { x: axisStart.x + ax / 2, y: axisStart.y + ay / 2 }
-      const reach = along - length / 2
-      return {
-        x: mid.x + (ax / length) * reach + nx * side * (length / 2),
-        y: mid.y + (ay / length) * reach + ny * side * (length / 2)
-      }
+      return axisStart === null ? coordinate : snapWidth(axisStart, anchor, coordinate)
     }
 
-    const step = Math.PI / 4
-    const angle = Math.round(Math.atan2(dy, dx) / step) * step
-    const cos = Math.cos(angle)
-    const sin = Math.sin(angle)
-    // Project the cursor onto the snapped direction rather than keeping its
-    // raw distance: sliding sideways then shortens the line instead of
-    // swinging its far end out past the pointer.
-    const reach = dx * cos + dy * sin
-    return { x: anchor.x + reach * cos, y: anchor.y + reach * sin }
+    return snapAngle(anchor, coordinate)
+  }
+
+  /**
+   * The axis puts a price on a whole pixel, so a Shift snap that lands level
+   * with its anchor (or straight above it) can still miss the anchor's price
+   * (or time) by a fraction of a pixel, and a flat line shows two prices. It
+   * takes the anchor's own value instead. Same anchor as `_shiftSnapPoint`.
+   */
+  private _alignToAnchor (o: Overlay, index: number, coordinate: Coordinate, point: Partial<Point>): void {
+    const source = o.points[index === 0 ? 1 : index - 1] as Partial<Point> | undefined
+    const anchor = this._pointToCoordinate(source)
+    if (source === undefined || anchor === null) return
+    if (Math.abs(coordinate.y - anchor.y) < SNAP_EPSILON && isNumber(source.value)) point.value = source.value
+    if (Math.abs(coordinate.x - anchor.x) < SNAP_EPSILON && isNumber(source.dataIndex)) {
+      point.dataIndex = source.dataIndex
+      point.timestamp = source.timestamp
+    }
   }
 
   private _pointToCoordinate (point: Partial<Point> | undefined): Nullable<Coordinate> {
@@ -1136,13 +1164,45 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
   }
 
   // Whichever axis the cursor has travelled further along wins, measured from
-  // where the press landed.
-  private _constrainToDragAxis (event: MouseTouchEvent): MouseTouchEvent {
+  // where the press landed: travelling sideways keeps the price, up or down
+  // keeps the time. Null with no press to measure from.
+  private _dragKeeps (event: MouseTouchEvent): Nullable<'price' | 'time'> {
+    const start = this._pressStart
+    if (start === null) return null
+    return Math.abs(event.x - start.x) >= Math.abs(event.y - start.y) ? 'price' : 'time'
+  }
+
+  // Back on the press's line. The screen lock alone is not exact: the magnet
+  // re-snaps the price at every candle, so the drawing also takes the kept
+  // axis from the press (`keep` in `eventPressedPointMove` / `eventPressedOtherMove`).
+  /** Extra handle `figureIndex` (numbered after the points) where the drawing is now. */
+  private _extraHandleAt (overlay: OverlayImp, figureIndex: number): Nullable<OverlayExtraHandle> {
+    const coordinates = overlay.points.map(p => this._pointToCoordinate(p))
+    if (!coordinates.every(c => c !== null)) return null
+    return overlay.createExtraHandles?.({ overlay, coordinates })[figureIndex - overlay.points.length] ?? null
+  }
+
+  /**
+   * The cursor's point without the magnet, for a body drag that has gone free
+   * of it mid-drag. The grab was magnetised when pressed, so the press's own
+   * magnet offset rides along: the drawing then follows the pointer exactly
+   * from where it was, without a jump.
+   */
+  private _freeDragPoint (o: Overlay, event: MouseTouchEvent): Partial<Point> {
+    const point = this._coordinateToPoint(o, event, true)
+    const start = this._pressStart
+    if (start === null || point.value === undefined) return point
+    const at = { ...event, x: start.x, y: start.y }
+    const grabbed = this._coordinateToPoint(o, { ...at, shiftKey: false }).value
+    const free = this._coordinateToPoint(o, at, true).value
+    if (grabbed !== undefined && free !== undefined) point.value += grabbed - free
+    return point
+  }
+
+  private _constrainToDragAxis (event: MouseTouchEvent, keep: 'price' | 'time'): MouseTouchEvent {
     const start = this._pressStart
     if (start === null) return event
-    return Math.abs(event.x - start.x) >= Math.abs(event.y - start.y)
-      ? { ...event, y: start.y }
-      : { ...event, x: start.x }
+    return keep === 'price' ? { ...event, y: start.y } : { ...event, x: start.x }
   }
 
   private _coordinateToPoint (o: Overlay, event: MouseTouchEvent, shiftSnapped = false): Partial<Point> {
@@ -1158,10 +1218,9 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
     const coordinate = shift && drawing && o.currentStep > 1 ? this._shiftSnapPoint(o, event, o.currentStep - 1) : event
     // Meta (Cmd) / Ctrl inverts magnet for as long as it is held: a tool drawn
     // with magnet on goes free, and one drawn with magnet off snaps at the
-    // strength the user last picked. Shift while drawing or snapping a handle
-    // switches it off, as a magnet pull would fight the snapped geometry; not
-    // during a body drag, where the grab point was magnetised and dropping it
-    // would make the drawing jump.
+    // strength the user last picked. Shift while drawing or editing switches
+    // it off, as a magnet pull would fight the snapped geometry (a body drag
+    // does so through `_freeDragPoint`, which keeps the grab's offset).
     const magnetInverted = event.metaKey === true || event.ctrlKey === true
     let mode = magnetInverted
       ? (o.mode === 'normal' ? chartStore.getPreferredMagnetMode() : 'normal')
@@ -1227,6 +1286,7 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
       }
       point.value = value
     }
+    if (coordinate !== event) this._alignToAnchor(o, o.currentStep - 1, coordinate, point)
     return point
   }
 
@@ -1731,10 +1791,12 @@ export default class OverlayView<C extends Axis = YAxis> extends View<C> {
         // drag treat them exactly like point handles.
         const extra = overlay.createExtraHandles?.({ overlay, coordinates }) ?? []
         const handles = [
-          ...coordinates.map(({ x, y }) => ({ x, y, square: false })),
-          ...extra.map(({ x, y, square }) => ({ x, y, square: square === true }))
+          ...coordinates.map(({ x, y }) => ({ x, y, square: false, hideWhileDragged: false })),
+          ...extra.map(({ x, y, square, hideWhileDragged }) => ({ x, y, square: square === true, hideWhileDragged }))
         ]
-        handles.forEach(({ x, y, square }, index) => {
+        const dragged = this._draggedHandle?.overlayId === overlay.id ? this._draggedHandle.index : -1
+        handles.forEach(({ x, y, square, hideWhileDragged }, index) => {
+          if (index === dragged && hideWhileDragged === true) return
           // Skip points not in the allow-list (when `needDefaultPointFigure`
           // is a number[] whitelist).
           if (index < coordinates.length && allowedIndices !== null && !allowedIndices.has(index)) return

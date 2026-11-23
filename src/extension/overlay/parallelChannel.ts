@@ -31,6 +31,7 @@ import type Coordinate from '../../common/Coordinate'
 import type DeepPartial from '../../common/DeepPartial'
 import type { LineStyle, LineType, PolygonStyle } from '../../common/Styles'
 import { merge, clone } from '../../common/utils/typeChecks'
+import { snapAngle } from '../../common/utils/shiftSnap'
 import type { OverlayProperties, ProOverlayTemplate } from './types'
 import { DEFAULT_OVERLAY_PROPERTIES } from './types'
 import { channelText } from './tv/linesShapes/channelText'
@@ -81,34 +82,74 @@ const parallelChannel = (): ProOverlayTemplate => {
   return {
     name: 'parallelChannel',
     totalStep: 4,
-    needDefaultPointFigure: true,
-    // TV's six: point 2 is one, then the parallel line's ends and the base
-    // line's midpoint. An end moves that end of the channel, keeping its width;
-    // the midpoint slides the base line, keeping the parallel one.
+    // All six dots are the channel's own handles, so each keeps the channel
+    // whole the way TV does. Point 2 only holds the width and sits wherever the
+    // third click was, so it gets no dot of its own.
+    needDefaultPointFigure: [],
+    // TV's six: the ends of the base line and of the parallel line, then both
+    // lines' midpoints, which stay in the middle. An end moves that end of
+    // both lines, keeping the width; a midpoint moves its line up or down
+    // until it passes through the cursor, keeping its angle and the other line.
     createExtraHandles: ({ coordinates }) => {
       if (coordinates.length < 3) return []
       const [a, b, c] = coordinates
       const offset = c.y - atX(a, b, c.x).y
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
       return [
+        a,
+        b,
         { x: a.x, y: a.y + offset },
         { x: b.x, y: b.y + offset },
-        { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        // Midpoints stay in the middle rather than following the cursor, so
+        // each hides while it is dragged, as in TV.
+        { ...mid, hideWhileDragged: true },
+        { x: mid.x, y: mid.y + offset, hideWhileDragged: true }
       ]
     },
-    moveExtraHandle: ({ overlay, index, coordinate, coordinates, toPoint }) => {
+    // Worked in price: the magnet acts on the dragged dot only, and every
+    // other dot moves by exact amounts, so none snaps to a candle of its own.
+    moveExtraHandle: ({ overlay, index, coordinate, coordinates, shiftKey, toPoint }) => {
       const [a, b, c] = coordinates
-      if (index === 2) {
-        const dy = coordinate.y - (a.y + b.y) / 2
-        overlay.points[0].value = toPoint({ x: a.x, y: a.y + dy }).value
-        overlay.points[1].value = toPoint({ x: b.x, y: b.y + dy }).value
+      const points = overlay.points
+      // Interpolated along time: every stored point has a timestamp, not always a data index.
+      const [ia, ib, ic] = points.map(p => p.timestamp)
+      const [va, vb, vc] = points.map(p => p.value)
+      if (ia === undefined || ib === undefined || ic === undefined || va === undefined || vb === undefined || vc === undefined) return
+      // The base line's price at `i`, and the parallel line's price above it.
+      const baseAt = (i: number, a0: number, v0: number, b0: number, v1: number): number => (b0 === a0 ? v0 : v0 + ((v1 - v0) * (i - a0)) / (b0 - a0))
+      const width = vc - baseAt(ic, ia, va, ib, vb)
+      if (index >= 4) {
+        // A midpoint: its line keeps its angle and moves up or down until it
+        // passes through the (magnetised) cursor.
+        const q = toPoint(coordinate)
+        if (q.timestamp === undefined || q.value === undefined) return
+        const dv = q.value - (baseAt(q.timestamp, ia, va, ib, vb) + (index === 5 ? width : 0))
+        if (index === 5) {
+          points[2].value = vc + dv
+        } else {
+          points[0].value = va + dv
+          points[1].value = vb + dv
+        }
         return
       }
+      // A corner: that end of both lines moves, the width stays.
+      const end = index % 2
+      const other = 1 - end
+      const onParallel = index >= 2
       const offset = c.y - atX(a, b, c.x).y
-      const end = { x: coordinate.x, y: coordinate.y - offset }
-      Object.assign(overlay.points[index], toPoint(end))
-      // Point 2 holds the width: keep it the same distance off the new base line.
-      const base = index === 0 ? atX(end, b, c.x) : atX(a, end, c.x)
-      overlay.points[2].value = toPoint({ x: c.x, y: base.y + offset }).value
+      const lift = onParallel ? offset : 0
+      // Shift snaps the channel's angle around the same line's other end.
+      const snapped = shiftKey === true ? snapAngle({ x: coordinates[other].x, y: coordinates[other].y + lift }, coordinate) : coordinate
+      const q = toPoint(snapped)
+      if (q.value === undefined) return
+      let value = q.value - (onParallel ? width : 0)
+      // Snapped flat, take the other end's own price: the axis puts a price on
+      // a whole pixel, so the converted one can be a fraction of a pixel off.
+      if (shiftKey === true && Math.abs(snapped.y - (coordinates[other].y + lift)) < 1e-6) value = points[other].value ?? value
+      Object.assign(points[end], q, { value })
+      const [na, nb] = [points[0], points[1]]
+      if (na.timestamp === undefined || nb.timestamp === undefined || na.value === undefined || nb.value === undefined) return
+      points[2].value = baseAt(ic, na.timestamp, na.value, nb.timestamp, nb.value) + width
     },
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,

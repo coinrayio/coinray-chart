@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import OverlayView from '../view/OverlayView'
+import OverlayView, { shiftLocksAxis } from '../view/OverlayView'
 import type { Overlay } from '../component/Overlay'
 import type Coordinate from '../common/Coordinate'
 
@@ -40,5 +40,43 @@ describe('Shift snap while editing a handle', () => {
   it('leaves the measure alone', () => {
     expect(snapper()(line('measure'), { x: 30, y: 10 }, 1)).toEqual({ x: 30, y: 10 })
     expect(snapper()(line('measure'), { x: 52, y: -40 }, 0)).toEqual({ x: 52, y: -40 })
+  })
+})
+
+describe('Shift locks an axis where there is no angle to snap', () => {
+  it('locks every handle of the position tools', () => {
+    expect(shiftLocksAxis({ name: 'longPosition' }, 0)).toBe(true)
+    expect(shiftLocksAxis({ name: 'shortPosition' }, 3)).toBe(true)
+  })
+
+  it('locks a channel\'s width point, but not its base line', () => {
+    for (const name of ['parallelChannel', 'parallelStraightLine', 'priceChannelLine', 'fibonacciLine', 'flatBottom', 'disjointAngle']) {
+      expect(shiftLocksAxis({ name }, 2)).toBe(true)
+      expect(shiftLocksAxis({ name }, 1)).toBe(false)
+    }
+    expect(shiftLocksAxis({ name: 'triangle' }, 2)).toBe(false)
+  })
+
+  it('leaves a locked point where the cursor is instead of snapping it around its neighbour', () => {
+    const channel: Partial<Overlay> = { name: 'parallelChannel', points: [{ dataIndex: 0, value: 0 }, { dataIndex: 100, value: 10 }, { dataIndex: 50, value: 40 }] }
+    expect(snapper()(channel, { x: 60, y: 47 }, 2)).toEqual({ x: 60, y: 47 })
+  })
+})
+
+describe('A level Shift snap takes its anchor\'s exact price', () => {
+  // The axis rounds a price to a whole pixel, so converting the snapped pixel
+  // back lands a fraction of a pixel off the anchor's price.
+  it('copies the anchor\'s price when the snap is flat, and its time when vertical', () => {
+    const view = Object.create(OverlayView.prototype) as Record<string, unknown>
+    view._pointToCoordinate = (p?: { dataIndex?: number, value?: number }) =>
+      p?.dataIndex === undefined || p.value === undefined ? null : { x: Math.round(p.dataIndex), y: Math.round(p.value) }
+    const align = (view._alignToAnchor as (o: Partial<Overlay>, i: number, c: Coordinate, p: Record<string, number>) => void).bind(view)
+    const o: Partial<Overlay> = { name: 'segment', points: [{ dataIndex: 0.4, timestamp: 4, value: 10.3 }, { dataIndex: 100, value: 20 }] }
+    const flat = { dataIndex: 100, value: 10 }
+    align(o, 1, { x: 100, y: 10 }, flat)
+    expect(flat.value).toBe(10.3)
+    const vertical = { dataIndex: 0, timestamp: 0, value: 50 }
+    align(o, 1, { x: 6e-17, y: 50 }, vertical)
+    expect(vertical).toEqual({ dataIndex: 0.4, timestamp: 4, value: 50 })
   })
 })

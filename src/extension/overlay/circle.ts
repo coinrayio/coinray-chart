@@ -83,7 +83,9 @@ const circle = (): ProOverlayTemplate => {
   return {
     name: 'circle',
     totalStep: 3,
-    needDefaultPointFigure: true,
+    // TV: the centre dot moves the circle, the edge dot sets the radius.
+    needDefaultPointFigure: [1],
+    createExtraHandles: ({ coordinates }) => coordinates.length < 2 ? [] : [{ ...coordinates[0], movesDrawing: true }],
     needDefaultXAxisFigure: true,
     needDefaultYAxisFigure: true,
     createPointFigures: ({ coordinates, bounding, overlay }) => {
