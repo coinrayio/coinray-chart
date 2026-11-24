@@ -14,6 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import StoreImp from '../Store'
+import { enableReplay } from '../replay/ReplayEngine'
 import type { ReplayEngine } from '../replay/ReplayEngine'
 import type { KLineData } from '../common/Data'
 import type {
@@ -24,6 +25,9 @@ import type {
 } from '../common/DataLoader'
 import type { Period } from '../common/Period'
 import type Chart from '../Chart'
+
+// Charts get a replay engine only once it is enabled (replay/registry.ts).
+enableReplay()
 
 // ---------------------------------------------------------------------------
 // Time constants — period is hour/1, so candles are spaced 1 h apart.

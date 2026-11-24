@@ -20,6 +20,7 @@ import type { DataLoader } from '../common/DataLoader'
 import type StoreImp from '../Store'
 
 import type { ReplayStatus } from './types'
+import { registerReplayEngine } from './registry'
 
 // ---------------------------------------------------------------------------
 // StoreAccess — narrow view of Store's fields and methods the engine calls into.
@@ -969,4 +970,13 @@ export class ReplayEngine {
       this._s._calcIndicator(filterIndicators)
     }
   }
+}
+
+/**
+ * Give every chart created from now on a replay engine. Charts have none
+ * until this runs (see `registry.ts`), so a build that never calls it ships
+ * without this file.
+ */
+export function enableReplay (): void {
+  registerReplayEngine((store) => new ReplayEngine(store))
 }
