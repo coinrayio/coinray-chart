@@ -66,6 +66,7 @@ import ChartImp, { type Chart, type DomPosition } from './Chart'
 import type { OverlayNudgeDirection } from './Store'
 import { isSetVisibleRangeError, type SetVisibleRangeError, type SetVisibleRangeErrorCode } from './common/Errors'
 import type { ReplayStatus, ReplayEngine } from './replay/types'
+import { enableReplay } from './replay/ReplayEngine'
 
 import { checkCoordinateOnArc } from './extension/figure/arc'
 import { checkCoordinateOnCircle } from './extension/figure/circle'
@@ -226,6 +227,10 @@ export {
   type FootprintRow, type FootprintBarData, type FootprintImbalances, type CandleFootprintStyle,
   // Default fibonacci levels
   FIBONACCI_RETRACEMENT_LEVELS, FIBONACCI_CHANNEL_LEVELS, FIBONACCI_EXTENSION_LEVELS, FIBONACCI_CIRCLE_LEVELS, FIBONACCI_FAN_LEVELS,
+  // Replay is opt-in: charts created after `enableReplay()` get an engine
+  // (`chart.getReplayEngine()`), others get null. A bundle that never calls
+  // it leaves the replay engine out.
+  enableReplay,
   // Replay engine type — exported for consumer type annotations (sc.replay: ReplayEngine | null)
   type ReplayEngine,
   isSetVisibleRangeError, type SetVisibleRangeError, type SetVisibleRangeErrorCode,

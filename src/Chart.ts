@@ -118,7 +118,7 @@ export interface Chart extends Store {
   /** The same picture as `getConvertPictureUrl`, as a canvas at the device pixel ratio, for a caller that draws more onto it. */
   getConvertPictureCanvas: (includeOverlay?: boolean, backgroundColor?: string) => HTMLCanvasElement
   resize: () => void
-  getReplayEngine: () => ReplayEngine
+  getReplayEngine: () => Nullable<ReplayEngine>
 }
 
 export default class ChartImp implements Chart {
@@ -853,7 +853,7 @@ export default class ChartImp implements Chart {
     this._chartStore.resetData()
   }
 
-  getReplayEngine (): ReplayEngine {
+  getReplayEngine (): Nullable<ReplayEngine> {
     return this._chartStore.getReplayEngine()
   }
 

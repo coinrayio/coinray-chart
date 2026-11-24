@@ -54,7 +54,8 @@ import { getOverlayInnerClass } from './extension/overlay/index'
 
 import { getStyles as getExtensionStyles } from './extension/styles/index'
 
-import { ReplayEngine as ReplayEngineImp } from './replay/ReplayEngine'
+import type { ReplayEngine as ReplayEngineImp } from './replay/ReplayEngine'
+import { createReplayEngine } from './replay/registry'
 import type { ReplayStatus, ReplayEngine } from './replay/types'
 
 import { PaneIdConstants } from './pane/types'
@@ -224,7 +225,7 @@ export interface Store {
    *  out (any indicator or overlay change does) when its answer changes. */
   setOverlayVisibilityResolver: (resolver: Nullable<(overlay: Overlay) => boolean>) => void
   resetData: () => void
-  getReplayEngine: () => ReplayEngine
+  getReplayEngine: () => Nullable<ReplayEngine>
 
   // ALTD-1915.13 tail — crosshair magnet mode. `weak` snaps X
   // to the nearest bar centre; `strong` also snaps Y to the
@@ -318,9 +319,10 @@ export default class StoreImp implements Store {
   private _dataList: KLineData[] = []
 
   /**
-   * Replay engine — owns all playback state and logic
+   * Replay engine — owns all playback state and logic. Null unless
+   * `enableReplay()` ran before this chart was created (replay/registry.ts).
    */
-  private readonly _replayEngine: ReplayEngineImp
+  private readonly _replayEngine: Nullable<ReplayEngineImp>
 
   /**
    * Load more data callback
@@ -655,7 +657,7 @@ export default class StoreImp implements Store {
       })
     })
 
-    this._replayEngine = new ReplayEngineImp(this)
+    this._replayEngine = createReplayEngine(this)
   }
 
   setStyles (value: string | DeepPartial<Styles>): void {
@@ -766,7 +768,7 @@ export default class StoreImp implements Store {
   setPriceFoldZeroCount (zeroCount: number | null): void { this._priceFoldZeroCount = zeroCount }
 
   setSymbol (symbol: PickPartial<SymbolInfo, 'pricePrecision' | 'volumePrecision'>): void {
-    if (this._replayEngine.isInReplay()) {
+    if (this._replayEngine?.isInReplay() === true) {
       // Exit playback mode before changing symbol
       this._replayEngine.exitPlayback()
     }
@@ -789,7 +791,7 @@ export default class StoreImp implements Store {
 
   setPeriod (period: Period): void {
     this._setPeriodSwitchPending(true)
-    if (this._replayEngine.isInReplay()) {
+    if (this._replayEngine?.isInReplay() === true) {
       // Playback mode: delegate to engine which handles period change logic
       this._replayEngine.handlePeriodChange(period, () => {
         this.resetData(() => { this._period = period })
@@ -951,7 +953,7 @@ export default class StoreImp implements Store {
     } else {
       // Block live updates in replay mode. The engine's _drawCandle bypasses this
       // guard by temporarily clearing its own _currentTimeLimit before calling _addData.
-      if (this._replayEngine.isInReplay() && type === 'update') {
+      if (this._replayEngine?.isInReplay() === true && type === 'update') {
         return
       }
       const dataCount = this._dataList.length
@@ -979,7 +981,7 @@ export default class StoreImp implements Store {
     // replay hides. ReplayEngine repaints once it has swapped in the partial.
     // Gated on isAwaitingInit so an init from elsewhere (setDataLoader, say)
     // still paints itself.
-    if (success && adjustFlag && type === 'init' && this._replayEngine.isAwaitingInit()) {
+    if (success && adjustFlag && type === 'init' && this._replayEngine?.isAwaitingInit() === true) {
       return
     }
     if (success && adjustFlag) {
@@ -1042,7 +1044,7 @@ export default class StoreImp implements Store {
       !isValid(this._symbol) ||
       !isValid(this._period) ||
       this._dataLoader.getRange == null ||
-      this._replayEngine.isInReplay()
+      this._replayEngine?.isInReplay() === true
     ) {
       callback()
       return
@@ -1211,7 +1213,7 @@ export default class StoreImp implements Store {
           }
           this._loading = false
           this._addData(data, type, more)
-          if (type === 'init' && !this._replayEngine.isInReplay()) {
+          if (type === 'init' && this._replayEngine?.isInReplay() !== true) {
             this._dataLoader?.subscribeBar?.({
               symbol: this._symbol!,
               period: this._period!,
@@ -1221,14 +1223,14 @@ export default class StoreImp implements Store {
             })
           }
           if (type === 'init') {
-            this._replayEngine.notifyInitComplete()
+            this._replayEngine?.notifyInitComplete()
           }
         }
       }
       switch (type) {
         case 'init': {
           // In replay mode, fetch history ending at the current cursor position
-          if (this._replayEngine.isInReplay()) {
+          if (this._replayEngine?.isInReplay() === true) {
             params.timestamp = this._replayEngine.getCurrentTimeLimit()
           }
           break
@@ -1274,7 +1276,7 @@ export default class StoreImp implements Store {
   // Replay engine accessor
   // ---------------------------------------------------------------------------
 
-  getReplayEngine (): ReplayEngine {
+  getReplayEngine (): Nullable<ReplayEngine> {
     return this._replayEngine
   }
 
@@ -2805,6 +2807,6 @@ export default class StoreImp implements Store {
     this._overlays.clear()
     this._indicators.clear()
     this._actions.clear()
-    this._replayEngine.destroy()
+    this._replayEngine?.destroy()
   }
 }
