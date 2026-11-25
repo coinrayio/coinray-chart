@@ -67,6 +67,7 @@ import type { OverlayNudgeDirection } from './Store'
 import { isSetVisibleRangeError, type SetVisibleRangeError, type SetVisibleRangeErrorCode } from './common/Errors'
 import type { ReplayStatus, ReplayEngine } from './replay/types'
 import { enableReplay } from './replay/ReplayEngine'
+import { enableFootprint } from './view/footprintDraw'
 
 import { checkCoordinateOnArc } from './extension/figure/arc'
 import { checkCoordinateOnCircle } from './extension/figure/circle'
@@ -222,6 +223,10 @@ export {
   // Volume profile by price, shared with the host's Volume Profile Visible Range
   buildProfile, profileBoxes, VOLUME_PROFILE_COLORS,
   type VolumeProfile, type ProfileRow, type ProfileLayout, type ProfileBox,
+  // The footprint chart type draws its cells only after `enableFootprint()`
+  // (solid candles otherwise), so a bundle that never calls it leaves that
+  // drawing out.
+  enableFootprint,
   // Volume footprint helpers, shared with the host's footprint store
   footprintImbalances, footprintPoc, formatFootprintVolume,
   type FootprintRow, type FootprintBarData, type FootprintImbalances, type CandleFootprintStyle,
