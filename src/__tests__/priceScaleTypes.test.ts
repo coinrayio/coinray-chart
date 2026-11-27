@@ -89,6 +89,27 @@ describe('logarithm axis', () => {
     expect(Number.isFinite(realFrom)).toBe(true)
     expect(realTo - realFrom).toBeLessThan(3)
   })
+
+  // Zoomed far in on BTC (tick 0.1) the visible bars span about 0.2%. The
+  // minimum span used to be 0.05 * tick in log10 units, about 1.2% of price,
+  // so the axis was padded out to roughly ±5% and the candles went flat.
+  it('keeps a tight price range when zoomed far in on a coarse-tick market', () => {
+    const closes = [100000, 100050, 100120, 100080, 100200, 100150]
+    const { axis } = makeAxis(logarithm, closes.map(c => ({ high: c + 20, low: c - 20, close: c })), 1)
+    axis.buildTicks(true)
+    const { from, to } = axis.getRange()
+    expect(from).toBeLessThan(99980)
+    expect(to).toBeGreaterThan(100220)
+    expect(to / from).toBeLessThan(1.01)
+  })
+
+  it('still widens a flat range to a usable span', () => {
+    const { axis } = makeAxis(logarithm, [flat(100000)], 1)
+    axis.buildTicks(true)
+    const { from, to } = axis.getRange()
+    expect(to).toBeGreaterThan(from)
+    expect(to - from).toBeGreaterThanOrEqual(0.1)
+  })
 })
 
 describe('decimal fold (PSC-002)', () => {

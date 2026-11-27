@@ -64,7 +64,11 @@ export interface AxisCreateTicksParams {
 
 export type AxisCreateTicksCallback = (params: AxisCreateTicksParams) => AxisTick[]
 
-export type AxisMinSpanCallback = (value: number) => number
+/**
+ * The smallest span the auto range may have, in real (axis) units. `range` is
+ * the range before padding, for a scale whose units are relative to price.
+ */
+export type AxisMinSpanCallback = (precision: number, range: AxisRange) => number
 
 export interface AxisTemplate {
   name: string

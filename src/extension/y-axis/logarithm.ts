@@ -28,7 +28,14 @@ function toLog (value: number): number {
 // back as `-10^|x|`: 0.0007 was labelled about -1400.
 const logarithm: AxisTemplate = {
   name: 'logarithm',
-  minSpan: (precision) => 0.05 * index10(-precision),
+  // One price tick at the top of the range, in log10 units: the same floor the
+  // normal axis has. It used to be `0.05 * tick` taken as log10 units, which on
+  // a 0.1-tick market is about 1.2% of price however high the price, so zooming
+  // in far padded the axis out to roughly ±5% and the candles went flat.
+  minSpan: (precision, range) => {
+    const tick = index10(-precision)
+    return range.to > 0 ? log10(1 + tick / range.to) : 0.05 * tick
+  },
   valueToRealValue: (value) => toLog(value),
   realValueToDisplayValue: (value) => index10(value),
   displayValueToRealValue: (value) => toLog(value),

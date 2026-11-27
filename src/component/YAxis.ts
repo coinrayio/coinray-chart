@@ -346,7 +346,7 @@ export default abstract class YAxisImp extends AxisImp implements YAxis {
     let realFrom = range.realFrom
     let realTo = range.realTo
     let realRange = range.realRange
-    const minSpan = this.minSpan(precision)
+    const minSpan = this.minSpan(precision, range)
     if (
       realFrom === realTo || realRange < minSpan
     ) {
