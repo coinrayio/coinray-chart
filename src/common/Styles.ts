@@ -257,9 +257,20 @@ export type CandleLastPriceMarkLineStyle = Omit<StateLineStyle, 'color'>
 
 export type CandleLastPriceMarkExtendTextPosition = 'above_price' | 'below_price'
 
+/**
+ * A text row stacked above or below the last-price label. The engine draws
+ * it whenever the price axis repaints and never on a timer of its own: a row
+ * whose text changes with the clock (the bar countdown) needs its host to
+ * repaint the axis on that clock.
+ */
 export type CandleLastPriceMarkExtendTextStyle = LastValueMarkTextStyle & {
   position: CandleLastPriceMarkExtendTextPosition
-  updateInterval: number
+  /**
+   * @deprecated Ignored. It used to start a repaint timer from `setStyles`,
+   * which any later style write could clear, leaving the row drawn but frozen.
+   * Saved styles still carry it, so it stays accepted.
+   */
+  updateInterval?: number
 }
 /** A tag drawn on the main widget flush against the axis edge, level with its value label. */
 export type NameLabelStyle = LastValueMarkTextStyle

@@ -569,8 +569,6 @@ export default class StoreImp implements Store {
    */
   private _progressOverlayInfo: Nullable<ProgressOverlayInfo> = null
 
-  private _lastPriceMarkExtendTextUpdateTimers: Array<ReturnType<typeof setTimeout>> = []
-
   /**
    * Overlay information by the mouse pressed
    */
@@ -672,20 +670,6 @@ export default class StoreImp implements Store {
     // `candle.tooltip.custom` should override
     if (isArray(styles?.candle?.tooltip?.legend?.template)) {
       this._styles.candle.tooltip.legend.template = styles.candle.tooltip.legend.template as TooltipLegend[]
-    }
-    if (isValid(styles?.candle?.priceMark?.last?.extendTexts)) {
-      this._clearLastPriceMarkExtendTextUpdateTimer()
-      const intervals: number[] = []
-      this._styles.candle.priceMark.last.extendTexts.forEach(item => {
-        const updateInterval = item.updateInterval
-        if (item.show && updateInterval > 0 && !intervals.includes(updateInterval)) {
-          intervals.push(updateInterval)
-          const timer = setInterval(() => {
-            this._chart.updatePane(UpdateLevel.Main, PaneIdConstants.CANDLE)
-          }, updateInterval)
-          this._lastPriceMarkExtendTextUpdateTimers.push(timer)
-        }
-      })
     }
   }
 
@@ -2768,13 +2752,6 @@ export default class StoreImp implements Store {
     return false
   }
 
-  private _clearLastPriceMarkExtendTextUpdateTimer (): void {
-    this._lastPriceMarkExtendTextUpdateTimers.forEach(timer => {
-      clearInterval(timer)
-    })
-    this._lastPriceMarkExtendTextUpdateTimers = []
-  }
-
   private _clearData (): void {
     this._dataLoadMore.backward = false
     this._dataLoadMore.forward = false
@@ -2802,7 +2779,6 @@ export default class StoreImp implements Store {
     // is disposed.
     this._processDataUnsubscribe()
     this._clearData()
-    this._clearLastPriceMarkExtendTextUpdateTimer()
     this._taskScheduler.clear()
     this._overlays.clear()
     this._indicators.clear()
